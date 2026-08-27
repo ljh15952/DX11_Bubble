@@ -2,5 +2,5 @@
   <Configurations>
     <Platform Name="x64" />
   </Configurations>
-  <Project Path="DarkBubble/DarkBubble.vcxproj" />
+  <Project Path="DarkBubble/DarkBubble.vcxproj" Id="cbd66740-f242-4859-b7b3-f87b0f0c9813" />
 </Solution>
