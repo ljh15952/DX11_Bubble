@@ -1,0 +1,26 @@
+# 줄바꿈은 git 이 자동 정규화 (저장소 안에서는 항상 LF)
+* text=auto
+
+# Visual Studio 프로젝트 파일은 CRLF 로 체크아웃 (VS 가 그렇게 저장함)
+*.slnx      text eol=crlf
+*.vcxproj   text eol=crlf
+*.filters   text eol=crlf
+*.props     text eol=crlf
+*.targets   text eol=crlf
+*.config    text eol=crlf
+
+# 소스 / 데이터
+*.cpp   text
+*.h     text
+*.hlsl  text
+*.json  text
+*.md    text
+
+# 바이너리 (줄바꿈 변환 금지)
+*.png        binary
+*.jpg        binary
+*.dds        binary
+*.wav        binary
+*.ogg        binary
+*.spritefont binary
+*.cso        binary

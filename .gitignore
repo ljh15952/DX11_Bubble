@@ -1,0 +1,39 @@
+# ---- Visual Studio 로컬 설정 / 캐시 ----
+.vs/
+*.vcxproj.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---- 빌드 출력 ----
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.obj
+*.idb
+*.iobj
+*.ipdb
+*.res
+*.tlog
+*.log
+*.lastbuildstate
+
+# ---- NuGet (packages.config 방식) ----
+# packages.config 는 커밋하고, 실제 패키지 바이너리는 복원으로 받는다
+packages/
+*.nupkg
+
+# ---- 컴파일된 셰이더 ----
+*.cso
+
+# ---- OS ----
+Thumbs.db
+Desktop.ini
