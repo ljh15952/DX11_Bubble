@@ -1,12 +1,15 @@
 ﻿// ============================================================================
 //  DarkBubble  -  main.cpp
 //
-//  1단계: Win32 창 띄우기
-//    여기까지는 DirectX 가 등장하지 않는다. windows.h 만으로 창이 뜬다.
-//    InitD3D() 는 아직 속이 비어 있다.  <-- 2단계에서 직접 채운다.
+//  1~4단계 완료:
+//    1. Win32 창 생성 + 메시지 루프
+//    2. D3D11 디바이스 / 컨텍스트 / 스왑체인 생성
+//    3. 렌더 타겟 뷰(RTV) + 뷰포트
+//    4. 매 프레임 화면 클리어 + Present
 //
 //  ※ 이 파일은 UTF-8 (BOM 있음) 으로 저장되어 있다.
 //    BOM 이 없으면 일본어 로캘 VS 가 CP932(Shift-JIS)로 오해해서 주석이 깨진다.
+//    컴파일러 쪽은 프로젝트 옵션의 /utf-8 이 담당한다.
 // ============================================================================
 
 #include <windows.h>
@@ -16,7 +19,6 @@
 #include <iostream>    // std::cout — 디버그 콘솔용
 #include <cstdio>      // freopen_s
 
-using namespace std;
 using Microsoft::WRL::ComPtr;
 
 // ---- D3D11 핵심 객체 (2단계부터 사용) ----
@@ -56,14 +58,14 @@ static void AttachDebugConsole()
     freopen_s(&dummy, "CONIN$",  "r", stdin);
 
     // C++ 스트림(cout)과 C 스트림(stdout)의 버퍼를 동기화한다.
-    ios::sync_with_stdio(true);
+    std::ios::sync_with_stdio(true);
 
     // 콘솔이 출력 바이트를 UTF-8 로 해석하게 한다.
     // 이게 없으면 CP932 로 읽어서 한국어가 깨진다.
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleTitleW(L"DarkBubble - Debug Console");
 
-    cout << "[console] 디버그 콘솔 연결됨\n";
+    std::cout << "[console] 디버그 콘솔 연결됨\n";
 }
 #endif
 
@@ -210,36 +212,85 @@ bool InitD3D(HWND hwnd, int width, int height)
     if (FAILED(hr))
     {
         OutputDebugStringW(
-            format(L"[D3D] 생성 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+            std::format(L"[D3D] 생성 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
         return false;
     }
 
     OutputDebugStringW(
-        format(L"[D3D] 초기화 성공 FeatureLevel=0x{:04X}\n",
+        std::format(L"[D3D] 초기화 성공 FeatureLevel=0x{:04X}\n",
                     static_cast<unsigned>(obtained)).c_str());
 
-    // TODO(3단계)
-    //   3. g_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)) 로 백버퍼를 꺼낸다
-    //   4. g_device->CreateRenderTargetView(backBuffer.Get(), nullptr, &g_rtv)
-    //   5. g_context->OMSetRenderTargets(1, g_rtv.GetAddressOf(), nullptr)
-    //   6. D3D11_VIEWPORT 를 채우고 g_context->RSSetViewports(1, &vp)
-    //      -> 6번을 빠뜨리면 아무것도 안 그려진다. 에러도 안 난다.
-    //   ※ 5번은 InitD3D 가 아니라 Render() 안에 넣어야 한다.
-    //      FLIP 모델은 Present() 때마다 렌더 타겟 바인딩이 풀리기 때문.
+    // ---- (5) 스왑체인에서 백버퍼(텍스처)를 꺼낸다 ----
+    //      인덱스 0 만 접근할 수 있다. FLIP 모델에서 버퍼 로테이션은 DXGI 가 알아서 한다.
+    //      backBuffer 는 지역 변수다. 텍스처의 소유자는 스왑체인이고,
+    //      우리는 RTV 를 만들기 위해 잠깐 참조할 뿐이다. 함수를 나가면 자동 Release.
+    ComPtr<ID3D11Texture2D> backBuffer;
+    hr = g_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    if (FAILED(hr))
+    {
+        OutputDebugStringW(
+            std::format(L"[D3D] GetBuffer 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+        return false;
+    }
 
+    // ---- (6) 그 텍스처를 "그림 대상"으로 해석하는 뷰를 만든다 ----
+    //      2번째 인자 nullptr = "텍스처의 포맷을 그대로 써라".
+    //      포맷을 다르게 해석하거나 밉/배열 슬라이스를 고를 때만 서술자를 넘긴다.
+    hr = g_device->CreateRenderTargetView(backBuffer.Get(), nullptr, &g_rtv);
+    if (FAILED(hr))
+    {
+        OutputDebugStringW(
+            std::format(L"[D3D] RTV 생성 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+        return false;
+    }
+
+    // ---- (7) 뷰포트: 셰이더의 -1~+1 좌표를 실제 픽셀로 바꾸는 변환 규칙 ----
+    //      MinDepth/MaxDepth 를 0/1 로 넣지 않으면 깊이 범위가 0 이 되어
+    //      아무것도 그려지지 않는다. 에러도 안 나므로 찾기가 매우 어렵다.
+    D3D11_VIEWPORT vp = {};
+    vp.TopLeftX = 0.0f;
+    vp.TopLeftY = 0.0f;
+    vp.Width    = static_cast<float>(width);
+    vp.Height   = static_cast<float>(height);
+    vp.MinDepth = 0.0f;
+    vp.MaxDepth = 1.0f;
+    g_context->RSSetViewports(1, &vp);
+
+    // ※ OMSetRenderTargets 는 여기가 아니라 Render() 안에 있다.
+    //   FLIP 모델은 Present() 때마다 렌더 타겟 바인딩이 풀리기 때문.
+
+    OutputDebugStringW(L"[D3D] RTV / 뷰포트 준비 완료\n");
     return true;
 }
 
 
 // ============================================================================
-//  Render         <--- ★ 4단계에서 여기를 직접 채운다 ★
+//  Render
+//    매 프레임 호출된다. 지금은 화면을 한 가지 색으로 칠하는 것이 전부.
 // ============================================================================
 static void Render()
 {
-    // TODO(4단계)
-    //   const float clearColor[4] = { 0.10f, 0.10f, 0.12f, 1.0f };
-    //   g_context->ClearRenderTargetView(g_rtv.Get(), clearColor);
-    //   g_swapChain->Present(1, 0);        // 1 = VSync ON
+    // ---- (1) 렌더 타겟을 파이프라인에 묶는다 ----
+    //      FLIP 모델은 Present() 때마다 이 바인딩이 풀린다. 그래서 매 프레임 다시 묶는다.
+    //      OM = Output Merger, 파이프라인의 마지막 단계.
+    //      1     = 렌더 타겟 개수 (여러 장에 동시에 그리는 MRT 도 가능)
+    //      3번째 = 깊이/스텐실 뷰. 2D 라서 아직 필요 없다.
+    //
+    //      ※ &g_rtv 가 아니라 g_rtv.GetAddressOf() 인 것에 주의.
+    //        &ComPtr 은 ReleaseAndGetAddressOf() 라서 먼저 Release 해버린다.
+    g_context->OMSetRenderTargets(1, g_rtv.GetAddressOf(), nullptr);
+
+    // ---- (2) 화면을 지운다 ----
+    //      RGBA 각 0.0~1.0. 어두운 청회색.
+    const float clearColor[4] = { 0.10f, 0.10f, 0.12f, 1.0f };
+    g_context->ClearRenderTargetView(g_rtv.Get(), clearColor);
+
+    // ---- (3) 백버퍼를 화면으로 내보낸다 ----
+    //      1번째 인자 SyncInterval: 0 = 즉시(테어링 발생, fps 무제한)
+    //                               1 = 다음 수직 동기까지 대기 = 60fps 고정
+    //                               2 = 두 번째 동기까지 = 30fps
+    //      VSync 를 켜면 루프가 저절로 60fps 로 묶여서 CPU 100% 문제도 사라진다.
+    g_swapChain->Present(1, 0);
 }
 
 
