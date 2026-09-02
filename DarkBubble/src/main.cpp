@@ -13,11 +13,19 @@
 // ============================================================================
 
 #include <windows.h>
+#include <objbase.h>   // CoInitializeEx — WIC(이미지 로딩)이 COM 을 요구한다
 #include <d3d11.h>
+#include <DirectXColors.h>   // DirectX::Colors::White 등 미리 정의된 색
 #include <wrl/client.h>
 #include <format>      // std::format (C++20). 로그 문자열을 만드는 데 쓴다.
 #include <iostream>    // std::cout — 디버그 콘솔용
 #include <cstdio>      // freopen_s
+#include <memory>      // std::unique_ptr
+
+// ---- DirectXTK (NuGet: directxtk_desktop_win10) ----
+#include <SpriteBatch.h>          // 2D 스프라이트 일괄 그리기
+#include <CommonStates.h>         // 자주 쓰는 블렌드/샘플러 상태 모음
+#include <WICTextureLoader.h>     // PNG/JPG 등을 텍스처로 읽어온다
 
 using Microsoft::WRL::ComPtr;
 
@@ -26,6 +34,17 @@ ComPtr<ID3D11Device>           g_device;      // 공장   : 리소스를 만든�
 ComPtr<ID3D11DeviceContext>    g_context;     // 리모컨 : 그리기 명령을 쏜다
 ComPtr<IDXGISwapChain>         g_swapChain;   // 화면   : Present 로 내보낸다
 ComPtr<ID3D11RenderTargetView> g_rtv;         // 그림 대상 지정
+
+// ---- 그리기 리소스 (5단계) ----
+//      SpriteBatch / CommonStates 는 DirectXTK 의 평범한 C++ 클래스다.
+//      COM 이 아니므로 ComPtr 이 아니라 unique_ptr 로 관리한다.
+std::unique_ptr<DirectX::SpriteBatch>  g_spriteBatch;
+std::unique_ptr<DirectX::CommonStates> g_states;
+
+// 텍스처는 COM 객체이므로 ComPtr.
+// SRV(ShaderResourceView) = "이 텍스처를 셰이더 입력으로 취급하라"는 뷰.
+// 3단계의 RTV 와 같은 구조다. 같은 텍스처라도 용도별로 뷰가 다르다.
+ComPtr<ID3D11ShaderResourceView> g_testTexture;
 
 // ---- 클라이언트 영역(실제로 그림이 그려지는 부분)의 크기 ----
 constexpr int kClientWidth  = 1280;
@@ -36,6 +55,7 @@ constexpr const wchar_t* kWindowClass = L"DarkBubbleWindowClass";
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 bool InitD3D(HWND hwnd, int width, int height);
+bool InitResources();
 
 
 // ============================================================================
@@ -265,8 +285,45 @@ bool InitD3D(HWND hwnd, int width, int height)
 
 
 // ============================================================================
+//  InitResources
+//    그리기에 쓸 리소스를 준비한다. InitD3D(장치 준비) 와는 역할이 다르므로 분리한다.
+// ============================================================================
+bool InitResources()
+{
+    // SpriteBatch 는 그리기 명령을 모았다가 한 번에 GPU 로 보낸다.
+    // 스프라이트를 1000 장 그려도 드로우 콜은 몇 번으로 줄어든다.
+    g_spriteBatch = std::make_unique<DirectX::SpriteBatch>(g_context.Get());
+
+    // CommonStates 는 자주 쓰는 블렌드/샘플러/래스터라이저 상태를 미리 만들어 둔 것.
+    // 직접 만들면 서술자를 몇십 줄 채워야 한다.
+    g_states = std::make_unique<DirectX::CommonStates>(g_device.Get());
+
+    // PNG 를 읽어 텍스처 + SRV 로 만든다.
+    // 3번째 인자(ID3D11Resource**) 는 텍스처 원본. 크기를 재거나 할 때만 필요하므로 nullptr.
+    // 경로는 작업 디렉터리 기준. 프로젝트 설정에서 $(SolutionDir) 로 잡아뒀다.
+    HRESULT hr = DirectX::CreateWICTextureFromFile(
+        g_device.Get(),
+        L"assets/textures/test.png",
+        nullptr,
+        g_testTexture.GetAddressOf());
+
+    if (FAILED(hr))
+    {
+        OutputDebugStringW(
+            std::format(L"[RES] 텍스처 로드 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+        std::cout << "[RES] assets/textures/test.png 를 못 찾았습니다.\n"
+                     "      디버깅 작업 디렉터리가 $(SolutionDir) 인지 확인하세요.\n";
+        return false;
+    }
+
+    std::cout << "[RES] 리소스 준비 완료\n";
+    return true;
+}
+
+
+// ============================================================================
 //  Render
-//    매 프레임 호출된다. 지금은 화면을 한 가지 색으로 칠하는 것이 전부.
+//    매 프레임 호출된다.
 // ============================================================================
 static void Render()
 {
@@ -285,7 +342,33 @@ static void Render()
     const float clearColor[4] = { 0.10f, 0.10f, 0.12f, 1.0f };
     g_context->ClearRenderTargetView(g_rtv.Get(), clearColor);
 
-    // ---- (3) 백버퍼를 화면으로 내보낸다 ----
+    // ---- (3) 스프라이트를 그린다 ----
+    //      Begin() ~ End() 사이에 Draw 를 모아두면, End() 에서 한꺼번에 GPU 로 보낸다.
+    //
+    //      2번째 인자 NonPremultiplied():
+    //        WIC 로 읽은 PNG 는 알파가 "곱해지지 않은(straight)" 상태다.
+    //        SpriteBatch 의 기본값은 곱해진(premultiplied) 알파용이라,
+    //        그대로 두면 반투명 가장자리에 검은 테두리가 생긴다.
+    //
+    //      3번째 인자 PointClamp():
+    //        점 샘플링(가장 가까운 픽셀). 기본값인 선형 보간을 쓰면 도트가 흐려진다.
+    //        픽셀아트 게임에서는 사실상 필수.
+    g_spriteBatch->Begin(
+        DirectX::SpriteSortMode_Deferred,
+        g_states->NonPremultiplied(),
+        g_states->PointClamp());
+
+    // 원본 크기 그대로 (100, 100) 위치에
+    g_spriteBatch->Draw(g_testTexture.Get(), DirectX::XMFLOAT2(100.0f, 100.0f));
+
+    // 4 배 확대해서 (400, 100) 위치에 — 점 샘플링이 먹었는지 확인용
+    g_spriteBatch->Draw(g_testTexture.Get(), DirectX::XMFLOAT2(400.0f, 100.0f),
+                        nullptr, DirectX::Colors::White, 0.0f,
+                        DirectX::XMFLOAT2(0.0f, 0.0f), 4.0f);
+
+    g_spriteBatch->End();
+
+    // ---- (4) 백버퍼를 화면으로 내보낸다 ----
     //      1번째 인자 SyncInterval: 0 = 즉시(테어링 발생, fps 무제한)
     //                               1 = 다음 수직 동기까지 대기 = 60fps 고정
     //                               2 = 두 번째 동기까지 = 30fps
@@ -304,6 +387,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow)
     AttachDebugConsole();
 #endif
 
+    // WIC(이미지 로딩)는 COM 위에서 동작한다. 텍스처를 읽기 전에 반드시 초기화해야 한다.
+    // 빠뜨리면 CreateWICTextureFromFile 이 CO_E_NOTINITIALIZED 로 실패한다.
+    HRESULT hrCom = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hrCom))
+    {
+        MessageBoxW(nullptr, L"COM 초기화에 실패했습니다.", L"DarkBubble", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
     HWND hwnd = CreateGameWindow(hInstance, nCmdShow);
     if (hwnd == nullptr)
     {
@@ -314,6 +406,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow)
     if (!InitD3D(hwnd, kClientWidth, kClientHeight))
     {
         MessageBoxW(nullptr, L"D3D11 초기화에 실패했습니다.", L"DarkBubble", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    if (!InitResources())
+    {
+        MessageBoxW(nullptr, L"리소스 로드에 실패했습니다.\n출력 창을 확인하세요.",
+                    L"DarkBubble", MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -335,5 +434,18 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow)
         }
     }
 
+    // ---- 정리 ----
+    //   전역 변수의 소멸자는 wWinMain 이 끝난 "뒤에" 불린다.
+    //   그때는 이미 CoUninitialize 가 지나간 뒤라 순서가 어긋난다.
+    //   그래서 여기서 명시적으로 놓아준다.
+    g_spriteBatch.reset();
+    g_states.reset();
+    g_testTexture.Reset();
+    g_rtv.Reset();
+    g_swapChain.Reset();
+    g_context.Reset();
+    g_device.Reset();
+
+    CoUninitialize();
     return static_cast<int>(msg.wParam);
 }
