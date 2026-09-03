@@ -21,11 +21,16 @@
 #include <iostream>    // std::cout — 디버그 콘솔용
 #include <cstdio>      // freopen_s
 #include <memory>      // std::unique_ptr
+#include <chrono>      // steady_clock — 고정 타임스텝의 시간 측정
+#include <cmath>       // std::sqrt
+#include <algorithm>   // std::clamp
 
 // ---- DirectXTK (NuGet: directxtk_desktop_win10) ----
 #include <SpriteBatch.h>          // 2D 스프라이트 일괄 그리기
 #include <CommonStates.h>         // 자주 쓰는 블렌드/샘플러 상태 모음
 #include <WICTextureLoader.h>     // PNG/JPG 등을 텍스처로 읽어온다
+#include <Keyboard.h>             // 키보드 입력
+#include <GamePad.h>              // 게임패드 입력
 
 using Microsoft::WRL::ComPtr;
 
@@ -46,12 +51,41 @@ std::unique_ptr<DirectX::CommonStates> g_states;
 // 3단계의 RTV 와 같은 구조다. 같은 텍스처라도 용도별로 뷰가 다르다.
 ComPtr<ID3D11ShaderResourceView> g_testTexture;
 
+// ---- 입력 (6단계) ----
+//      Tracker 는 "직전 프레임 상태"를 들고 있다가
+//      "지금 눌려 있다" 와 "방금 눌렸다" 를 구분해 준다.
+std::unique_ptr<DirectX::Keyboard> g_keyboard;
+std::unique_ptr<DirectX::GamePad>  g_gamePad;
+DirectX::Keyboard::KeyboardStateTracker g_kbTracker;
+DirectX::GamePad::ButtonStateTracker    g_padTracker;
+
 // ---- 클라이언트 영역(실제로 그림이 그려지는 부분)의 크기 ----
 constexpr int kClientWidth  = 1280;
 constexpr int kClientHeight = 720;
 
+// ---- 고정 타임스텝 ----
+//      1 틱 = 1/60 초. 앞으로 모든 프레임 데이터(공격 발생, 무적 프레임 등)의 단위가 된다.
+constexpr double kTickSeconds = 1.0 / 60.0;
+//      한 프레임의 경과 시간 상한. 브레이크포인트에 걸렸다 재개할 때
+//      accumulator 가 폭발해서 얼어붙는 것(죽음의 나선)을 막는다.
+constexpr double kMaxFrameSeconds = 0.25;
+
+// ---- 플레이어 (임시) ----
+constexpr float kSpriteSize        = 64.0f;
+constexpr float kPlayerSpeedPerSec = 300.0f;                        // 초당 300 픽셀
+constexpr float kPlayerSpeedPerTick = kPlayerSpeedPerSec / 60.0f;   // 틱당 5 픽셀
+
+struct Player
+{
+    float x = 100.0f;
+    float y = 300.0f;
+};
+Player g_player;
+
 // 창 클래스 이름. 프로그램 안에서 유일하기만 하면 아무 문자열이나 상관없다.
 constexpr const wchar_t* kWindowClass = L"DarkBubbleWindowClass";
+
+HWND g_hwnd = nullptr;
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 bool InitD3D(HWND hwnd, int width, int height);
@@ -105,11 +139,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         return 0;
 
+    // ---- DirectXTK Keyboard 에 메시지를 넘겨준다 ----
+    //      Keyboard 클래스는 스스로 메시지를 받을 수 없다. 우리가 배달해 줘야 한다.
+    //      이 두 case 가 없으면 GetState() 가 항상 "아무것도 안 눌림" 을 돌려준다.
+    case WM_ACTIVATEAPP:
+        // 창이 포커스를 잃거나 얻을 때. 이걸 넘기지 않으면
+        // Alt+Tab 으로 나갔다 오면 키가 눌린 채로 남는다.
+        DirectX::Keyboard::ProcessMessage(msg, wParam, lParam);
+        break;
+
     case WM_KEYDOWN:
-        // 개발 중엔 ESC 로 닫히면 편하다.
-        if (wParam == VK_ESCAPE)
-            DestroyWindow(hwnd);   // 이어서 WM_DESTROY 가 날아온다
-        return 0;
+    case WM_SYSKEYDOWN:
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+        DirectX::Keyboard::ProcessMessage(msg, wParam, lParam);
+        break;   // return 0 이 아니라 break — Alt+F4 등을 Windows 가 처리하도록
     }
 
     // 내가 처리하지 않은 메시지는 전부 Windows 의 기본 동작에 맡긴다.
@@ -316,8 +360,72 @@ bool InitResources()
         return false;
     }
 
+    // ---- 입력 장치 ----
+    g_keyboard = std::make_unique<DirectX::Keyboard>();
+    g_gamePad  = std::make_unique<DirectX::GamePad>();
+
     std::cout << "[RES] 리소스 준비 완료\n";
     return true;
+}
+
+
+// ============================================================================
+//  Update
+//    항상 정확히 1 틱(1/60초) 분량의 게임 로직을 처리한다.
+//    시간 인자가 없는 것에 주의 — 틱 길이가 상수이기 때문이다.
+//
+//    consumeEdgeInput:
+//      Update 는 한 프레임에 0~N 회 불릴 수 있다.
+//      "지금 눌려 있다"(이동) 는 여러 번 처리해도 괜찮지만,
+//      "방금 눌렸다"(공격/구르기) 를 매번 처리하면 한 번 눌렀는데 두 번 나간다.
+//      그래서 그런 입력은 첫 번째 Update 에서만 소비한다.
+// ============================================================================
+static void Update(bool consumeEdgeInput)
+{
+    const auto kb  = g_keyboard->GetState();
+    const auto pad = g_gamePad->GetState(0);
+
+    // ---- 이동 방향을 모은다 ----
+    float dx = 0.0f;
+    float dy = 0.0f;
+
+    if (kb.Left  || kb.A) dx -= 1.0f;
+    if (kb.Right || kb.D) dx += 1.0f;
+    if (kb.Up    || kb.W) dy -= 1.0f;   // 화면 좌표는 아래로 갈수록 +
+    if (kb.Down  || kb.S) dy += 1.0f;
+
+    if (pad.IsConnected())
+    {
+        dx += pad.thumbSticks.leftX;
+        dy -= pad.thumbSticks.leftY;    // 스틱은 위가 +, 화면은 아래가 + 라서 부호 반전
+    }
+
+    // 대각선 보정: 길이가 1 을 넘을 때만 정규화한다.
+    // 이렇게 하면 키보드 대각선(√2 ≒ 1.41배)은 억제되고,
+    // 스틱을 살짝 기울인 아날로그 입력은 그대로 살아난다.
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len > 1.0f)
+    {
+        dx /= len;
+        dy /= len;
+    }
+
+    g_player.x += dx * kPlayerSpeedPerTick;
+    g_player.y += dy * kPlayerSpeedPerTick;
+
+    // 화면 밖으로 나가지 않게
+    g_player.x = std::clamp(g_player.x, 0.0f, static_cast<float>(kClientWidth)  - kSpriteSize);
+    g_player.y = std::clamp(g_player.y, 0.0f, static_cast<float>(kClientHeight) - kSpriteSize);
+
+    // ---- "방금 눌렸다" 계열은 첫 틱에서만 ----
+    if (consumeEdgeInput)
+    {
+        if (g_kbTracker.pressed.Escape)
+            DestroyWindow(g_hwnd);
+
+        if (g_kbTracker.pressed.Space || g_padTracker.a == DirectX::GamePad::ButtonStateTracker::PRESSED)
+            std::cout << "[input] 공격 (나중에 여기에 상태머신이 들어간다)\n";
+    }
 }
 
 
@@ -358,13 +466,13 @@ static void Render()
         g_states->NonPremultiplied(),
         g_states->PointClamp());
 
-    // 원본 크기 그대로 (100, 100) 위치에
-    g_spriteBatch->Draw(g_testTexture.Get(), DirectX::XMFLOAT2(100.0f, 100.0f));
-
-    // 4 배 확대해서 (400, 100) 위치에 — 점 샘플링이 먹었는지 확인용
-    g_spriteBatch->Draw(g_testTexture.Get(), DirectX::XMFLOAT2(400.0f, 100.0f),
+    // 움직이지 않는 기준점 — 4 배 확대 (점 샘플링 확인용)
+    g_spriteBatch->Draw(g_testTexture.Get(), DirectX::XMFLOAT2(900.0f, 100.0f),
                         nullptr, DirectX::Colors::White, 0.0f,
                         DirectX::XMFLOAT2(0.0f, 0.0f), 4.0f);
+
+    // 플레이어 — 방향키 / 게임패드 스틱으로 움직인다
+    g_spriteBatch->Draw(g_testTexture.Get(), DirectX::XMFLOAT2(g_player.x, g_player.y));
 
     g_spriteBatch->End();
 
@@ -402,6 +510,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow)
         MessageBoxW(nullptr, L"창 생성에 실패했습니다.", L"DarkBubble", MB_OK | MB_ICONERROR);
         return 1;
     }
+    g_hwnd = hwnd;
 
     if (!InitD3D(hwnd, kClientWidth, kClientHeight))
     {
@@ -416,22 +525,56 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow)
         return 1;
     }
 
-    // ---- 메시지 루프 ----
+    // ---- 게임 루프 (고정 타임스텝) ----
+    using Clock = std::chrono::steady_clock;
+
     MSG msg = {};
-    while (msg.message != WM_QUIT)
+    auto previous = Clock::now();
+    double accumulator = 0.0;   // 아직 처리하지 못한 시간을 저금해 두는 통장
+
+    for (;;)
     {
-        // PeekMessage 는 메시지가 없으면 곧바로 FALSE 를 돌려주고 지나간다(논블로킹).
-        // PM_REMOVE 는 "꺼낸 메시지는 큐에서 지운다"는 뜻.
-        if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+        // ① 쌓여 있는 메시지를 전부 처리한다
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             TranslateMessage(&msg);   // 키 입력을 문자 메시지로 변환
             DispatchMessageW(&msg);   // 여기서 WndProc 이 호출된다
+            if (msg.message == WM_QUIT)
+                break;
         }
-        else
+        if (msg.message == WM_QUIT)
+            break;
+
+        // ② 지난 프레임이 실제로 얼마나 걸렸는지 잰다
+        const auto now = Clock::now();
+        double frameTime = std::chrono::duration<double>(now - previous).count();
+        previous = now;
+
+        // 죽음의 나선 방지. 브레이크포인트에 10 초 멈춰 있었다면
+        // 이 상한이 없을 경우 Update 를 600 번 부르려다 얼어붙는다.
+        if (frameTime > kMaxFrameSeconds)
+            frameTime = kMaxFrameSeconds;
+
+        accumulator += frameTime;
+
+        // ③ 입력 폴링은 "프레임당 1회". Update 안에서 하면 안 된다.
+        g_kbTracker.Update(g_keyboard->GetState());
+        const auto padState = g_gamePad->GetState(0);
+        if (padState.IsConnected())
+            g_padTracker.Update(padState);
+
+        // ④ 통장이 찰 때마다 정확히 1 틱씩 처리한다.
+        //    남은 잔액은 버리지 않고 다음 프레임으로 이월된다.
+        bool firstTickThisFrame = true;
+        while (accumulator >= kTickSeconds)
         {
-            // 처리할 메시지가 없는 시간 = 게임을 돌릴 시간
-            Render();
+            Update(firstTickThisFrame);
+            firstTickThisFrame = false;
+            accumulator -= kTickSeconds;
         }
+
+        // ⑤ 그리기는 프레임당 1회
+        Render();
     }
 
     // ---- 정리 ----
