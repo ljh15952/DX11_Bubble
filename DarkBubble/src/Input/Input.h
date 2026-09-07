@@ -36,8 +36,9 @@ public:
     MoveIntent Move() const;
 
     // ---- 엣지 입력 (한 번만 소비해야 하는 것) ----
-    bool AttackPressed() const;
-    bool QuitPressed()   const;
+    bool AttackPressed()      const;
+    bool QuitPressed()        const;
+    bool DebugTogglePressed() const;   // F1 — 히트박스 표시 on/off
 
 private:
     std::unique_ptr<DirectX::Keyboard> m_keyboard;

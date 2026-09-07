@@ -65,3 +65,9 @@ bool Input::QuitPressed() const
 {
     return m_kbTracker.pressed.Escape;
 }
+
+
+bool Input::DebugTogglePressed() const
+{
+    return m_kbTracker.pressed.F1;
+}

@@ -120,6 +120,9 @@ bool Renderer::Initialize(HWND hwnd, int width, int height)
     //      직접 만들면 서술자를 몇십 줄 채워야 한다.
     m_states = std::make_unique<DirectX::CommonStates>(m_device.Get());
 
+    if (!CreateWhitePixel())
+        return false;
+
     OutputDebugStringW(L"[D3D] RTV / 뷰포트 / SpriteBatch 준비 완료\n");
     return true;
 }
@@ -129,10 +132,84 @@ void Renderer::Shutdown()
 {
     m_spriteBatch.reset();
     m_states.reset();
+    m_whitePixel.Reset();
     m_rtv.Reset();
     m_swapChain.Reset();
     m_context.Reset();
     m_device.Reset();
+}
+
+
+// ----------------------------------------------------------------------------
+//  CreateWhitePixel
+//    1×1 크기의 흰색 텍스처를 코드로 만든다. 파일이 필요 없다.
+//    이걸 원하는 크기로 늘려 그리면 채워진 사각형이 되고,
+//    가늘게 늘리면 선이 된다.
+// ----------------------------------------------------------------------------
+bool Renderer::CreateWhitePixel()
+{
+    // RGBA 각 0xFF = 불투명한 흰색. 픽셀 하나이므로 4 바이트.
+    const uint32_t pixel = 0xFFFFFFFFu;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width            = 1;
+    desc.Height           = 1;
+    desc.MipLevels        = 1;
+    desc.ArraySize        = 1;
+    desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage            = D3D11_USAGE_IMMUTABLE;        // 만든 뒤 절대 안 바뀜
+    desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;   // 셰이더가 읽는 용도
+
+    // 텍스처를 만들 때 초기 데이터를 같이 넘긴다.
+    // SysMemPitch = 한 줄의 바이트 수. 1 픽셀 × 4 바이트.
+    D3D11_SUBRESOURCE_DATA init = {};
+    init.pSysMem     = &pixel;
+    init.SysMemPitch = sizeof(uint32_t);
+
+    ComPtr<ID3D11Texture2D> tex;
+    HRESULT hr = m_device->CreateTexture2D(&desc, &init, &tex);
+    if (FAILED(hr))
+    {
+        OutputDebugStringW(
+            std::format(L"[D3D] 1x1 텍스처 생성 실패 hr=0x{:08X}\n",
+                        static_cast<unsigned>(hr)).c_str());
+        return false;
+    }
+
+    // 텍스처(메모리) 를 "셰이더 입력" 으로 해석하는 뷰를 만든다. RTV 와 같은 구조.
+    hr = m_device->CreateShaderResourceView(tex.Get(), nullptr, &m_whitePixel);
+    if (FAILED(hr))
+    {
+        OutputDebugStringW(
+            std::format(L"[D3D] 1x1 SRV 생성 실패 hr=0x{:08X}\n",
+                        static_cast<unsigned>(hr)).c_str());
+        return false;
+    }
+    return true;
+}
+
+
+void Renderer::DrawFilledRect(const AABB& box, DirectX::FXMVECTOR color)
+{
+    // 목적지 사각형을 넘기는 Draw 오버로드는 텍스처를 그 크기로 늘려 준다.
+    const RECT dst = {
+        static_cast<LONG>(box.left),
+        static_cast<LONG>(box.top),
+        static_cast<LONG>(box.right),
+        static_cast<LONG>(box.bottom)
+    };
+    m_spriteBatch->Draw(m_whitePixel.Get(), dst, color);
+}
+
+
+void Renderer::DrawRectOutline(const AABB& box, DirectX::FXMVECTOR color, float thickness)
+{
+    const float t = thickness;
+    DrawFilledRect({ box.left,      box.top,        box.right,     box.top + t }, color);      // 위
+    DrawFilledRect({ box.left,      box.bottom - t, box.right,     box.bottom  }, color);      // 아래
+    DrawFilledRect({ box.left,      box.top,        box.left + t,  box.bottom  }, color);      // 왼쪽
+    DrawFilledRect({ box.right - t, box.top,        box.right,     box.bottom  }, color);      // 오른쪽
 }
 
 

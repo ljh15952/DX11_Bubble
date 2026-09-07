@@ -19,6 +19,9 @@
     <ClCompile Include="src\Core\Window.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="src\Graphics\Animation.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
     <ClCompile Include="src\Graphics\Renderer.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
@@ -27,6 +30,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Core\AABB.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\Core\Constants.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -35,6 +41,9 @@
     </ClInclude>
     <ClInclude Include="src\Core\Window.h">
       <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Graphics\Animation.h">
+      <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="src\Graphics\Renderer.h">
       <Filter>Graphics</Filter>

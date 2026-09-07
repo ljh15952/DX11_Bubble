@@ -96,13 +96,16 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Core\Game.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
+    <ClCompile Include="src\Graphics\Animation.cpp" />
     <ClCompile Include="src\Graphics\Renderer.cpp" />
     <ClCompile Include="src\Input\Input.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Core\AABB.h" />
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
     <ClInclude Include="src\Core\Window.h" />
+    <ClInclude Include="src\Graphics\Animation.h" />
     <ClInclude Include="src\Graphics\Renderer.h" />
     <ClInclude Include="src\Input\Input.h" />
   </ItemGroup>
