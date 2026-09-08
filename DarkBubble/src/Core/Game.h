@@ -65,4 +65,7 @@ private:
     // F1 로 켜고 끄는 히트박스 표시.
     // 보이지 않는 것은 디버깅할 수 없다.
     bool m_showDebug = false;
+
+    // 게임 시작 이후 흐른 틱 수. 로그에 찍혀서 시간 순서를 보여준다.
+    unsigned long long m_tickCount = 0;
 };

@@ -13,6 +13,7 @@
 #include <iostream>
 
 #include "Core/Game.h"
+#include "Core/Log.h"
 
 
 // ============================================================================
@@ -42,7 +43,7 @@ static void AttachDebugConsole()
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleTitleW(L"DarkBubble - Debug Console");
 
-    std::cout << "[console] 디버그 콘솔 연결됨\n";
+    Log::Info("[console] 디버그 콘솔 연결됨");
 }
 #endif
 

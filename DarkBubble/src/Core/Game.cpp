@@ -1,11 +1,11 @@
 ﻿#include "Core/Game.h"
 #include "Core/Constants.h"
+#include "Core/Log.h"
 
 #include <DirectXColors.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <iostream>
 
 namespace
 {
@@ -62,8 +62,8 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
     m_input.Initialize();
     m_playerAnim.Play(kIdleClip);
 
-    std::cout << "[game] 초기화 완료\n"
-                 "        방향키/WASD/스틱 = 이동   Space = 공격   F1 = 히트박스 표시   ESC = 종료\n";
+    Log::Info("[game] 초기화 완료");
+    Log::Info("[game] 방향키/WASD/스틱 = 이동   Space = 공격   F1 = 히트박스 표시   ESC = 종료");
     return true;
 }
 
@@ -111,6 +111,10 @@ int Game::Run()
         bool firstTickThisFrame = true;
         while (accumulator >= Config::kTickSeconds)
         {
+            // 로그 앞에 붙는 틱 번호를 갱신한다.
+            // 프레임 데이터를 조정할 때 무슨 일이 몇 틱째에 일어났는지 보려면 필요하다.
+            Log::SetTick(++m_tickCount);
+
             Update(firstTickThisFrame);
             firstTickThisFrame = false;
             accumulator -= Config::kTickSeconds;
@@ -158,11 +162,11 @@ void Game::Update(bool consumeEdgeInput)
         if (m_input.DebugTogglePressed())
         {
             m_showDebug = !m_showDebug;
-            std::cout << "[debug] 히트박스 표시 " << (m_showDebug ? "ON" : "OFF") << "\n";
+            Log::Info("[debug] 히트박스 표시 {}", m_showDebug ? "ON" : "OFF");
         }
 
         if (m_input.AttackPressed())
-            std::cout << "[input] 공격 (나중에 여기에 상태머신이 들어간다)\n";
+            Log::Info("[input] 공격 (나중에 여기에 상태머신이 들어간다)");
     }
 }
 

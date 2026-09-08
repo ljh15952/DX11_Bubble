@@ -1,8 +1,7 @@
 ﻿#include "Graphics/Renderer.h"
+#include "Core/Log.h"
 
 #include <WICTextureLoader.h>
-#include <format>
-#include <iostream>
 
 using Microsoft::WRL::ComPtr;
 
@@ -61,20 +60,18 @@ bool Renderer::Initialize(HWND hwnd, int width, int height)
     // 개발 편의를 위해, 그 경우엔 디버그 플래그를 빼고 한 번 더 시도한다.
     if (hr == DXGI_ERROR_SDK_COMPONENT_MISSING && (flags & D3D11_CREATE_DEVICE_DEBUG))
     {
-        OutputDebugStringW(L"[D3D] 디버그 레이어 없음 -> 플래그를 빼고 재시도\n");
+        Log::Warn("[D3D] 디버그 레이어 없음 -> 플래그를 빼고 재시도. "
+                  "「グラフィックス ツール」 설치를 권합니다");
         hr = createDevice(flags & ~D3D11_CREATE_DEVICE_DEBUG);
     }
 
     if (FAILED(hr))
     {
-        OutputDebugStringW(
-            std::format(L"[D3D] 생성 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+        Log::Error("[D3D] 디바이스 생성 실패 hr=0x{:08X}", static_cast<unsigned>(hr));
         return false;
     }
 
-    OutputDebugStringW(
-        std::format(L"[D3D] 초기화 성공 FeatureLevel=0x{:04X}\n",
-                    static_cast<unsigned>(obtained)).c_str());
+    Log::Info("[D3D] 디바이스 생성 성공 FeatureLevel=0x{:04X}", static_cast<unsigned>(obtained));
 
     // ---- (5) 스왑체인에서 백버퍼(텍스처)를 꺼낸다 ----
     //      인덱스 0 만 접근할 수 있다. FLIP 모델에서 버퍼 로테이션은 DXGI 가 알아서 한다.
@@ -84,8 +81,7 @@ bool Renderer::Initialize(HWND hwnd, int width, int height)
     hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
     if (FAILED(hr))
     {
-        OutputDebugStringW(
-            std::format(L"[D3D] GetBuffer 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+        Log::Error("[D3D] GetBuffer 실패 hr=0x{:08X}", static_cast<unsigned>(hr));
         return false;
     }
 
@@ -94,8 +90,7 @@ bool Renderer::Initialize(HWND hwnd, int width, int height)
     hr = m_device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_rtv);
     if (FAILED(hr))
     {
-        OutputDebugStringW(
-            std::format(L"[D3D] RTV 생성 실패 hr=0x{:08X}\n", static_cast<unsigned>(hr)).c_str());
+        Log::Error("[D3D] RTV 생성 실패 hr=0x{:08X}", static_cast<unsigned>(hr));
         return false;
     }
 
@@ -123,7 +118,7 @@ bool Renderer::Initialize(HWND hwnd, int width, int height)
     if (!CreateWhitePixel())
         return false;
 
-    OutputDebugStringW(L"[D3D] RTV / 뷰포트 / SpriteBatch 준비 완료\n");
+    Log::Info("[D3D] RTV / 뷰포트 / SpriteBatch 준비 완료 ({}x{})", width, height);
     return true;
 }
 
@@ -171,9 +166,7 @@ bool Renderer::CreateWhitePixel()
     HRESULT hr = m_device->CreateTexture2D(&desc, &init, &tex);
     if (FAILED(hr))
     {
-        OutputDebugStringW(
-            std::format(L"[D3D] 1x1 텍스처 생성 실패 hr=0x{:08X}\n",
-                        static_cast<unsigned>(hr)).c_str());
+        Log::Error("[D3D] 1x1 텍스처 생성 실패 hr=0x{:08X}", static_cast<unsigned>(hr));
         return false;
     }
 
@@ -181,9 +174,7 @@ bool Renderer::CreateWhitePixel()
     hr = m_device->CreateShaderResourceView(tex.Get(), nullptr, &m_whitePixel);
     if (FAILED(hr))
     {
-        OutputDebugStringW(
-            std::format(L"[D3D] 1x1 SRV 생성 실패 hr=0x{:08X}\n",
-                        static_cast<unsigned>(hr)).c_str());
+        Log::Error("[D3D] 1x1 SRV 생성 실패 hr=0x{:08X}", static_cast<unsigned>(hr));
         return false;
     }
     return true;
@@ -224,13 +215,13 @@ ComPtr<ID3D11ShaderResourceView> Renderer::LoadTexture(const wchar_t* path)
 
     if (FAILED(hr))
     {
-        OutputDebugStringW(
-            std::format(L"[RES] 텍스처 로드 실패 hr=0x{:08X} : {}\n",
-                        static_cast<unsigned>(hr), path).c_str());
-        std::wcout << L"[RES] " << path << L" 를 못 찾았습니다.\n"
-                   << L"      디버깅 작업 디렉터리가 $(SolutionDir) 인지 확인하세요.\n";
+        Log::Error("[RES] 텍스처 로드 실패 hr=0x{:08X} : {}",
+                   static_cast<unsigned>(hr), Log::ToUtf8(path));
+        Log::Error("[RES] 디버깅 작업 디렉터리가 $(SolutionDir) 인지 확인하세요");
         return nullptr;
     }
+
+    Log::Info("[RES] 텍스처 로드 : {}", Log::ToUtf8(path));
     return srv;
 }
 

@@ -95,6 +95,7 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Core\Game.cpp" />
+    <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
     <ClCompile Include="src\Graphics\Renderer.cpp" />
@@ -104,6 +105,7 @@
     <ClInclude Include="src\Core\AABB.h" />
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
+    <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Graphics\Animation.h" />
     <ClInclude Include="src\Graphics\Renderer.h" />
