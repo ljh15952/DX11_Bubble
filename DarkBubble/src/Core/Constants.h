@@ -6,9 +6,18 @@
 
 namespace Config
 {
-    // ---- 클라이언트 영역(실제로 그림이 그려지는 부분)의 크기 ----
-    inline constexpr int kClientWidth  = 1280;
-    inline constexpr int kClientHeight = 720;
+    // ---- 내부 해상도 ----
+    //   게임은 이 크기의 텍스처에 그려진다.
+    //   ★ 좌표 / 이동 속도 / 히트박스는 모두 이 기준으로 적는다.
+    //     창 크기(1280x720) 기준으로 적으면 안 된다.
+    inline constexpr int kCanvasWidth  = 640;
+    inline constexpr int kCanvasHeight = 360;
+
+    // ---- 창 크기 ----
+    //   내부 해상도의 정수배여야 픽셀이 지글거리지 않는다.
+    inline constexpr int kWindowScale  = 2;
+    inline constexpr int kClientWidth  = kCanvasWidth  * kWindowScale;   // 1280
+    inline constexpr int kClientHeight = kCanvasHeight * kWindowScale;   // 720
 
     // ---- 고정 타임스텝 ----
     //   1 틱 = 1/60 초.

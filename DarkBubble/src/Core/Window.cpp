@@ -48,6 +48,35 @@ LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         return 0;
 
+    case WM_SIZE:
+        // lParam 에 새 클라이언트 영역 크기가 들어 있다.
+        // 하위 16비트 = 폭, 상위 16비트 = 높이. LOWORD/HIWORD 로 꺼낸다.
+        // (wParam/lParam 의 의미가 메시지마다 다르다는 예시가 바로 이것이다)
+        if (wParam != SIZE_MINIMIZED)
+        {
+            const int w = static_cast<int>(LOWORD(lParam));
+            const int h = static_cast<int>(HIWORD(lParam));
+            if (w > 0 && h > 0 && (w != m_clientWidth || h != m_clientHeight))
+            {
+                m_clientWidth  = w;
+                m_clientHeight = h;
+                m_resized      = true;   // 실제 처리는 게임 루프에서
+            }
+        }
+        break;
+
+    case WM_GETMINMAXINFO:
+    {
+        // 캔버스(640×360)보다 작아지면 화면이 잘리므로 최소 크기를 강제한다.
+        // 여기서 넘어오는 값은 창 전체 크기라서 테두리만큼 보정이 필요하다.
+        RECT rc = { 0, 0, 640, 360 };
+        AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+        auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+        mmi->ptMinTrackSize.x = rc.right - rc.left;
+        mmi->ptMinTrackSize.y = rc.bottom - rc.top;
+        return 0;
+    }
+
     // ---- 입력 시스템에 메시지를 배달한다 ----
     //      DirectXTK Keyboard 는 스스로 메시지를 받을 수 없다.
     //      WndProc 은 우리 것이므로 우리가 넘겨줘야 한다.
@@ -143,6 +172,18 @@ bool Window::PumpMessages()
         TranslateMessage(&msg);   // 키 입력을 문자 메시지로 변환
         DispatchMessageW(&msg);   // 여기서 StaticWndProc 이 호출된다
     }
+    return true;
+}
+
+
+bool Window::ConsumeResize(int& outWidth, int& outHeight)
+{
+    if (!m_resized)
+        return false;
+
+    m_resized = false;
+    outWidth  = m_clientWidth;
+    outHeight = m_clientHeight;
     return true;
 }
 

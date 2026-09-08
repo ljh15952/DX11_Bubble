@@ -50,16 +50,17 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
 
     // ---- 임시 플레이어. 나중에 제대로 된 엔티티로 바뀐다 ----
+    //   좌표는 내부 해상도(640x360) 기준.
     struct Player
     {
-        float x = 100.0f;
-        float y = 300.0f;
+        float x =  50.0f;
+        float y = 150.0f;
     };
     Player          m_player;
     AnimationPlayer m_playerAnim;
 
-    // 화면에 고정된 장애물. 겹치면 색이 바뀐다.
-    AABB m_obstacle{ 560.0f, 320.0f, 720.0f, 420.0f };
+    // 화면에 고정된 장애물. 겹치면 색이 바뀐다. (캔버스 좌표)
+    AABB m_obstacle{ 280.0f, 160.0f, 360.0f, 210.0f };
     bool m_touching = false;
 
     // F1 로 켜고 끄는 히트박스 표시.

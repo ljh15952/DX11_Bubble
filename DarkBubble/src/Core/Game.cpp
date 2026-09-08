@@ -20,8 +20,10 @@ namespace
     constexpr AnimationClip kRunClip  { /*row*/ 1, /*frames*/ 4, /*ticksPerFrame*/  4, true };  // 15fps
 
     // ---- 플레이어 (임시) ----
-    constexpr float kPlayerSpeedPerSec  = 300.0f;                      // 초당 300 픽셀
-    constexpr float kPlayerSpeedPerTick = kPlayerSpeedPerSec / 60.0f;  // 틱당 5 픽셀
+    //   ★ 좌표와 속도는 모두 내부 해상도(640x360) 기준이다.
+    //     창 크기(1280x720) 기준으로 적으면 두 배로 빨라진다.
+    constexpr float kPlayerSpeedPerSec  = 150.0f;                      // 640 폭을 약 4.3 초에 횡단
+    constexpr float kPlayerSpeedPerTick = kPlayerSpeedPerSec / 60.0f;  // 틱당 2.5 픽셀
 
     // 히트박스 오프셋. 64×64 스프라이트 안의 24×40 영역.
     // 나중에 캐릭터 데이터로 빠질 값들이다.
@@ -45,7 +47,8 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
     }
 
     if (!m_renderer.Initialize(m_window.Handle(),
-                               m_window.ClientWidth(), m_window.ClientHeight()))
+                               m_window.ClientWidth(), m_window.ClientHeight(),
+                               Config::kCanvasWidth, Config::kCanvasHeight))
     {
         MessageBoxW(nullptr, L"D3D11 초기화에 실패했습니다.", L"DarkBubble", MB_OK | MB_ICONERROR);
         return false;
@@ -90,6 +93,13 @@ int Game::Run()
         // ① 쌓여 있는 메시지를 전부 처리한다. false 면 WM_QUIT.
         if (!m_window.PumpMessages())
             break;
+
+        // ①-b 창 크기가 바뀌었으면 스왑체인을 다시 만든다.
+        //     WndProc 안이 아니라 여기서 처리한다. 드래그 중 쏟아진 WM_SIZE 가
+        //     프레임당 한 번으로 합쳐지고, 재진입 문제도 없다.
+        int newW = 0, newH = 0;
+        if (m_window.ConsumeResize(newW, newH))
+            m_renderer.OnResize(newW, newH);
 
         // ② 지난 프레임이 실제로 얼마나 걸렸는지 잰다
         const auto now = Clock::now();
@@ -143,11 +153,11 @@ void Game::Update(bool consumeEdgeInput)
     m_player.x += move.x * kPlayerSpeedPerTick;
     m_player.y += move.y * kPlayerSpeedPerTick;
 
-    // 화면 밖으로 나가지 않게
+    // 화면 밖으로 나가지 않게. 기준은 창이 아니라 캔버스(내부 해상도) 이다.
     m_player.x = std::clamp(m_player.x, 0.0f,
-                            static_cast<float>(Config::kClientWidth)  - kCellW);
+                            static_cast<float>(Config::kCanvasWidth)  - kCellW);
     m_player.y = std::clamp(m_player.y, 0.0f,
-                            static_cast<float>(Config::kClientHeight) - kCellH);
+                            static_cast<float>(Config::kCanvasHeight) - kCellH);
 
     // ---- 충돌 판정 ----
     //   스프라이트 전체가 아니라 히트박스로 판정한다.
@@ -196,7 +206,7 @@ void Game::Render()
 
     // ---- 플레이어 ----
     //   지금 프레임에 해당하는 칸만 잘라 그린다.
-    //   이 RECT 가 nullptr 이었던 자리다.
+    //   좌표는 캔버스 기준(640x360). 화면으로의 ×2 확대는 Renderer 가 마지막에 한 번만 한다.
     const RECT src = m_playerAnim.SourceRect(kCellW, kCellH);
     m_renderer.Sprites().Draw(
         m_sheet.Get(), DirectX::XMFLOAT2(m_player.x, m_player.y), &src);

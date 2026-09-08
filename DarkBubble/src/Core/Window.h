@@ -21,6 +21,15 @@ public:
     // WM_QUIT 를 받으면 false 를 돌려준다 = "루프를 끝내라".
     bool PumpMessages();
 
+    // 창 크기가 바뀌었으면 true 를 돌려주고 플래그를 지운다.
+    //
+    // WndProc 안에서 바로 D3D 를 손대지 않고 이렇게 미루는 이유:
+    //   ① WndProc 은 Windows 가 재귀적으로 부를 수 있어서, 그 안에서 스왑체인을
+    //      재생성하면 재진입 문제가 생길 수 있다.
+    //   ② 창 테두리를 드래그하는 동안 WM_SIZE 가 픽셀마다 쏟아진다.
+    //      프레임당 한 번만 소비하면 여러 개가 자동으로 하나로 합쳐진다.
+    bool ConsumeResize(int& outWidth, int& outHeight);
+
     void Close();
 
     HWND Handle()       const { return m_hwnd; }
@@ -36,4 +45,5 @@ private:
     int  m_clientWidth  = 0;
     int  m_clientHeight = 0;
     int  m_exitCode     = 0;
+    bool m_resized      = false;
 };
