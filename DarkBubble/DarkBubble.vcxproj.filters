@@ -10,6 +10,9 @@
     <Filter Include="Input">
       <UniqueIdentifier>{6b1c0a10-1e01-4a11-9c01-000000000003}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Scenes">
+      <UniqueIdentifier>{6b1c0a10-1e01-4a11-9c01-000000000004}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
@@ -17,6 +20,9 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Core\Log.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Core\SceneManager.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Core\Window.cpp">
@@ -30,6 +36,15 @@
     </ClCompile>
     <ClCompile Include="src\Input\Input.cpp">
       <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Scenes\PauseScene.cpp">
+      <Filter>Scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Scenes\PlayScene.cpp">
+      <Filter>Scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Scenes\TitleScene.cpp">
+      <Filter>Scenes</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -45,6 +60,12 @@
     <ClInclude Include="src\Core\Log.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\Core\Scene.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Core\SceneManager.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\Core\Window.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -56,6 +77,15 @@
     </ClInclude>
     <ClInclude Include="src\Input\Input.h">
       <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Scenes\PauseScene.h">
+      <Filter>Scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Scenes\PlayScene.h">
+      <Filter>Scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Scenes\TitleScene.h">
+      <Filter>Scenes</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

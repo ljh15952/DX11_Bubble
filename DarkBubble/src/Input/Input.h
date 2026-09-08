@@ -36,8 +36,11 @@ public:
     MoveIntent Move() const;
 
     // ---- 엣지 입력 (한 번만 소비해야 하는 것) ----
-    bool AttackPressed()      const;
-    bool QuitPressed()        const;
+    //   메뉴용(Confirm/Cancel)과 게임플레이용(Attack)을 나눠 둔다.
+    //   같은 물리 키를 쓰더라도 이름이 다르면 Scene 마다 의미가 분명해진다.
+    bool ConfirmPressed()     const;   // Enter / Space / 패드 A
+    bool CancelPressed()      const;   // Esc / 패드 B
+    bool AttackPressed()      const;   // Space / 패드 A
     bool DebugTogglePressed() const;   // F1 — 히트박스 표시 on/off
 
 private:

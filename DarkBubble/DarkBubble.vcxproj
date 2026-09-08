@@ -96,20 +96,29 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Core\Game.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
+    <ClCompile Include="src\Core\SceneManager.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
     <ClCompile Include="src\Graphics\Renderer.cpp" />
     <ClCompile Include="src\Input\Input.cpp" />
+    <ClCompile Include="src\Scenes\PauseScene.cpp" />
+    <ClCompile Include="src\Scenes\PlayScene.cpp" />
+    <ClCompile Include="src\Scenes\TitleScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Core\AABB.h" />
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
     <ClInclude Include="src\Core\Log.h" />
+    <ClInclude Include="src\Core\Scene.h" />
+    <ClInclude Include="src\Core\SceneManager.h" />
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Graphics\Animation.h" />
     <ClInclude Include="src\Graphics\Renderer.h" />
     <ClInclude Include="src\Input\Input.h" />
+    <ClInclude Include="src\Scenes\PauseScene.h" />
+    <ClInclude Include="src\Scenes\PlayScene.h" />
+    <ClInclude Include="src\Scenes\TitleScene.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -61,9 +61,18 @@ bool Input::AttackPressed() const
 }
 
 
-bool Input::QuitPressed() const
+bool Input::ConfirmPressed() const
 {
-    return m_kbTracker.pressed.Escape;
+    return m_kbTracker.pressed.Enter
+        || m_kbTracker.pressed.Space
+        || m_padTracker.a == DirectX::GamePad::ButtonStateTracker::PRESSED;
+}
+
+
+bool Input::CancelPressed() const
+{
+    return m_kbTracker.pressed.Escape
+        || m_padTracker.b == DirectX::GamePad::ButtonStateTracker::PRESSED;
 }
 
 
