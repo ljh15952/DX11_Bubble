@@ -41,6 +41,43 @@ enum class PlayerState
 };
 
 
+// ============================================================================
+//  AttackData — 프레임 데이터
+//
+//    공격 하나를 세 구간으로 나눈다. 단위는 전부 틱(1/60초).
+//
+//      t0                 startup   +active                    +recovery
+//      │──── startup ────│ active  │──────── recovery ────────│
+//      │   판정 없음      │ ★판정★  │        판정 없음           │
+//
+//    ★ 이 세 숫자가 무기의 성격 전부다.
+//
+//        │ startup │ active │ recovery │  총    │
+//      단검 │    8   │   3    │    13    │  24틱  │  빠르고 안전
+//      대검 │   22   │   6    │    34    │  62틱  │  느리고 위험
+//
+//    같은 Attack 상태를 쓰는데 완전히 다른 무기가 된다.
+//    6단계에서 이 구조체가 그대로 weapons.json 이 된다.
+// ============================================================================
+struct AttackData
+{
+    // ---- 프레임 데이터 (틱) ----
+    int startup  = 8;    // 판정이 나오기까지
+    int active   = 3;    // 판정이 존재하는 구간
+    int recovery = 13;   // 판정 끝 ~ 다시 움직일 수 있기까지
+
+    // ---- 히트박스 (발밑 원점 기준. facing 으로 좌우 반전된다) ----
+    float reach          = 12.0f;   // 몸 중심에서 히트박스 안쪽 끝까지
+    float width          = 28.0f;   // 히트박스 폭
+    float height         = 24.0f;   // 히트박스 높이
+    float heightFromFoot = 34.0f;   // 발끝에서 히트박스 중심까지
+
+    int damage = 12;
+
+    int TotalTicks() const { return startup + active + recovery; }
+};
+
+
 class PlayScene final : public Scene
 {
 public:
@@ -62,7 +99,15 @@ private:
     void UpdateMovement(SceneContext& ctx, float moveX, float moveY);
 
     AABB SpriteBounds() const;
-    AABB PlayerHitbox() const;
+
+    // ★ 용어를 나눠 쓴다. 섞으면 "내 공격이 나를 때리는" 코드를 쓰게 된다.
+    //   hurtbox = 내가 맞는 범위 (몸)
+    //   hitbox  = 내가 때리는 범위 (무기)
+    AABB PlayerHurtbox() const;
+    AABB AttackHitbox()  const;
+
+    // 지금 공격 판정이 존재하는가 (active 구간인가)
+    bool AttackActive() const;
 
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
 
@@ -89,9 +134,16 @@ private:
     //   5-b 에서 이 값으로 공격 판정을 켜고 끈다.
     int m_stateTicks = 0;
 
-    // 화면에 고정된 장애물. 겹치면 색이 바뀐다. (캔버스 좌표)
-    AABB m_obstacle{ 280.0f, 160.0f, 360.0f, 210.0f };
-    bool m_touching = false;
+    // 화면에 고정된 장애물. 몸이 닿으면 색이 바뀌고, 공격이 맞으면 번쩍인다.
+    AABB m_obstacle{ 280.0f, 200.0f, 340.0f, 258.0f };
+    bool m_touching       = false;
+    int  m_obstacleFlash  = 0;    // 타격 표현용 남은 틱
+
+    // ★ 한 번 휘두를 때 한 번만 맞게 하는 장치.
+    //   active 가 3틱이면 판정이 3틱 동안 존재하므로,
+    //   이 표시가 없으면 한 번 휘둘렀는데 데미지가 3 번 들어간다.
+    //   적이 생기면 이것이 "이번 공격에서 이미 맞춘 대상 목록" 이 된다.
+    bool m_hitObstacleThisSwing = false;
 
     // F1 로 켜고 끄는 히트박스 표시.
     bool m_showDebug = false;

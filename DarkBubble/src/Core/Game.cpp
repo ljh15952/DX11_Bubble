@@ -41,6 +41,7 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
     m_audio.Load("ui_confirm", L"assets/sounds/ui_confirm.wav");
     m_audio.Load("ui_cancel",  L"assets/sounds/ui_cancel.wav");
     m_audio.Load("hit",        L"assets/sounds/hit.wav");
+    m_audio.Load("swing",      L"assets/sounds/swing.wav");
     m_audio.Load("step",       L"assets/sounds/step.wav");
 
     Log::Info("[game] 초기화 완료");
