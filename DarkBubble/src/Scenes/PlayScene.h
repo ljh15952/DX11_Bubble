@@ -137,18 +137,53 @@ enum PartIndex
 {
     Part_Head = 0,
     Part_Torso,
-    Part_LegL,
-    Part_LegR,
+
+    // ★ 다리는 좌/우로 나누지 않고 하나로 둔다.
+    //   둘로 나누면 「한쪽만 부서지면 어떻게 되나」가 애매해진다.
+    //   하나면 「다리가 부서졌다 = 못 걷는다」로 규칙이 명확하다.
+    Part_Legs,
+
     Part_Count
 };
 
 
-struct PartDef
+// ★ HP·이름과 상자 좌표를 나눈다.
+//
+//   HP 는 자세와 무관하다 — 엎드려도 머리 HP 는 그대로다.
+//   상자는 자세마다 다르다 — 서 있을 때와 엎드렸을 때 머리 위치가 다르다.
+//
+//   격투게임의 일반 원칙이다. 웅크리기·점프·공격마다 hurtbox 가 다르다.
+//   섞어 두면 「자세가 바뀌었는데 판정 상자가 공중에 떠 있는」 상태가 된다.
+struct PartBox
 {
-    const char* name;
-    // 발밑 원점 기준 상대 좌표. 적은 좌우 대칭이라 facing 을 고려하지 않는다.
+    // 발밑 원점 기준 상대 좌표. 오른쪽을 보는 자세로 적는다.
+    // 좌우 비대칭인 자세(엎드리기 등)는 facing 에 따라 뒤집힌다.
     float left, top, right, bottom;
-    int   maxHp;
+};
+
+
+// ============================================================================
+//  EnemyState
+//    플레이어와 같은 구조의 상태 머신.
+//
+//        ┌──────┐  플레이어 발견   ┌───────┐
+//        │ Idle │ ──────────────→ │ Chase │
+//        └──────┘                 └───┬───┘
+//                                     │ 다리 파괴
+//                                     ↓
+//                                 ┌───────┐
+//                                 │ Crawl │  기어서 쫓아온다
+//                                 └───────┘
+//
+//    ★ 부위 파괴의 진짜 의미는 데미지가 아니라 **행동의 변화**다.
+//      다리를 부수면 죽지 않고 느려진다. 그래서 「봉쇄」라는 전술이 성립한다.
+// ============================================================================
+enum class EnemyState
+{
+    Idle,
+    Chase,
+    Crawl,
+    Dead,
 };
 
 
@@ -260,11 +295,23 @@ private:
     {
         float x = 470.0f;   // 발밑 가운데 (캔버스 좌표)
         float y = 270.0f;
+        int   facing = -1;  // 플레이어를 바라본다
         int   hp[Part_Count]{};
-        int   flash = 0;    // 피격 번쩍임 남은 틱
-        bool  dead  = false;
+        int   flash  = 0;   // 피격 번쩍임 남은 틱
+
+        EnemyState state      = EnemyState::Idle;
+        int        stateTicks = 0;
     };
     Enemy m_enemy;
+
+    void ChangeEnemyState(EnemyState next);
+    void UpdateEnemy();
+
+    // 플레이어 쪽으로 speed 만큼 다가간다. Chase / Crawl 이 공유한다.
+    void MoveEnemyTowardPlayer(float speedPerTick);
+
+    bool EnemyDead()       const { return m_enemy.state == EnemyState::Dead; }
+    bool EnemyLegsBroken() const { return m_enemy.hp[Part_Legs] <= 0; }
 
     // 몸이 적에 닿아 있는가 (무적 프레임 확인용)
     bool m_touching = false;

@@ -2,8 +2,17 @@
 
 void AnimationPlayer::Play(const AnimationClip& clip, bool forceRestart)
 {
-    // 같은 클립이면 무시한다. row 를 애니메이션의 신원으로 본다.
-    if (!forceRestart && m_clip.row == clip.row && m_clip.frameCount == clip.frameCount)
+    // 같은 클립이면 무시한다.
+    //
+    // ★ 모든 필드를 비교해야 한다.
+    //   row 와 frameCount 만 비교하면, 같은 그림을 속도만 바꿔 쓰는 클립
+    //   (예: 적의 idle 12틱 / chase 6틱)으로 전환할 때 속도가 반영되지 않는다.
+    //   원인을 찾기 어려운 종류의 버그다.
+    if (!forceRestart
+        && m_clip.row           == clip.row
+        && m_clip.frameCount    == clip.frameCount
+        && m_clip.ticksPerFrame == clip.ticksPerFrame
+        && m_clip.loop          == clip.loop)
         return;
 
     m_clip     = clip;
