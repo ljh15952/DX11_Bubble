@@ -96,6 +96,30 @@ namespace
                           -1.0f, 1.0f);
     }
 
+    // ---- 적 ----
+    constexpr AnimationClip kEnemyIdleClip { /*row*/ 0, /*frames*/ 4, /*ticks*/ 12, /*loop*/ true };
+
+    // 부위 배치. 스프라이트(발끝 y=62)와 맞춰 둔 값이다.
+    //   머리 y  9..27  →  발밑 기준 -55..-37
+    //   몸통 y 27..46  →              -37..-18
+    //   다리 y 46..62  →              -18..  0
+    constexpr PartDef kEnemyParts[Part_Count] = {
+        { "HEAD",  -10.0f, -55.0f,  10.0f, -37.0f,  20 },
+        { "TORSO", -11.0f, -37.0f,  11.0f, -18.0f, 100 },
+        { "LEG-L", -10.0f, -18.0f,  -2.0f,   0.0f,  30 },
+        { "LEG-R",   2.0f, -18.0f,  10.0f,   0.0f,  30 },
+    };
+
+    // 두 사각형이 겹치는 면적. 안 겹치면 0.
+    float OverlapArea(const AABB& a, const AABB& b)
+    {
+        const float w = std::min(a.right,  b.right)  - std::max(a.left, b.left);
+        const float h = std::min(a.bottom, b.bottom) - std::max(a.top,  b.top);
+        if (w <= 0.0f || h <= 0.0f)
+            return 0.0f;
+        return w * h;
+    }
+
     const char* StateName(PlayerState s)
     {
         switch (s)
@@ -131,7 +155,16 @@ bool PlayScene::Enter(SceneContext& ctx)
     if (!m_sheet)
         return false;
 
+    m_enemySheet = ctx.assets.Texture(L"assets/textures/enemy.png");
+    if (!m_enemySheet)
+        return false;
+
     m_playerAnim.Play(kIdleClip);
+    m_enemyAnim.Play(kEnemyIdleClip);
+
+    // 부위 HP 초기화
+    for (int i = 0; i < Part_Count; ++i)
+        m_enemy.hp[i] = kEnemyParts[i].maxHp;
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Shift = roll   Esc = pause");
     Log::Info("[play] F1 = hitbox   F3 = stats");
@@ -173,7 +206,7 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
         m_playerAnim.Play(kAttackClip, true);
 
         // 이번 휘두르기의 "이미 맞춘 대상" 기록을 비운다.
-        m_hitObstacleThisSwing = false;
+        m_hitThisSwing = false;
 
         // ★ 스태미나를 여기서 소모한다.
         //   부족해도 공격은 나간다. 0 미만이 되면 공격이 끝난 뒤 Exhausted 로 간다.
@@ -353,18 +386,36 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
         // ---- 공격 판정 ----
         //   active 구간에서만, 그리고 이번 휘두르기에 아직 안 맞췄을 때만.
-        if (AttackActive() && !m_hitObstacleThisSwing)
+        if (AttackActive() && !m_hitThisSwing && !m_enemy.dead)
         {
-            if (Intersects(AttackHitbox(), m_obstacle))
+            const int part = PickHitPart(AttackHitbox());
+            if (part >= 0)
             {
-                m_hitObstacleThisSwing = true;   // 3틱 동안 3번 맞는 것을 막는다
-                m_obstacleFlash        = kFlashTicks;
+                m_hitThisSwing = true;   // 3틱 동안 3번 맞는 것을 막는다
+                m_enemy.flash  = kFlashTicks;
+
+                m_enemy.hp[part] -= kDaggerLight.damage;
 
                 // ★ 소리와 흔들림은 "맞는 순간" 에 낸다. 휘두르는 순간이 아니다.
                 ctx.camera.Shake(kShakeStrength, kShakeTicks);
-                ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f), PanFromX(m_player.x));
+                ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f), PanFromX(m_enemy.x));
 
-                Log::Info("[play] 타격!  t{}  damage {}", m_stateTicks, kDaggerLight.damage);
+                Log::Info("[play] {} 명중  t{}  dmg {}  남은 HP {}",
+                          kEnemyParts[part].name, m_stateTicks,
+                          kDaggerLight.damage, std::max(0, m_enemy.hp[part]));
+
+                if (m_enemy.hp[part] <= 0)
+                {
+                    Log::Info("[play] ★ {} 파괴!", kEnemyParts[part].name);
+
+                    // 몸통이 부서지면 격파. 다리·머리는 부서져도 죽지 않는다
+                    // — 기획서의 「다리만 베었는데 격파는 비현실적」이 여기서 해결된다.
+                    if (part == Part_Torso)
+                    {
+                        m_enemy.dead = true;
+                        Log::Info("[play] ★★ 적 격파");
+                    }
+                }
             }
         }
 
@@ -405,13 +456,16 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         break;
     }
 
-    // ---- 상태와 무관한 판정 ----
-    //   ★ 무적이면 몸 판정을 하지 않는다.
-    //     이것이 무적 프레임의 실체다 — 5-e 에서 적 공격을 이렇게 무시하게 된다.
-    m_touching = !Invincible() && Intersects(PlayerHurtbox(), m_obstacle);
+    // ---- 상태와 무관한 처리 ----
+    m_enemyAnim.Tick();
+    if (m_enemy.flash > 0)
+        --m_enemy.flash;
 
-    if (m_obstacleFlash > 0)
-        --m_obstacleFlash;
+    //   ★ 무적이면 몸 판정을 하지 않는다.
+    //     이것이 무적 프레임의 실체다 — 5-e-3 에서 적 공격을 이렇게 무시한다.
+    m_touching = !Invincible()
+              && !m_enemy.dead
+              && Intersects(PlayerHurtbox(), EnemyPartBox(Part_Torso));
 
     // ---- 상태와 무관한 엣지 입력 ----
     if (consumeEdgeInput)
@@ -497,15 +551,77 @@ AABB PlayScene::AttackHitbox() const
 }
 
 
+AABB PlayScene::EnemyPartBox(int part) const
+{
+    const PartDef& d = kEnemyParts[part];
+    return {
+        m_enemy.x + d.left,
+        m_enemy.y + d.top,
+        m_enemy.x + d.right,
+        m_enemy.y + d.bottom
+    };
+}
+
+
+int PlayScene::PickHitPart(const AABB& attack) const
+{
+    int   best     = -1;
+    float bestArea = 0.0f;
+
+    for (int i = 0; i < Part_Count; ++i)
+    {
+        // ★ 이미 부서진 부위는 건너뛴다.
+        //   다리를 부순 뒤에는 같은 높이로 휘둘러도 다른 부위에 닿는다.
+        if (m_enemy.hp[i] <= 0)
+            continue;
+
+        const float area = OverlapArea(attack, EnemyPartBox(i));
+        if (area > bestArea)
+        {
+            bestArea = area;
+            best     = i;
+        }
+    }
+    return best;
+}
+
+
+void PlayScene::DrawEnemyDebug(Renderer& renderer) const
+{
+    for (int i = 0; i < Part_Count; ++i)
+    {
+        const bool broken = (m_enemy.hp[i] <= 0);
+
+        // 부서진 부위는 어둡게, 살아 있는 부위는 노랗게
+        renderer.DrawRectOutline(EnemyPartBox(i),
+            broken ? DirectX::Colors::DimGray : DirectX::Colors::Gold, 1.0f);
+
+        // 부서진 부위는 대각선 대신 반투명 판으로 덮어 표시한다
+        if (broken)
+        {
+            renderer.DrawFilledRect(EnemyPartBox(i),
+                DirectX::XMVectorSet(0.1f, 0.1f, 0.1f, 0.45f));
+        }
+    }
+}
+
+
 void PlayScene::Render(Renderer& renderer)
 {
-    // ---- 장애물 ----
-    //   공격에 맞으면 밝게 번쩍, 몸이 닿으면 붉게, 평소엔 회색.
-    DirectX::XMVECTOR obstacleColor = DirectX::Colors::DimGray;
-    if (m_obstacleFlash > 0)   obstacleColor = DirectX::Colors::LightGoldenrodYellow;
-    else if (m_touching)       obstacleColor = DirectX::Colors::Crimson;
+    // ---- 적 ----
+    DirectX::XMVECTOR enemyTint = DirectX::Colors::White;
+    if (m_enemy.dead)            enemyTint = DirectX::XMVectorSet(0.35f, 0.30f, 0.32f, 1.0f);
+    else if (m_enemy.flash > 0)  enemyTint = DirectX::XMVectorSet(1.0f, 0.75f, 0.70f, 1.0f);
 
-    renderer.DrawFilledRect(m_obstacle, obstacleColor);
+    const RECT enemySrc = m_enemyAnim.SourceRect(kCellW, kCellH);
+    renderer.Sprites().Draw(
+        m_enemySheet.Get(),
+        DirectX::XMFLOAT2(std::round(m_enemy.x), std::round(m_enemy.y)),
+        &enemySrc, enemyTint,
+        0.0f,
+        DirectX::XMFLOAT2(kOriginX, kOriginY),
+        1.0f,
+        DirectX::SpriteEffects_FlipHorizontally);   // 플레이어 쪽(왼쪽)을 본다
 
     // ---- 플레이어 ----
     DirectX::XMVECTOR tint = DirectX::Colors::White;
@@ -544,7 +660,7 @@ void PlayScene::Render(Renderer& renderer)
         renderer.DrawRectOutline(PlayerHurtbox(),
             Invincible() ? DirectX::Colors::DeepSkyBlue : DirectX::Colors::Lime, 2.0f);
 
-        renderer.DrawRectOutline(m_obstacle, DirectX::Colors::Yellow);
+        DrawEnemyDebug(renderer);
 
         // ★ 공격 히트박스 — active 구간에서만 나타난다.
         //   , 로 멈추고 . 로 밟으면 t8 에 나타나 t10 까지 있는 것을 볼 수 있다.
@@ -649,13 +765,27 @@ void PlayScene::RenderUI(Renderer& renderer)
 
     if (m_showDebug)
     {
-        renderer.DrawString("green=hurtbox  red=hitbox  magenta=origin(feet)",
+        renderer.DrawString("green=hurtbox  red=hitbox  gold=enemy parts",
                             6.0f, Config::kCanvasHeight - 34.0f,
                             DirectX::Colors::Lime, 1);
-        renderer.DrawString(m_player.facing < 0 ? "FACING <<" : "FACING >>",
-                            6.0f, Config::kCanvasHeight - 50.0f,
-                            DirectX::Colors::Gainsboro, 1);
+
+        // 부위별 HP. 아래에서 위 순서로 쌓아 올린다.
+        for (int i = 0; i < Part_Count; ++i)
+        {
+            const bool broken = (m_enemy.hp[i] <= 0);
+            renderer.DrawString(
+                std::format("{:<6}{:>4}/{:<4}{}", kEnemyParts[i].name,
+                            std::max(0, m_enemy.hp[i]), kEnemyParts[i].maxHp,
+                            broken ? " BROKEN" : ""),
+                Config::kCanvasWidth - 150.0f,
+                40.0f + i * 14.0f,
+                broken ? DirectX::Colors::DimGray : DirectX::Colors::Gold, 1);
+        }
     }
+
+    if (m_enemy.dead)
+        renderer.DrawStringCentered("ENEMY DOWN", Config::kCanvasWidth * 0.5f, 40.0f,
+                                    DirectX::Colors::Gold, 2);
 
     if (m_touching)
         renderer.DrawString("TOUCHING", 6.0f, Config::kCanvasHeight - 18.0f,

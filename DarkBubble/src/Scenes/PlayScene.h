@@ -119,6 +119,39 @@ struct RollData
 };
 
 
+// ============================================================================
+//  부위 파괴
+//
+//    ★ 적은 「HP 하나」가 아니다. 부위마다 HP 를 가진다.
+//
+//                 ┌──────┐  머리   HP 20   부수면 시야 상실
+//                 ├──────┤
+//      공격 ────→ │      │  몸통   HP 100  부수면 격파
+//                 ├──┬───┤
+//                 │  │   │  다리   HP 30 × 2  부수면 이동 불가
+//                 └──┴───┘
+//
+//    기획서의 출발점: 「다리만 베었는데 격파는 비현실적」
+// ============================================================================
+enum PartIndex
+{
+    Part_Head = 0,
+    Part_Torso,
+    Part_LegL,
+    Part_LegR,
+    Part_Count
+};
+
+
+struct PartDef
+{
+    const char* name;
+    // 발밑 원점 기준 상대 좌표. 적은 좌우 대칭이라 facing 을 고려하지 않는다.
+    float left, top, right, bottom;
+    int   maxHp;
+};
+
+
 class PlayScene final : public Scene
 {
 public:
@@ -166,6 +199,19 @@ private:
     // 구르기 이동. Roll 상태에서만 불린다.
     void UpdateRoll();
 
+    // ---- 적 ----
+    AABB EnemyPartBox(int part) const;
+
+    // 공격 히트박스와 가장 크게 겹치는 부위를 고른다. -1 = 안 맞음.
+    //
+    // ★ 「겹친 부위 전부」로 하면 한 번 휘두를 때 온몸이 깎여 부위 파괴가
+    //   무의미해진다. 「가장 위 부위」로 하면 항상 머리만 맞아 다리를 못 벤다.
+    //   겹침 면적이 가장 큰 곳을 고르면 「낮게 휘두르면 다리」가 되어
+    //   플레이어가 조준하게 된다.
+    int PickHitPart(const AABB& attack) const;
+
+    void DrawEnemyDebug(Renderer& renderer) const;
+
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
 
     // ---- 임시 플레이어. 적이 등장하면 Gameplay/Character 로 뺀다 ----
@@ -206,16 +252,28 @@ private:
     };
     Stamina m_stamina;
 
-    // 화면에 고정된 장애물. 몸이 닿으면 색이 바뀌고, 공격이 맞으면 번쩍인다.
-    AABB m_obstacle{ 280.0f, 200.0f, 340.0f, 258.0f };
-    bool m_touching       = false;
-    int  m_obstacleFlash  = 0;    // 타격 표현용 남은 틱
+    // ---- 적 (아직 움직이지 않는다. 5-e-2 에서 상태 머신이 들어온다) ----
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_enemySheet;
+    AnimationPlayer m_enemyAnim;
+
+    struct Enemy
+    {
+        float x = 470.0f;   // 발밑 가운데 (캔버스 좌표)
+        float y = 270.0f;
+        int   hp[Part_Count]{};
+        int   flash = 0;    // 피격 번쩍임 남은 틱
+        bool  dead  = false;
+    };
+    Enemy m_enemy;
+
+    // 몸이 적에 닿아 있는가 (무적 프레임 확인용)
+    bool m_touching = false;
 
     // ★ 한 번 휘두를 때 한 번만 맞게 하는 장치.
     //   active 가 3틱이면 판정이 3틱 동안 존재하므로,
     //   이 표시가 없으면 한 번 휘둘렀는데 데미지가 3 번 들어간다.
-    //   적이 생기면 이것이 "이번 공격에서 이미 맞춘 대상 목록" 이 된다.
-    bool m_hitObstacleThisSwing = false;
+    //   적이 여러 마리가 되면 이것이 "이미 맞춘 대상 목록" 이 된다.
+    bool m_hitThisSwing = false;
 
     // F1 로 켜고 끄는 히트박스 표시.
     bool m_showDebug = false;
