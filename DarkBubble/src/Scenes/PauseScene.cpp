@@ -8,18 +8,10 @@
 
 #include <DirectXColors.h>
 
-namespace
-{
-    // 폰트가 아직 없으므로 도형으로 표시한다.
-    // SpriteFont 를 넣으면 「PAUSED」 문자로 바뀔 자리다.
-    constexpr float kBarW = 160.0f;
-    constexpr float kBarH = 12.0f;
-}
-
 
 bool PauseScene::Enter(SceneContext&)
 {
-    Log::Info("[pause] Esc 또는 Enter 로 재개");
+    Log::Info("[pause] Esc / Enter = resume");
     return true;
 }
 
@@ -49,19 +41,12 @@ void PauseScene::Render(Renderer& renderer)
 
     renderer.DrawFilledRect(full, DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.65f));
 
-    // ---- 「일시정지」 표시 (임시로 막대 두 개) ----
     const float cx = Config::kCanvasWidth  * 0.5f;
     const float cy = Config::kCanvasHeight * 0.5f;
 
-    renderer.DrawFilledRect(
-        AABB::FromXYWH(cx - kBarW * 0.5f, cy - kBarH - 4.0f, kBarW, kBarH),
-        DirectX::Colors::White);
+    renderer.DrawStringCentered("PAUSED", cx, cy - 40.0f, DirectX::Colors::White, 3);
 
-    // 30 틱(0.5초)마다 깜빡인다. 60 으로 나눈 나머지가 30 미만일 때만 그린다.
     if ((m_blinkTick / 30) % 2 == 0)
-    {
-        renderer.DrawFilledRect(
-            AABB::FromXYWH(cx - kBarW * 0.5f, cy + 4.0f, kBarW, kBarH),
-            DirectX::Colors::Gray);
-    }
+        renderer.DrawStringCentered("ESC / ENTER : RESUME", cx, cy + 20.0f,
+                                    DirectX::Colors::Gainsboro, 1);
 }

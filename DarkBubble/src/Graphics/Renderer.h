@@ -16,12 +16,14 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <memory>
+#include <string_view>
 
 #include <SpriteBatch.h>
 #include <CommonStates.h>
 #include <DirectXColors.h>
 
 #include "Core/AABB.h"
+#include "Graphics/BitmapFont.h"
 
 class Renderer
 {
@@ -55,6 +57,22 @@ public:
     void DrawFilledRect(const AABB& box, DirectX::FXMVECTOR color);
     void DrawRectOutline(const AABB& box, DirectX::FXMVECTOR color, float thickness = 1.0f);
 
+    // ---- 텍스트 ----
+    //   폰트를 Renderer 가 들고 있는 이유:
+    //   Scene::Render 는 Renderer 만 받으므로(의도적인 설계),
+    //   폰트가 SceneContext 쪽에 있으면 그리기 중에 쓸 수가 없다.
+    //   텍스트 그리기는 엄연히 렌더링 서비스이므로 여기 두는 것이 자연스럽다.
+    //
+    //   ※ 이름이 DrawText 가 아닌 이유: windows.h 가 DrawText 를 매크로로 정의해서
+    //     DrawTextW 로 치환되어 버린다. Win32 와 섞어 쓸 때 흔한 함정이다.
+    void  DrawString(std::string_view text, float x, float y,
+                     DirectX::FXMVECTOR color = DirectX::Colors::White, int scale = 1);
+    void  DrawStringCentered(std::string_view text, float centerX, float y,
+                             DirectX::FXMVECTOR color = DirectX::Colors::White, int scale = 1);
+    float MeasureString(std::string_view text, int scale = 1) const;
+
+    const BitmapFont& Font() const { return m_uiFont; }
+
 private:
     bool CreateBackBufferTarget();
     bool CreateCanvasTarget(int width, int height);
@@ -81,6 +99,9 @@ private:
     // DirectXTK 는 COM 이 아니라 평범한 C++ 클래스다. 그래서 unique_ptr.
     std::unique_ptr<DirectX::SpriteBatch>  m_spriteBatch;
     std::unique_ptr<DirectX::CommonStates> m_states;
+
+    // 엔진 기본 UI 폰트
+    BitmapFont m_uiFont;
 
     int m_windowW = 0;
     int m_windowH = 0;

@@ -3,7 +3,9 @@
 #include "Core/Log.h"
 #include "Scenes/TitleScene.h"
 
+#include <DirectXColors.h>
 #include <chrono>
+#include <format>
 #include <memory>
 
 
@@ -89,8 +91,27 @@ int Game::Run()
 
         accumulator += frameTime;
 
+        // FPS 측정. 1 초에 한 번만 갱신해야 숫자가 안 튀어서 읽을 수 있다.
+        m_lastFrameMs = frameTime * 1000.0;
+        m_fpsAccum += frameTime;
+        ++m_fpsFrames;
+        if (m_fpsAccum >= 1.0)
+        {
+            m_fps       = m_fpsFrames / m_fpsAccum;
+            m_fpsFrames = 0;
+            m_fpsAccum  = 0.0;
+        }
+
         // ③ 입력 폴링은 "프레임당 1회". Update 안에서 하면 안 된다.
         m_input.Poll();
+
+        // 오버레이 토글은 Scene 과 무관한 엔진 기능이라 여기서 처리한다.
+        // Poll 직후이므로 "방금 눌림" 이 정확히 한 번만 잡힌다.
+        if (m_input.StatsTogglePressed())
+        {
+            m_showStats = !m_showStats;
+            Log::Info("[game] 통계 오버레이 {}", m_showStats ? "ON" : "OFF");
+        }
 
         // ④ 통장이 찰 때마다 정확히 1 틱씩 처리한다.
         bool firstTickThisFrame = true;
@@ -116,8 +137,36 @@ int Game::Run()
         // ⑥ 그리기는 프레임당 1회
         m_renderer.BeginFrame();
         m_scenes.RenderStack(m_renderer);
+        if (m_showStats)
+            DrawStatsOverlay();   // Scene 위에 항상 덮어 그린다
         m_renderer.EndFrame();
     }
 
     return m_window.ExitCode();
+}
+
+
+// ----------------------------------------------------------------------------
+//  DrawStatsOverlay
+//    5단계에서 스태미나와 프레임 데이터를 조정할 때, 화면에 숫자가 실시간으로
+//    보이는 것과 로그를 뒤지는 것은 작업 속도가 몇 배 차이난다.
+// ----------------------------------------------------------------------------
+void Game::DrawStatsOverlay()
+{
+    const std::string text = std::format(
+        "FPS {:5.1f}  FRAME {:5.2f}ms\n"
+        "TICK {}\n"
+        "SCENE {} (depth {})",
+        m_fps, m_lastFrameMs,
+        m_tickCount,
+        m_scenes.TopName(), m_scenes.Depth());
+
+    // 글자가 배경에 묻히지 않게 반투명 판을 먼저 깐다
+    const float w = m_renderer.MeasureString(text, 1);
+    const float h = static_cast<float>(m_renderer.Font().CellHeight() * 3);
+    m_renderer.DrawFilledRect(
+        AABB::FromXYWH(2.0f, 2.0f, w + 8.0f, h + 6.0f),
+        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.55f));
+
+    m_renderer.DrawString(text, 6.0f, 5.0f, DirectX::Colors::Lime, 1);
 }

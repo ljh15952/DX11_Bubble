@@ -23,6 +23,9 @@ public:
     void Shutdown();
 
 private:
+    // F3 오버레이. Scene 위에 항상 덮어 그린다.
+    void DrawStatsOverlay();
+
     Window       m_window;
     Renderer     m_renderer;
     Input        m_input;
@@ -30,4 +33,13 @@ private:
 
     // 게임 시작 이후 흐른 틱 수. 로그에 찍혀서 시간 순서를 보여준다.
     unsigned long long m_tickCount = 0;
+
+    // ---- FPS 측정 ----
+    //   1 초 동안 몇 프레임을 그렸는지 세어 나눈다.
+    //   매 프레임 1/frameTime 을 쓰면 값이 심하게 튀어서 읽을 수가 없다.
+    bool   m_showStats  = false;
+    double m_fpsAccum   = 0.0;
+    int    m_fpsFrames  = 0;
+    double m_fps        = 0.0;
+    double m_lastFrameMs = 0.0;
 };

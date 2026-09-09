@@ -31,6 +31,9 @@
     <ClCompile Include="src\Graphics\Animation.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
+    <ClCompile Include="src\Graphics\BitmapFont.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
     <ClCompile Include="src\Graphics\Renderer.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
@@ -70,6 +73,9 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Graphics\Animation.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Graphics\BitmapFont.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="src\Graphics\Renderer.h">

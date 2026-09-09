@@ -8,21 +8,12 @@
 #include "Input/Input.h"
 
 #include <DirectXColors.h>
-#include <cmath>
 #include <memory>
-
-namespace
-{
-    // 로고 대신 쓰는 블록 패턴. 폰트가 들어오면 사라질 코드다.
-    constexpr float kBlock = 14.0f;
-    constexpr float kGap   =  4.0f;
-    constexpr int   kBlockCount = 9;
-}
 
 
 bool TitleScene::Enter(SceneContext&)
 {
-    Log::Info("[title] Enter / Space / 패드A = 시작   Esc = 종료");
+    Log::Info("[title] Enter / Space / GamePad A = start   Esc = quit");
     return true;
 }
 
@@ -50,28 +41,14 @@ void TitleScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 void TitleScene::Render(Renderer& renderer)
 {
     const float cx = Config::kCanvasWidth  * 0.5f;
-    const float cy = Config::kCanvasHeight * 0.5f;
 
-    // ---- 로고 자리 (블록 줄) ----
-    const float totalW = kBlockCount * kBlock + (kBlockCount - 1) * kGap;
-    float x = cx - totalW * 0.5f;
-    for (int i = 0; i < kBlockCount; ++i)
-    {
-        // 가운데로 갈수록 높은 블록. 산 모양이 되어 로고처럼 보인다.
-        const float t = 1.0f - std::abs(i - (kBlockCount - 1) * 0.5f) / ((kBlockCount - 1) * 0.5f);
-        const float h = 16.0f + t * 34.0f;
+    // 폰트 셀이 8×14 이므로 scale 3 이면 24×42 픽셀 글자가 된다.
+    renderer.DrawStringCentered("DARKBUBBLE", cx, 90.0f, DirectX::Colors::Gainsboro, 3);
+    renderer.DrawStringCentered("- prototype -", cx, 140.0f, DirectX::Colors::DimGray, 1);
 
-        renderer.DrawFilledRect(
-            AABB::FromXYWH(x, cy - 40.0f - h * 0.5f, kBlock, h),
-            DirectX::Colors::DarkSlateGray);
-        x += kBlock + kGap;
-    }
-
-    // ---- 「Press Enter」 자리 (깜빡이는 막대) ----
+    // 30 틱(0.5초)마다 깜빡인다.
     if ((m_blinkTick / 30) % 2 == 0)
-    {
-        renderer.DrawFilledRect(
-            AABB::FromXYWH(cx - 70.0f, cy + 30.0f, 140.0f, 10.0f),
-            DirectX::Colors::White);
-    }
+        renderer.DrawStringCentered("PRESS ENTER", cx, 220.0f, DirectX::Colors::White, 2);
+
+    renderer.DrawStringCentered("ESC : QUIT", cx, 300.0f, DirectX::Colors::DimGray, 1);
 }

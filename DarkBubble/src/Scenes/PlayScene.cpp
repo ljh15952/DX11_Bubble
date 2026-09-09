@@ -48,7 +48,7 @@ bool PlayScene::Enter(SceneContext& ctx)
 
     m_playerAnim.Play(kIdleClip);
 
-    Log::Info("[play] 방향키/WASD/스틱 = 이동   Space = 공격   F1 = 히트박스   Esc = 일시정지");
+    Log::Info("[play] Arrows/WASD/Stick = move  Space = attack  F1 = hitbox  F3 = stats  Esc = pause");
     return true;
 }
 
@@ -137,5 +137,13 @@ void PlayScene::Render(Renderer& renderer)
         renderer.DrawRectOutline(SpriteBounds(), DirectX::Colors::SlateGray);
         renderer.DrawRectOutline(PlayerHitbox(), DirectX::Colors::Lime, 2.0f);
         renderer.DrawRectOutline(m_obstacle,     DirectX::Colors::Yellow);
+
+        renderer.DrawString("HITBOX  gray=sprite  green=hit  yellow=obstacle",
+                            6.0f, Config::kCanvasHeight - 34.0f,
+                            DirectX::Colors::Lime, 1);
     }
+
+    renderer.DrawString(m_touching ? "TOUCHING" : "",
+                        6.0f, Config::kCanvasHeight - 18.0f,
+                        DirectX::Colors::Crimson, 1);
 }

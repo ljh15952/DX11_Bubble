@@ -80,3 +80,9 @@ bool Input::DebugTogglePressed() const
 {
     return m_kbTracker.pressed.F1;
 }
+
+
+bool Input::StatsTogglePressed() const
+{
+    return m_kbTracker.pressed.F3;
+}

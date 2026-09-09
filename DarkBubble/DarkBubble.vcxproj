@@ -99,6 +99,7 @@
     <ClCompile Include="src\Core\SceneManager.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
+    <ClCompile Include="src\Graphics\BitmapFont.cpp" />
     <ClCompile Include="src\Graphics\Renderer.cpp" />
     <ClCompile Include="src\Input\Input.cpp" />
     <ClCompile Include="src\Scenes\PauseScene.cpp" />
@@ -114,6 +115,7 @@
     <ClInclude Include="src\Core\SceneManager.h" />
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Graphics\Animation.h" />
+    <ClInclude Include="src\Graphics\BitmapFont.h" />
     <ClInclude Include="src\Graphics\Renderer.h" />
     <ClInclude Include="src\Input\Input.h" />
     <ClInclude Include="src\Scenes\PauseScene.h" />

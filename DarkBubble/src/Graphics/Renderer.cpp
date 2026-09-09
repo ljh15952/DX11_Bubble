@@ -7,6 +7,12 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
+    // 엔진 기본 UI 폰트. ASCII 32~126, 8×14 셀, 16 열.
+    constexpr const wchar_t* kUIFontPath = L"assets/textures/font_8x14.png";
+    constexpr int kUIFontCellW   = 8;
+    constexpr int kUIFontCellH   = 14;
+    constexpr int kUIFontColumns = 16;
+
     // 뷰포트를 채우는 작은 도우미.
     // MinDepth/MaxDepth 를 0/1 로 넣지 않으면 깊이 범위가 0 이 되어
     // 아무것도 그려지지 않는다. 에러도 안 나므로 찾기가 매우 어렵다.
@@ -109,6 +115,11 @@ bool Renderer::Initialize(HWND hwnd, int windowWidth, int windowHeight,
 
     if (!CreateWhitePixel())
         return false;
+
+    // 폰트는 없어도 게임은 돌아간다. 실패해도 죽이지 않고 경고만 남긴다.
+    // (BitmapFont::Draw 는 텍스처가 없으면 조용히 아무것도 안 한다)
+    if (!m_uiFont.Load(*this, kUIFontPath, kUIFontCellW, kUIFontCellH, kUIFontColumns))
+        Log::Warn("[D3D] UI 폰트 로드 실패 — 텍스트가 표시되지 않는다");
 
     const RECT dst = ComputeCanvasDestRect();
     Log::Info("[D3D] 준비 완료  캔버스 {}x{} -> 화면 {}x{} (표시 영역 {},{} ~ {},{})",
@@ -438,6 +449,26 @@ void Renderer::DrawFilledRect(const AABB& box, DirectX::FXMVECTOR color)
         static_cast<LONG>(box.bottom)
     };
     m_spriteBatch->Draw(m_whitePixel.Get(), dst, color);
+}
+
+
+void Renderer::DrawString(std::string_view text, float x, float y,
+                          DirectX::FXMVECTOR color, int scale)
+{
+    m_uiFont.Draw(*this, text, x, y, color, scale);
+}
+
+
+void Renderer::DrawStringCentered(std::string_view text, float centerX, float y,
+                                  DirectX::FXMVECTOR color, int scale)
+{
+    m_uiFont.DrawCentered(*this, text, centerX, y, color, scale);
+}
+
+
+float Renderer::MeasureString(std::string_view text, int scale) const
+{
+    return m_uiFont.MeasureWidth(text, scale);
 }
 
 

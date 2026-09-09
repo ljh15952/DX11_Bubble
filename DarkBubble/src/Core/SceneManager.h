@@ -51,6 +51,12 @@ public:
     bool   Empty() const { return m_stack.empty(); }
     size_t Depth() const { return m_stack.size(); }
 
+    // 맨 위 Scene 의 이름. 비어 있으면 "-". 디버그 표시용.
+    const char* TopName() const
+    {
+        return m_stack.empty() ? "-" : m_stack.back()->Name();
+    }
+
 private:
     enum class Op { None, Replace, Push, Pop, Clear };
 

@@ -42,6 +42,7 @@ public:
     bool CancelPressed()      const;   // Esc / 패드 B
     bool AttackPressed()      const;   // Space / 패드 A
     bool DebugTogglePressed() const;   // F1 — 히트박스 표시 on/off
+    bool StatsTogglePressed() const;   // F3 — FPS / 틱 오버레이 on/off
 
 private:
     std::unique_ptr<DirectX::Keyboard> m_keyboard;
