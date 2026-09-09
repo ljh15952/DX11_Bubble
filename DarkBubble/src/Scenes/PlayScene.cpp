@@ -4,6 +4,7 @@
 #include "Core/Constants.h"
 #include "Core/Log.h"
 #include "Core/SceneManager.h"
+#include "Graphics/Assets.h"
 #include "Graphics/Renderer.h"
 #include "Input/Input.h"
 
@@ -42,7 +43,9 @@ namespace
 
 bool PlayScene::Enter(SceneContext& ctx)
 {
-    m_sheet = ctx.renderer.LoadTexture(L"assets/textures/sheet.png");
+    // ★ Renderer 가 아니라 Assets 를 통해 얻는다.
+    //   두 번째부터는 디스크를 읽지 않고 캐시에서 나온다.
+    m_sheet = ctx.assets.Texture(L"assets/textures/sheet.png");
     if (!m_sheet)
         return false;   // ★ 실패를 돌려주면 SceneManager 가 전환을 취소한다
 

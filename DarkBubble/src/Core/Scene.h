@@ -33,15 +33,21 @@
 class Renderer;
 class Input;
 class SceneManager;
+class Assets;
 
 
 // Scene 이 일할 때 필요한 것들을 한 다발로 묶어 넘긴다.
 // 참조로 들고 있으므로 Game 보다 오래 살아서는 안 된다.
+//
+// 새 시스템(사운드 등)이 늘어나면 여기에 한 줄 추가하면 된다.
+// 전역 싱글턴이었다면 "어디서 누가 쓰는지" 를 알 수 없지만,
+// 이 구조에서는 이 목록이 곧 Scene 이 접근할 수 있는 것의 전부다.
 struct SceneContext
 {
     Renderer&     renderer;
     const Input&  input;
     SceneManager& scenes;
+    Assets&       assets;
 };
 
 

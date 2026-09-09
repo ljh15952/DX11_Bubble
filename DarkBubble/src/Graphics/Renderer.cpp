@@ -432,6 +432,22 @@ void Renderer::EndFrame()
 
     m_spriteBatch->End();
 
+    // ★ 캔버스 텍스처를 픽셀 셰이더 입력에서 풀어 준다.
+    //
+    //   SpriteBatch::End() 는 그리기만 끝낼 뿐 바인딩을 해제하지 않는다.
+    //   그대로 두면 캔버스가 PS 입력에 묶인 채 프레임이 끝나고,
+    //   다음 프레임의 BeginFrame 이 같은 텍스처를 렌더 타겟으로 삼으려다
+    //   "입력과 출력에 동시에 묶였다" 는 해저드 경고를 낸다.
+    //
+    //     D3D11 WARNING: ... is still bound on input! [DEVICE_OMSETRENDERTARGETS_HAZARD]
+    //     D3D11 WARNING: Forcing PS shader resource slot 0 to NULL.
+    //
+    //   D3D 가 알아서 풀어 주므로 화면은 정상이지만, 매 프레임 경고가 쌓여
+    //   진짜 경고가 묻힌다. 같은 리소스를 입력과 출력으로 동시에 쓸 수 없다는
+    //   규칙은 렌더 타겟을 텍스처로 재활용하는 구조에서 항상 따라다닌다.
+    ID3D11ShaderResourceView* nullSRV[] = { nullptr };
+    m_context->PSSetShaderResources(0, 1, nullSRV);
+
     // SyncInterval: 0 = 즉시(테어링 발생, fps 무제한)
     //               1 = 다음 수직 동기까지 대기 = 60fps 고정
     //               2 = 두 번째 동기까지 = 30fps

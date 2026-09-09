@@ -27,19 +27,28 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
     }
 
     m_input.Initialize();
+    m_assets.Initialize(m_renderer);
 
     Log::Info("[game] 초기화 완료");
     return true;
 }
 
 
+// ----------------------------------------------------------------------------
+//  Shutdown
+//    ★ 해제 순서가 중요하다. 텍스처를 참조하는 쪽부터 놓아야 한다.
+//
+//      Scene (텍스처 참조)  →  Assets (캐시)  →  Renderer (D3D 디바이스)
+//
+//    거꾸로 하면 디바이스가 사라진 뒤에 텍스처를 해제하게 된다.
+// ----------------------------------------------------------------------------
 void Game::Shutdown()
 {
-    // Scene 들이 텍스처를 들고 있으므로 Renderer 보다 먼저 비운다.
-    SceneContext ctx{ m_renderer, m_input, m_scenes };
+    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets };
     m_scenes.Clear();
     m_scenes.ApplyPending(ctx);
 
+    m_assets.Clear();
     m_renderer.Shutdown();
 }
 
@@ -54,7 +63,7 @@ int Game::Run()
     using Clock = std::chrono::steady_clock;
 
     // Scene 이 일할 때 필요한 것들. 참조만 담으므로 한 번 만들어 계속 쓴다.
-    SceneContext ctx{ m_renderer, m_input, m_scenes };
+    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets };
 
     // 첫 Scene 을 올린다. 요청은 지연되므로 여기서 한 번 적용해 준다.
     m_scenes.Replace(std::make_unique<TitleScene>());
@@ -156,14 +165,16 @@ void Game::DrawStatsOverlay()
     const std::string text = std::format(
         "FPS {:5.1f}  FRAME {:5.2f}ms\n"
         "TICK {}\n"
-        "SCENE {} (depth {})",
+        "SCENE {} (depth {})\n"
+        "TEX {}  load {} / hit {}",
         m_fps, m_lastFrameMs,
         m_tickCount,
-        m_scenes.TopName(), m_scenes.Depth());
+        m_scenes.TopName(), m_scenes.Depth(),
+        m_assets.Count(), m_assets.LoadCount(), m_assets.HitCount());
 
     // 글자가 배경에 묻히지 않게 반투명 판을 먼저 깐다
     const float w = m_renderer.MeasureString(text, 1);
-    const float h = static_cast<float>(m_renderer.Font().CellHeight() * 3);
+    const float h = static_cast<float>(m_renderer.Font().CellHeight() * 4);
     m_renderer.DrawFilledRect(
         AABB::FromXYWH(2.0f, 2.0f, w + 8.0f, h + 6.0f),
         DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.55f));

@@ -12,6 +12,7 @@
 
 #include "Core/Window.h"
 #include "Core/SceneManager.h"
+#include "Graphics/Assets.h"
 #include "Graphics/Renderer.h"
 #include "Input/Input.h"
 
@@ -29,6 +30,7 @@ private:
     Window       m_window;
     Renderer     m_renderer;
     Input        m_input;
+    Assets       m_assets;
     SceneManager m_scenes;
 
     // 게임 시작 이후 흐른 틱 수. 로그에 찍혀서 시간 순서를 보여준다.
