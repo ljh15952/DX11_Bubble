@@ -529,8 +529,10 @@ private:
     //   적이 여러 마리가 되면 이것이 "이미 맞춘 대상 목록" 이 된다.
     bool m_hitThisSwing = false;
 
-    // F1 로 켜고 끄는 히트박스 표시.
-    bool m_showDebug = false;
+    // ★ 히트박스 표시 플래그는 여기 없다 — Renderer 가 가진다.
+    //   Scene 에 두면 토글을 틱 안에서 읽어야 하고, 그러면 프레임 정지 중에
+    //   F1 이 동작하지 않는다. 자세한 이유는 Renderer::DebugDraw 주석 참조.
+    //   그리는 쪽에서 renderer.DebugDraw() 를 읽는다.
 
     // 발소리 간격 카운터 (틱 단위)
     int m_stepCooldown = 0;

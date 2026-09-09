@@ -76,9 +76,32 @@ public:
                      DirectX::FXMVECTOR color = DirectX::Colors::White, int scale = 1);
     void  DrawStringCentered(std::string_view text, float centerX, float y,
                              DirectX::FXMVECTOR color = DirectX::Colors::White, int scale = 1);
+
+    // ★ 폭과 높이가 짝으로 있어야 한다.
+    //   높이가 없어서 「줄 수 × 셀 높이」를 손으로 적는 코드가 생기고,
+    //   서식 문자열에 줄을 하나 추가하면 배경판만 조용히 어긋난다.
     float MeasureString(std::string_view text, int scale = 1) const;
+    float MeasureStringHeight(std::string_view text, int scale = 1) const;
 
     const BitmapFont& Font() const { return m_uiFont; }
+
+    // ---- 디버그 그리기 (F1) ----
+    //   ★ 이 플래그가 Scene 이 아니라 여기 있는 이유:
+    //
+    //     Scene 에 두면 토글을 Scene::Update(= 틱) 안에서 읽어야 하는데,
+    //     엣지 입력은 틱이 0회 도는 프레임에서 사라진다.
+    //     그래서 프레임 정지( , ) 중에는 F1 이 **아예 동작하지 않았다** —
+    //     멈춘 화면에서 히트박스를 보는 것이 F1 의 주 용도인데도.
+    //
+    //     반대로 이것은 「표시 설정」이므로 틱과 아무 관계가 없다.
+    //     Game 이 F3 처럼 프레임당 1회 토글하면 정지 중에도 즉시 반응한다.
+    //
+    //     Renderer 가 가진 것이 자연스러운 이유:
+    //       ① Render / RenderUI 양쪽에서 접근 가능한 유일한 객체다
+    //          (Scene::Render 는 의도적으로 Renderer 만 받는다)
+    //       ② 디버그 그리기 수단(DrawRectOutline 등)을 이미 소유하고 있다
+    bool DebugDraw() const      { return m_debugDraw; }
+    void SetDebugDraw(bool on)  { m_debugDraw = on; }
 
 private:
     bool CreateBackBufferTarget();
@@ -114,4 +137,10 @@ private:
     int m_windowH = 0;
     int m_canvasW  = 0;
     int m_canvasH  = 0;
+
+    bool m_debugDraw = false;   // F1. Game 이 토글하고 Scene 이 읽는다
+
+    // 백버퍼 RTV 분실 경고를 한 번만 찍기 위한 표시.
+    // 매 프레임 찍으면 초당 60줄이 쌓여 진짜 로그가 묻힌다.
+    bool m_reportedNoBackBuffer = false;
 };

@@ -1,4 +1,5 @@
 ﻿#include "Core/Window.h"
+#include "Core/Constants.h"
 #include "Input/Input.h"
 
 namespace
@@ -67,9 +68,14 @@ LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_GETMINMAXINFO:
     {
-        // 캔버스(640×360)보다 작아지면 화면이 잘리므로 최소 크기를 강제한다.
+        // 캔버스보다 작아지면 화면이 잘리므로 최소 크기를 강제한다.
         // 여기서 넘어오는 값은 창 전체 크기라서 테두리만큼 보정이 필요하다.
-        RECT rc = { 0, 0, 640, 360 };
+        //
+        // ★ 숫자를 여기 적지 않는다. Constants.h 가
+        //   「여기 말고 다른 곳에 흩어놓지 않는다」고 선언한 값이다.
+        //   하드코딩해 두면 내부 해상도를 바꿨을 때 최소 창 크기만
+        //   조용히 옛 값으로 남는다.
+        RECT rc = { 0, 0, Config::kCanvasWidth, Config::kCanvasHeight };
         AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
         auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
         mmi->ptMinTrackSize.x = rc.right - rc.left;

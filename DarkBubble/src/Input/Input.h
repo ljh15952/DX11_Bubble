@@ -59,16 +59,18 @@ public:
     bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
     bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
 
+    // ★ F2 는 디버그 키인데 **여기**에 있다.
+    //   바꾸는 대상(장착 중인 방어구)이 게임 상태라서 틱 안에서 처리해야 하고,
+    //   그러면 틱이 0회 도는 프레임에서 사라지므로 누적이 필요하다.
+    //
+    //   「어느 키인가」가 아니라 **「무엇을 바꾸는가」**로 자리가 정해진다.
+    //     게임 상태를 바꾼다  -> 여기(누적 엣지). 틱 안에서 소비
+    //     표시만 바꾼다       -> 아래(엔진 키). Game 이 프레임당 1회
+    bool ArmorSwapPressed() const { return m_edges.armorSwap; }   // F2 (임시)
+
     // ---- 디버그 / 엔진 키 ----
     //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
     bool DebugTogglePressed()  const;  // F1  — 히트박스 표시
-
-    // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키다.
-    //   분기가 둘인 시스템은 둘 다 봐야 이해된다 —
-    //   「같은 공격에 한 번은 튕겨나가고 한 번은 그대로 서서 휘두른다」.
-    //   6단계에서 진짜 장비 시스템이 오면 이 키는 버린다.
-    bool ArmorSwapPressed()    const;  // F2  — 갑옷 갈아입기 (임시)
-
     bool StatsTogglePressed()  const;  // F3  — FPS / 틱 오버레이
     bool FreezeTogglePressed() const;  // ,   — 프레임 정지
     bool StepPressed()         const;  // .   — 1 틱 전진
@@ -94,6 +96,10 @@ private:
         bool attack  = false;
         bool roll    = false;
         bool pause   = false;
+
+        // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키.
+        //   6단계에서 진짜 장비 시스템이 오면 버린다.
+        bool armorSwap = false;
     };
     Edges m_edges;
 };

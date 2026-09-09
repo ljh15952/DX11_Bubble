@@ -136,6 +136,7 @@ void SceneManager::ApplyPending(SceneContext& ctx)
 
 void SceneManager::UpdateStack(SceneContext& ctx, bool consumeEdgeInput)
 {
+    // FirstVisibleIndex 와 같은 이유로 여기서도 먼저 막는다.
     if (m_stack.empty())
         return;
 
@@ -153,6 +154,14 @@ void SceneManager::UpdateStack(SceneContext& ctx, bool consumeEdgeInput)
 
 size_t SceneManager::FirstVisibleIndex() const
 {
+    // ★ 빈 스택 방어.
+    //   size() 는 size_t(부호 없음)이므로 0 - 1 은 SIZE_MAX 가 되고,
+    //   그 값으로 m_stack[first] 를 읽으면 그 자리에서 죽는다.
+    //   호출자 두 곳이 지금은 empty() 를 먼저 보지만,
+    //   함수 자신이 안전해야 나중에 세 번째 호출자가 생겨도 문제가 없다.
+    if (m_stack.empty())
+        return 0;
+
     size_t first = m_stack.size() - 1;
     while (first > 0 && m_stack[first]->DrawsBelow())
         --first;

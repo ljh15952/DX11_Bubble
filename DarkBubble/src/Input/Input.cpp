@@ -46,6 +46,10 @@ void Input::Poll()
     //   패드 B 가 구르기이므로, B 로 일시정지가 같이 걸리면 안 된다.
     m_edges.pause   |= m_kbTracker.pressed.Escape
                     || m_padTracker.start == PadTracker::PRESSED;
+
+    // ★ F2 도 누적한다. 이유는 Input.h 의 선언부 주석 참조 —
+    //   게임 상태(장착 방어구)를 바꾸므로 틱 안에서 소비되어야 한다.
+    m_edges.armorSwap |= m_kbTracker.pressed.F2;
 }
 
 
@@ -88,7 +92,6 @@ Input::MoveIntent Input::Move() const
 //   , . / 는 키보드에서 나란히 있고 게임플레이에 쓰이지 않는다.
 //   그리고 , . 는 영상 편집기의 프레임 이동 키와 같은 관례다.
 bool Input::DebugTogglePressed()  const { return m_kbTracker.pressed.F1; }
-bool Input::ArmorSwapPressed()    const { return m_kbTracker.pressed.F2; }
 bool Input::StatsTogglePressed()  const { return m_kbTracker.pressed.F3; }
 bool Input::FreezeTogglePressed() const { return m_kbTracker.pressed.OemComma;    }   // ,
 bool Input::StepPressed()         const { return m_kbTracker.pressed.OemPeriod;   }   // .

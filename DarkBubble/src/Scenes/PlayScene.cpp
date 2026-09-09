@@ -375,7 +375,18 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
 
     case PlayerState::Run:
         m_playerAnim.Play(kRunClip);
-        m_stepCooldown = 0;   // 달리기 시작하자마자 첫 발소리
+
+        // ★ 여기서 m_stepCooldown 을 0 으로 되돌리면 안 된다.
+        //
+        //   Idle/Run 처리는 UpdateMovement 를 **먼저** 부르고 ChangeState 를
+        //   나중에 부른다. 그래서 움직이기 시작한 그 틱에 이미
+        //   UpdateMovement 가 발소리를 내고 쿨다운을 15로 채워 놓았다.
+        //   여기서 0으로 되돌리면 **다음 틱에 또 울려** 1/60초 간격으로
+        //   발소리가 두 번 난다. 「살짝 두꺼운 한 번」으로 들려서 눈치채기 어렵다.
+        //
+        //   「달리기 시작하자마자 첫 발소리」는 UpdateMovement 의
+        //   `else { m_stepCooldown = 0; }` (= 멈춰 있는 동안 0으로 유지)가
+        //   이미 보장한다. 같은 일을 두 곳에서 하고 있었던 것이다.
         break;
 
     case PlayerState::Attack:
@@ -724,14 +735,12 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
             ctx.scenes.Push(std::make_unique<PauseScene>());
         }
 
-        if (ctx.input.DebugTogglePressed())
-        {
-            m_showDebug = !m_showDebug;
-            Log::Info("[play] 히트박스 표시 {}", m_showDebug ? "ON" : "OFF");
-        }
-
-        // ★ 임시 키. 강인도의 두 분기를 눈으로 비교하기 위한 것이다.
-        //   같은 공격에 CLOTH 는 튕겨나가고 PLATE 는 그대로 서서 휘두른다.
+        // ★ F1(히트박스 표시)은 여기 없다. Game 이 프레임당 1회 처리한다 —
+        //   표시 설정은 틱과 무관하고, 틱 안에서 읽으면 프레임 정지 중에 사라진다.
+        //
+        //   F2 는 반대다. 장착 방어구는 **게임 상태**이므로 틱 안에서 바꿔야 하고,
+        //   그래서 Input 이 ConsumeEdges 까지 붙잡아 두는 누적 엣지를 쓴다.
+        //   「어느 키인가」가 아니라 「무엇을 바꾸는가」가 자리를 정한다.
         if (ctx.input.ArmorSwapPressed())
         {
             m_armorIndex = (m_armorIndex + 1) % kArmorCount;
@@ -1300,7 +1309,7 @@ void PlayScene::Render(Renderer& renderer)
         fx);
 
     // ---- 디버그 표시 (F1) ----
-    if (m_showDebug)
+    if (renderer.DebugDraw())
     {
         renderer.DrawRectOutline(SpriteBounds(), DirectX::Colors::SlateGray);
 
@@ -1476,16 +1485,15 @@ void PlayScene::RenderUI(Renderer& renderer)
                 : DirectX::Colors::Orange, 1);
     }
 
-    if (m_showDebug)
+    // ★ 디버그 표시를 한 블록으로 모았다. if 가 두 번 있으면
+    //   조건을 바꿀 때 한쪽만 고치는 일이 생긴다.
+    if (renderer.DebugDraw())
     {
         renderer.DrawString(
             std::format("stam {:6.1f} / {:.0f}   regen delay {:2}",
                         m_stamina.current, kStaminaMax, m_stamina.delay),
             6.0f, 20.0f, DirectX::Colors::Gainsboro, 1);
-    }
 
-    if (m_showDebug)
-    {
         // HP 바가 -38 로 들어왔으므로 범례를 위로 올린다.
         renderer.DrawString("green/blue/yellow=hurtbox  red=my hit  orange=enemy hit",
                             6.0f, Config::kCanvasHeight - 66.0f,

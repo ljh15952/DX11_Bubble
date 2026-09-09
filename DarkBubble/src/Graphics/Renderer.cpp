@@ -176,6 +176,10 @@ bool Renderer::OnResize(int windowWidth, int windowHeight)
     if (!CreateBackBufferTarget())
         return false;
 
+    // 복구됐으므로 「한 번만 경고」 표시를 되돌린다.
+    // 안 되돌리면 나중에 또 잃었을 때 아무 말도 남지 않는다.
+    m_reportedNoBackBuffer = false;
+
     const RECT dst = ComputeCanvasDestRect();
     Log::Info("[D3D] 창 {}x{} -> 표시 영역 {},{} ~ {},{}  (배율 x{})",
               m_windowW, m_windowH, dst.left, dst.top, dst.right, dst.bottom,
@@ -432,7 +436,14 @@ void Renderer::EndFrame()
     // 그대로 진행하면 ClearRenderTargetView(nullptr) 로 죽는다.
     if (!m_backBufferRTV)
     {
-        Log::Error("[D3D] 백버퍼 RTV 가 없다 — 이 프레임은 표시하지 않는다");
+        // ★ 한 번만 찍는다. 매 프레임 찍으면 초당 60줄이 쌓여
+        //   정작 원인이 된 앞쪽 로그가 스크롤 밖으로 밀려난다.
+        if (!m_reportedNoBackBuffer)
+        {
+            m_reportedNoBackBuffer = true;
+            Log::Error("[D3D] 백버퍼 RTV 가 없다 — 이후 프레임은 표시하지 않는다 "
+                       "(이 경고는 한 번만 표시된다)");
+        }
         return;
     }
 
@@ -516,6 +527,12 @@ void Renderer::DrawStringCentered(std::string_view text, float centerX, float y,
 float Renderer::MeasureString(std::string_view text, int scale) const
 {
     return m_uiFont.MeasureWidth(text, scale);
+}
+
+
+float Renderer::MeasureStringHeight(std::string_view text, int scale) const
+{
+    return m_uiFont.MeasureHeight(text, scale);
 }
 
 

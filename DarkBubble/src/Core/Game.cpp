@@ -141,6 +141,21 @@ int Game::Run()
             Log::Info("[game] 통계 오버레이 {}", m_showStats ? "ON" : "OFF");
         }
 
+        // ★ 히트박스 표시도 여기서 처리한다.
+        //
+        //   전에는 PlayScene::Update(= 틱) 안에 있었는데, 엣지 입력은
+        //   틱이 0회 도는 프레임에서 사라진다. 그래서
+        //     · 프레임 정지( , ) 중에는 100% 무시되고        ← 가장 필요한 순간
+        //     · 60Hz 초과 모니터에서는 절반 이상 씹혔다
+        //       (Present(1,0) 이 144fps 로 도는데 틱은 60/초 뿐)
+        //
+        //   표시 설정은 틱과 무관하므로 여기가 제자리다. F3 와 같은 취급.
+        if (m_input.DebugTogglePressed())
+        {
+            m_renderer.SetDebugDraw(!m_renderer.DebugDraw());
+            Log::Info("[game] 히트박스 표시 {}", m_renderer.DebugDraw() ? "ON" : "OFF");
+        }
+
         // ---- 프레임 정지 / 스테핑 ----
         //   ★ PauseScene 과는 다른 것이다.
         //     PauseScene 은 게임 기능이라 PlayScene 만 멈추지만,
@@ -270,9 +285,11 @@ void Game::DrawStatsOverlay()
         m_scenes.TopName(), m_scenes.Depth(),
         m_assets.Count(), m_assets.LoadCount(), m_assets.HitCount());
 
-    // 글자가 배경에 묻히지 않게 반투명 판을 먼저 깐다
+    // 글자가 배경에 묻히지 않게 반투명 판을 먼저 깐다.
+    // ★ 높이를 손으로 세지 않는다. 위 서식 문자열에 줄을 하나 추가했을 때
+    //   배경판만 조용히 어긋나는 것을 막는다.
     const float w = m_renderer.MeasureString(text, 1);
-    const float h = static_cast<float>(m_renderer.Font().CellHeight() * 4);
+    const float h = m_renderer.MeasureStringHeight(text, 1);
     m_renderer.DrawFilledRect(
         AABB::FromXYWH(2.0f, 2.0f, w + 8.0f, h + 6.0f),
         DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.55f));
