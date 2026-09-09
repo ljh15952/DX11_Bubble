@@ -34,11 +34,14 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
 
     // ---- 임시 플레이어. 나중에 제대로 된 엔티티로 바뀐다 ----
-    //   좌표는 캔버스(640x360) 기준.
+    //   좌표는 캔버스(640x360) 기준이고,
+    //   ★ x / y 는 스프라이트의 좌상단이 아니라 "발밑 가운데" 다.
     struct Player
     {
-        float x =  50.0f;
-        float y = 150.0f;
+        float x      = 120.0f;
+        float y      = 260.0f;
+        int   facing = 1;     // +1 = 오른쪽, -1 = 왼쪽
+        int   flash  = 0;     // 남은 번쩍임 틱
     };
     Player          m_player;
     AnimationPlayer m_playerAnim;

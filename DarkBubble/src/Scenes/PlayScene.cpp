@@ -32,17 +32,38 @@ namespace
     constexpr float kPlayerSpeedPerSec  = 150.0f;                      // 640 폭을 약 4.3 초에 횡단
     constexpr float kPlayerSpeedPerTick = kPlayerSpeedPerSec / 60.0f;  // 틱당 2.5 픽셀
 
-    // 히트박스 오프셋. 64×64 스프라이트 안의 24×40 영역.
-    constexpr float kHitOffsetX = 20.0f;
-    constexpr float kHitOffsetY = 12.0f;
-    constexpr float kHitWidth   = 24.0f;
-    constexpr float kHitHeight  = 40.0f;
+    // ---- 원점(피벗) : 스프라이트 안에서 "발밑 가운데" ----
+    //   ★ 이 값을 Draw 의 origin 으로 넘기면 m_player.x / y 가
+    //     스프라이트의 좌상단이 아니라 캐릭터의 발 위치를 뜻하게 된다.
+    //
+    //     좌상단 기준                  발밑 기준
+    //       ●────────┐                 ┌────────┐
+    //       │  캐릭터 │                 │  캐릭터 │
+    //       └────────┘                 └───●────┘
+    //
+    //   바닥에 세우기 / 크기가 다른 적을 섞기 / 그림자 붙이기 / y 정렬이
+    //   전부 보정 없이 된다. 단위는 소스 셀 안의 픽셀이다(화면 픽셀이 아니다).
+    constexpr float kOriginX = kCellW * 0.5f;    // 32
+    constexpr float kOriginY = static_cast<float>(kCellH);   // 64 = 셀의 아래 끝
+
+    // ---- 히트박스 : 발밑 기준의 상대 좌표 ----
+    //   스프라이트(64×64)보다 훨씬 작다. 여백까지 판정에 넣으면
+    //   "안 맞았는데 맞았다" 가 되어 소울라이크의 재미가 사라진다.
+    constexpr float kHitHalfWidth = 12.0f;   // 좌우로 각각 12 → 폭 24
+    constexpr float kHitHeight    = 40.0f;
+    constexpr float kHitFootGap   = 12.0f;   // 발끝에서 히트박스 아래변까지
 
     // 아날로그 스틱은 완전히 0 이 되지 않으므로 여유를 둔다.
     constexpr float kMoveEpsilon = 0.01f;
 
     // 발소리 간격. 틱 단위라 어느 PC 에서도 같은 리듬이 된다.
     constexpr int kStepIntervalTicks = 18;   // 0.3 초
+
+    // 피격/공격 시 붉게 번쩍이는 시간.
+    //   ※ color 인자는 "곱셈" 이라 원본보다 밝게는 못 만든다.
+    //     흰색 번쩍이 필요하면 가산 블렌드로 한 번 더 그려야 한다.
+    //     어두운 분위기의 게임이라 붉은 틴트로 충분하다.
+    constexpr int kFlashTicks = 9;           // 0.15 초
 
     // 같은 효과음을 그대로 반복하면 기계처럼 들린다.
     // 피치를 조금씩 흔들면 훨씬 자연스러워진다. 게임 오디오의 기본 기법.
@@ -79,9 +100,19 @@ bool PlayScene::Enter(SceneContext& ctx)
 
 void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 {
+    // 번쩍임 타이머는 매 틱 줄인다. 엣지 입력과 무관하게 시간이 흘러야 한다.
+    if (m_player.flash > 0)
+        --m_player.flash;
+
     // ---- 지속 입력: 이동 ----
     const Input::MoveIntent move = ctx.input.Move();
     const bool moving = (std::abs(move.x) > kMoveEpsilon || std::abs(move.y) > kMoveEpsilon);
+
+    // ---- 바라보는 방향 ----
+    //   좌우 입력이 있을 때만 갱신한다. 위/아래로만 움직이거나 멈췄을 때
+    //   방향이 초기화되면 캐릭터가 홱 돌아보는 것처럼 보인다.
+    if (move.x < -kMoveEpsilon)      m_player.facing = -1;
+    else if (move.x > kMoveEpsilon)  m_player.facing = +1;
 
     // ---- 상태에 맞는 애니메이션 ----
     //   매 틱 Play() 를 불러도 괜찮다. 같은 클립이면 내부에서 무시하므로
@@ -109,10 +140,12 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     m_player.y += move.y * kPlayerSpeedPerTick;
 
     // 화면 밖으로 나가지 않게. 기준은 창이 아니라 캔버스다.
-    m_player.x = std::clamp(m_player.x, 0.0f,
-                            static_cast<float>(Config::kCanvasWidth)  - kCellW);
-    m_player.y = std::clamp(m_player.y, 0.0f,
-                            static_cast<float>(Config::kCanvasHeight) - kCellH);
+    // ★ 원점이 발밑이므로 경계값이 바뀌었다.
+    //   x 는 좌우로 셀의 절반, y 는 위로 셀 높이만큼 여유가 필요하다.
+    m_player.x = std::clamp(m_player.x, kOriginX,
+                            static_cast<float>(Config::kCanvasWidth) - kOriginX);
+    m_player.y = std::clamp(m_player.y, kOriginY,
+                            static_cast<float>(Config::kCanvasHeight));
 
     // ---- 충돌 판정 ----
     //   스프라이트 전체가 아니라 히트박스로 판정한다.
@@ -139,6 +172,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
         if (ctx.input.AttackPressed())
         {
+            m_player.flash = kFlashTicks;
             ctx.audio.Play("hit", 0.8f, RandomPitch(0.12f), PanFromX(m_player.x));
             Log::Info("[play] 공격 (나중에 여기에 상태머신이 들어간다)");
         }
@@ -146,17 +180,28 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 }
 
 
+// 원점이 발밑이므로, 스프라이트는 그 지점에서 위로/좌우로 펼쳐진다.
 AABB PlayScene::SpriteBounds() const
 {
-    return AABB::FromXYWH(m_player.x, m_player.y,
-                          static_cast<float>(kCellW), static_cast<float>(kCellH));
+    return {
+        m_player.x - kOriginX,
+        m_player.y - kOriginY,
+        m_player.x - kOriginX + kCellW,
+        m_player.y
+    };
 }
 
 
 AABB PlayScene::PlayerHitbox() const
 {
-    return AABB::FromXYWH(m_player.x + kHitOffsetX, m_player.y + kHitOffsetY,
-                          kHitWidth, kHitHeight);
+    // 발밑 기준의 상대 좌표라 좌우 반전과 무관하게 그대로 쓸 수 있다.
+    // (좌상단 기준이었다면 반전할 때 오프셋도 뒤집어야 했다)
+    return {
+        m_player.x - kHitHalfWidth,
+        m_player.y - kHitFootGap - kHitHeight,
+        m_player.x + kHitHalfWidth,
+        m_player.y - kHitFootGap
+    };
 }
 
 
@@ -168,11 +213,30 @@ void PlayScene::Render(Renderer& renderer)
         m_touching ? DirectX::Colors::Crimson : DirectX::Colors::DimGray);
 
     // ---- 플레이어 ----
-    //   지금 프레임에 해당하는 칸만 잘라 그린다.
-    //   좌표는 캔버스 기준(640x360). 화면으로의 확대는 Renderer 가 마지막에 한 번만.
+    //   Draw 의 인자를 전부 쓰는 곳이다.
+
+    // ④ color 는 곱셈이다. White(1,1,1,1) 를 곱하면 원본 그대로.
+    //    붉은 색을 곱하면 G·B 가 깎여 붉게 보인다.
+    DirectX::XMVECTOR tint = DirectX::Colors::White;
+    if (m_player.flash > 0)
+        tint = DirectX::XMVectorSet(1.0f, 0.35f, 0.30f, 1.0f);
+
+    // ⑧ effects 는 텍스처 좌표를 뒤집는다.
+    //    화면에서 차지하는 사각형은 그대로고 그림만 거울처럼 뒤집힌다.
+    const DirectX::SpriteEffects fx = (m_player.facing < 0)
+        ? DirectX::SpriteEffects_FlipHorizontally
+        : DirectX::SpriteEffects_None;
+
     const RECT src = m_playerAnim.SourceRect(kCellW, kCellH);
     renderer.Sprites().Draw(
-        m_sheet.Get(), DirectX::XMFLOAT2(m_player.x, m_player.y), &src);
+        m_sheet.Get(),
+        DirectX::XMFLOAT2(m_player.x, m_player.y),   // ② 발밑 위치
+        &src,                                        // ③ 시트의 어느 칸
+        tint,                                        // ④ 곱할 색
+        0.0f,                                        // ⑤ 회전(라디안)
+        DirectX::XMFLOAT2(kOriginX, kOriginY),       // ⑥ 원점 = 발밑 가운데
+        1.0f,                                        // ⑦ 확대
+        fx);                                         // ⑧ 좌우 반전
 
     // ---- 디버그 표시 (F1) ----
     if (m_showDebug)
@@ -182,9 +246,21 @@ void PlayScene::Render(Renderer& renderer)
         renderer.DrawRectOutline(PlayerHitbox(), DirectX::Colors::Lime, 2.0f);
         renderer.DrawRectOutline(m_obstacle,     DirectX::Colors::Yellow);
 
-        renderer.DrawString("HITBOX  gray=sprite  green=hit  yellow=obstacle",
+        // ★ 원점(발밑)을 십자로 표시한다.
+        //   m_player.x / y 가 실제로 어디를 가리키는지 눈으로 확인할 수 있다.
+        renderer.DrawFilledRect(
+            { m_player.x - 5.0f, m_player.y - 1.0f, m_player.x + 5.0f, m_player.y + 1.0f },
+            DirectX::Colors::Magenta);
+        renderer.DrawFilledRect(
+            { m_player.x - 1.0f, m_player.y - 5.0f, m_player.x + 1.0f, m_player.y + 5.0f },
+            DirectX::Colors::Magenta);
+
+        renderer.DrawString("gray=sprite  green=hitbox  magenta=origin(feet)",
                             6.0f, Config::kCanvasHeight - 34.0f,
                             DirectX::Colors::Lime, 1);
+        renderer.DrawString(m_player.facing < 0 ? "FACING <<" : "FACING >>",
+                            6.0f, Config::kCanvasHeight - 50.0f,
+                            DirectX::Colors::Gainsboro, 1);
     }
 
     renderer.DrawString(m_touching ? "TOUCHING" : "",
