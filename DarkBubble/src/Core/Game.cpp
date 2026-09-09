@@ -28,6 +28,14 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
 
     m_input.Initialize();
     m_assets.Initialize(m_renderer);
+    m_audio.Initialize();
+
+    // 공용 효과음. 지금은 몇 개뿐이라 여기서 다 읽는다.
+    // 종류가 늘어나면 Scene 마다 Enter 에서 필요한 것만 읽는 방식으로 옮기면 된다.
+    m_audio.Load("ui_confirm", L"assets/sounds/ui_confirm.wav");
+    m_audio.Load("ui_cancel",  L"assets/sounds/ui_cancel.wav");
+    m_audio.Load("hit",        L"assets/sounds/hit.wav");
+    m_audio.Load("step",       L"assets/sounds/step.wav");
 
     Log::Info("[game] 초기화 완료");
     return true;
@@ -44,11 +52,12 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
 // ----------------------------------------------------------------------------
 void Game::Shutdown()
 {
-    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets };
+    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets, m_audio };
     m_scenes.Clear();
     m_scenes.ApplyPending(ctx);
 
     m_assets.Clear();
+    m_audio.Shutdown();
     m_renderer.Shutdown();
 }
 
@@ -63,7 +72,7 @@ int Game::Run()
     using Clock = std::chrono::steady_clock;
 
     // Scene 이 일할 때 필요한 것들. 참조만 담으므로 한 번 만들어 계속 쓴다.
-    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets };
+    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets, m_audio };
 
     // 첫 Scene 을 올린다. 요청은 지연되므로 여기서 한 번 적용해 준다.
     m_scenes.Replace(std::make_unique<TitleScene>());
@@ -113,6 +122,11 @@ int Game::Run()
 
         // ③ 입력 폴링은 "프레임당 1회". Update 안에서 하면 안 된다.
         m_input.Poll();
+
+        // 오디오도 프레임당 1회. 끝난 소리를 정리하고 장치 분실을 복구한다.
+        // 틱 루프 안이 아니라 여기인 이유: 소리는 XAudio2 가 자기 스레드에서
+        // 흘려보내므로 게임 틱과 보조를 맞출 필요가 없다.
+        m_audio.Update();
 
         // 오버레이 토글은 Scene 과 무관한 엔진 기능이라 여기서 처리한다.
         // Poll 직후이므로 "방금 눌림" 이 정확히 한 번만 잡힌다.

@@ -34,6 +34,7 @@ class Renderer;
 class Input;
 class SceneManager;
 class Assets;
+class Audio;
 
 
 // Scene 이 일할 때 필요한 것들을 한 다발로 묶어 넘긴다.
@@ -48,6 +49,7 @@ struct SceneContext
     const Input&  input;
     SceneManager& scenes;
     Assets&       assets;
+    Audio&        audio;
 };
 
 

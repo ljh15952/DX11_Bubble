@@ -4,6 +4,7 @@
 #include "Core/Constants.h"
 #include "Core/Log.h"
 #include "Core/SceneManager.h"
+#include "Audio/Audio.h"
 #include "Graphics/Assets.h"
 #include "Graphics/Renderer.h"
 #include "Input/Input.h"
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <random>
 
 namespace
 {
@@ -38,6 +40,25 @@ namespace
 
     // 아날로그 스틱은 완전히 0 이 되지 않으므로 여유를 둔다.
     constexpr float kMoveEpsilon = 0.01f;
+
+    // 발소리 간격. 틱 단위라 어느 PC 에서도 같은 리듬이 된다.
+    constexpr int kStepIntervalTicks = 18;   // 0.3 초
+
+    // 같은 효과음을 그대로 반복하면 기계처럼 들린다.
+    // 피치를 조금씩 흔들면 훨씬 자연스러워진다. 게임 오디오의 기본 기법.
+    float RandomPitch(float spread)
+    {
+        static std::mt19937 rng{ 12345 };
+        std::uniform_real_distribution<float> dist(-spread, spread);
+        return dist(rng);
+    }
+
+    // 화면 x 좌표를 스테레오 정위(-1 왼쪽 ~ +1 오른쪽)로 바꾼다.
+    float PanFromX(float x)
+    {
+        return std::clamp(x / static_cast<float>(Config::kCanvasWidth) * 2.0f - 1.0f,
+                          -1.0f, 1.0f);
+    }
 }
 
 
@@ -68,6 +89,22 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     m_playerAnim.Play(moving ? kRunClip : kIdleClip);
     m_playerAnim.Tick();
 
+    // ---- 발소리 ----
+    //   틱을 세어 일정 간격마다 울린다. 정지하면 카운터를 리셋해서
+    //   다시 걷기 시작할 때 곧바로 한 번 울리게 한다.
+    if (moving)
+    {
+        if (--m_stepCooldown <= 0)
+        {
+            m_stepCooldown = kStepIntervalTicks;
+            ctx.audio.Play("step", 0.5f, RandomPitch(0.15f), PanFromX(m_player.x));
+        }
+    }
+    else
+    {
+        m_stepCooldown = 0;
+    }
+
     m_player.x += move.x * kPlayerSpeedPerTick;
     m_player.y += move.y * kPlayerSpeedPerTick;
 
@@ -86,6 +123,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     {
         if (ctx.input.CancelPressed())
         {
+            ctx.audio.Play("ui_cancel");
             // ★ Push 다. Replace 가 아니다.
             //   PlayScene 이 그대로 살아 있어서 플레이어 위치와 애니메이션이 유지된다.
             //   그리고 이 요청은 지금 처리되지 않는다 — 틱 루프가 끝난 뒤에 적용된다.
@@ -100,7 +138,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         }
 
         if (ctx.input.AttackPressed())
+        {
+            ctx.audio.Play("hit", 0.8f, RandomPitch(0.12f), PanFromX(m_player.x));
             Log::Info("[play] 공격 (나중에 여기에 상태머신이 들어간다)");
+        }
     }
 }
 

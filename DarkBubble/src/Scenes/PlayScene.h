@@ -50,4 +50,7 @@ private:
     // F1 로 켜고 끄는 히트박스 표시.
     // 보이지 않는 것은 디버깅할 수 없다.
     bool m_showDebug = false;
+
+    // 발소리 간격 카운터 (틱 단위)
+    int m_stepCooldown = 0;
 };

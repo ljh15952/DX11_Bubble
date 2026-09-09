@@ -4,6 +4,7 @@
 #include "Core/Constants.h"
 #include "Core/Log.h"
 #include "Core/SceneManager.h"
+#include "Audio/Audio.h"
 #include "Graphics/Renderer.h"
 #include "Input/Input.h"
 
@@ -27,11 +28,13 @@ void TitleScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     if (ctx.input.ConfirmPressed())
     {
+        ctx.audio.Play("ui_confirm");
         // ★ Replace 다. 타이틀은 돌아올 필요가 없으므로 스택에서 사라진다.
         ctx.scenes.Replace(std::make_unique<PlayScene>());
     }
     else if (ctx.input.CancelPressed())
     {
+        ctx.audio.Play("ui_cancel");
         // 스택을 전부 비우면 Game 이 그것을 종료 신호로 받는다.
         ctx.scenes.Clear();
     }

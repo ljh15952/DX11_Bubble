@@ -3,6 +3,7 @@
 #include "Core/Constants.h"
 #include "Core/Log.h"
 #include "Core/SceneManager.h"
+#include "Audio/Audio.h"
 #include "Graphics/Renderer.h"
 #include "Input/Input.h"
 
@@ -25,7 +26,10 @@ void PauseScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     // Esc 로 들어왔으니 Esc 로 나간다. Enter 도 허용.
     if (ctx.input.CancelPressed() || ctx.input.ConfirmPressed())
+    {
+        ctx.audio.Play("ui_confirm");
         ctx.scenes.Pop();   // ★ Pop 이므로 PlayScene 이 그대로 되살아난다
+    }
 }
 
 
