@@ -39,6 +39,9 @@ enum class PlayerState
     Run,
     Attack,
 
+    // 구르기. 이동이 목적이 아니라 무적 프레임이 목적이다.
+    Roll,
+
     // ★ 스태미나가 0 미만으로 내려간 뒤의 경직.
     //   아무 입력도 받지 않는다. 회복될 때까지 완전히 무방비다.
     //
@@ -87,6 +90,35 @@ struct AttackData
 };
 
 
+// ============================================================================
+//  RollData — 구르기 프레임 데이터
+//
+//    공격과 구조가 똑같다. 이름만 다르다.
+//
+//      t0        windup           +invincible          +recovery
+//      │─ 준비 ─│──── ★무적★ ────│───── 후딜 ──────│
+//      │  맞는다 │    안 맞는다     │     맞는다        │
+//
+//    ★ 앞뒤가 취약한 것이 핵심이다.
+//      너무 일찍 굴리면 준비 구간에 맞고, 너무 늦으면 후딜에 맞는다.
+//      무적이 처음부터 끝까지 있으면 「구르기 연타 = 무적」이 되어 게임이 무너진다.
+//
+//      공격의 startup/active/recovery 와 완전히 같은 발상이다.
+//      하나를 이해하면 다른 하나가 공짜로 따라온다.
+// ============================================================================
+struct RollData
+{
+    int windup     = 4;    // 무적 전 (맞는다)
+    int invincible = 12;   // 무적 구간
+    int recovery   = 10;   // 후딜 (맞는다)
+
+    float distance    = 80.0f;   // 총 이동 거리 (캔버스 픽셀)
+    int   staminaCost = 30;      // 공격(28)보다 살짝 비싸다 = 구르기는 공짜가 아니다
+
+    int TotalTicks() const { return windup + invincible + recovery; }
+};
+
+
 class PlayScene final : public Scene
 {
 public:
@@ -124,6 +156,16 @@ private:
     // 지금 공격 판정이 존재하는가 (active 구간인가)
     bool AttackActive() const;
 
+    // 지금 무적인가 (구르기의 invincible 구간인가)
+    //
+    // ★ hurtbox 를 빈 사각형으로 만드는 방법도 있지만, 그러면 F1 에서
+    //   「지금 무적인가」를 눈으로 볼 수 없다. hurtbox 는 그대로 두고
+    //   판정하는 쪽에서 이것을 확인하면, 색만 바꿔서 표시할 수 있다.
+    bool Invincible() const;
+
+    // 구르기 이동. Roll 상태에서만 불린다.
+    void UpdateRoll();
+
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
 
     // ---- 임시 플레이어. 적이 등장하면 Gameplay/Character 로 뺀다 ----
@@ -134,6 +176,11 @@ private:
         float y      = 260.0f;
         int   facing = 1;     // +1 = 오른쪽, -1 = 왼쪽
         int   flash  = 0;     // 남은 번쩍임 틱 (피격 표현용)
+
+        // ★ 구르기 시작 시점에 고정되는 방향.
+        //   중간에 방향키를 바꿔도 무시된다 — 「한 번 구르면 끝까지 간다」.
+        float rollDirX = 1.0f;
+        float rollDirY = 0.0f;
     };
     Player          m_player;
     AnimationPlayer m_playerAnim;

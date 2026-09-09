@@ -50,9 +50,14 @@ public:
     //   Scene::Update 안(= 틱 안)에서 읽힌다. 그래서 ConsumeEdges 까지 붙잡아 둔다.
     //   메뉴용(Confirm/Cancel)과 게임플레이용(Attack)을 나눠 둔다.
     //   같은 물리 키를 쓰더라도 이름이 다르면 Scene 마다 의미가 분명해진다.
-    bool ConfirmPressed() const { return m_edges.confirm; }   // Enter / Space / 패드 A
-    bool CancelPressed()  const { return m_edges.cancel;  }   // Esc / 패드 B
-    bool AttackPressed()  const { return m_edges.attack;  }   // Space / 패드 A
+    //   메뉴용과 게임플레이용을 나눠 둔다. 같은 물리 키를 공유해도
+    //   이름이 다르면 Scene 마다 의미가 분명해지고, 나중에 키 재설정이 쉽다.
+    bool ConfirmPressed() const { return m_edges.confirm; }   // Enter / Space / 패드 A  (메뉴)
+    bool CancelPressed()  const { return m_edges.cancel;  }   // Esc / 패드 B            (메뉴)
+
+    bool AttackPressed()  const { return m_edges.attack;  }   // Space / 패드 A          (게임)
+    bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
+    bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
 
     // ---- 디버그 / 엔진 키 ----
     //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
@@ -80,6 +85,8 @@ private:
         bool confirm = false;
         bool cancel  = false;
         bool attack  = false;
+        bool roll    = false;
+        bool pause   = false;
     };
     Edges m_edges;
 };

@@ -30,6 +30,9 @@ namespace
     constexpr AnimationClip kIdleClip   { /*row*/ 0, /*frames*/ 4, /*ticks*/ 10, /*loop*/ true  };  //  6fps
     constexpr AnimationClip kRunClip    { /*row*/ 1, /*frames*/ 6, /*ticks*/  5, /*loop*/ true  };  // 12fps
     constexpr AnimationClip kAttackClip { /*row*/ 2, /*frames*/ 6, /*ticks*/  4, /*loop*/ false };  // 15fps
+    constexpr AnimationClip kRollClip   { /*row*/ 3, /*frames*/ 6, /*ticks*/  4, /*loop*/ false };  // 15fps
+    //   구르기는 24틱, 상태는 26틱 — 마지막 프레임(일어남)이 2틱 더 유지된다.
+    //   상태 길이는 프레임 데이터가 정하고 애니메이션이 거기에 맞춘다는 원칙 그대로다.
 
     // ---- 무기 프레임 데이터 ----
     //   ★ 6단계에서 이 값들이 weapons.json 으로 빠진다.
@@ -38,6 +41,13 @@ namespace
         /*startup*/  8,
         /*active*/   3,
         /*recovery*/ 13,     // 합계 24 틱 = 0.4 초
+    };
+
+    // ---- 구르기 프레임 데이터 ----
+    constexpr RollData kRoll{
+        /*windup*/      4,
+        /*invincible*/ 12,
+        /*recovery*/   10,   // 합계 26 틱 = 0.43 초
     };
 
     // ---- 플레이어 (임시) ----
@@ -92,6 +102,7 @@ namespace
         {
         case PlayerState::Run:       return "RUN";
         case PlayerState::Attack:    return "ATTACK";
+        case PlayerState::Roll:      return "ROLL";
         case PlayerState::Exhausted: return "EXHAUSTED";
         default:                     return "IDLE";
         }
@@ -102,6 +113,13 @@ namespace
     {
         if (t <  a.startup)            return "startup";
         if (t <  a.startup + a.active) return "ACTIVE";
+        return "recovery";
+    }
+
+    const char* RollPhase(int t, const RollData& r)
+    {
+        if (t <  r.windup)                return "windup";
+        if (t <  r.windup + r.invincible) return "INVINCIBLE";
         return "recovery";
     }
 }
@@ -115,7 +133,7 @@ bool PlayScene::Enter(SceneContext& ctx)
 
     m_playerAnim.Play(kIdleClip);
 
-    Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Esc = pause");
+    Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Shift = roll   Esc = pause");
     Log::Info("[play] F1 = hitbox   F3 = stats");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
     Log::Info("[play] TIP: , 로 멈춘 뒤 Space 를 누르고 . 로 한 틱씩 밟으면");
@@ -168,6 +186,32 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
         ctx.audio.Play("swing", 0.55f, RandomPitch(0.12f), PanFromX(m_player.x));
         break;
 
+    case PlayerState::Roll:
+    {
+        m_playerAnim.Play(kRollClip, true);
+
+        // ★ 방향을 여기서 고정한다.
+        //   입력이 있으면 그 방향, 없으면 바라보는 방향으로 굴러간다.
+        //   (입력이 없을 때 뒤로 빠지면 적을 통과할 수 없다)
+        const Input::MoveIntent mv = ctx.input.Move();
+        if (std::abs(mv.x) > kMoveEpsilon || std::abs(mv.y) > kMoveEpsilon)
+        {
+            m_player.rollDirX = mv.x;
+            m_player.rollDirY = mv.y;
+        }
+        else
+        {
+            m_player.rollDirX = static_cast<float>(m_player.facing);
+            m_player.rollDirY = 0.0f;
+        }
+
+        m_stamina.current -= static_cast<float>(kRoll.staminaCost);
+        m_stamina.delay    = kStaminaRegenDelay;
+
+        ctx.audio.Play("swing", 0.4f, -0.35f, PanFromX(m_player.x));   // 낮은 피치 = 구르는 소리
+        break;
+    }
+
     case PlayerState::Exhausted:
         // 지친 전용 애니메이션이 아직 없으므로 idle 을 쓰고 색으로 구분한다.
         m_playerAnim.Play(kIdleClip);
@@ -215,6 +259,40 @@ void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
 
 
 // ----------------------------------------------------------------------------
+//  UpdateRoll — 감속하며 미끄러진다
+//
+//    일정 속도로 움직이면 어색하다. 초반에 빠르고 끝에서 감속해야 구르기처럼 보인다.
+//    남은 틱 비율에 비례하는 속도를 주고, 총합이 distance 가 되도록 정규화한다.
+//    카메라 흔들림 감쇠와 같은 발상이다.
+//
+//      속도
+//       │▓▓▓▓▓▓
+//       │▓▓▓▓
+//       │▓▓
+//       └────────→ 틱
+// ----------------------------------------------------------------------------
+void PlayScene::UpdateRoll()
+{
+    const int total     = kRoll.TotalTicks();
+    const int remaining = total - m_stateTicks + 1;   // total .. 1
+    if (remaining <= 0)
+        return;
+
+    // 1 + 2 + ... + total = total * (total+1) / 2
+    const float weightSum = static_cast<float>(total) * (total + 1) * 0.5f;
+    const float step      = kRoll.distance * static_cast<float>(remaining) / weightSum;
+
+    m_player.x += m_player.rollDirX * step;
+    m_player.y += m_player.rollDirY * step;
+
+    m_player.x = std::clamp(m_player.x, kOriginX,
+                            static_cast<float>(Config::kCanvasWidth) - kOriginX);
+    m_player.y = std::clamp(m_player.y, kOriginY,
+                            static_cast<float>(Config::kCanvasHeight));
+}
+
+
+// ----------------------------------------------------------------------------
 //  UpdateStamina — 상태와 무관하게 매 틱
 // ----------------------------------------------------------------------------
 void PlayScene::UpdateStamina()
@@ -251,6 +329,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     const Input::MoveIntent move = ctx.input.Move();
     const bool moving = (std::abs(move.x) > kMoveEpsilon || std::abs(move.y) > kMoveEpsilon);
     const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
+    const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
 
     // ---- 상태별 처리 ----
     switch (m_state)
@@ -259,7 +338,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     case PlayerState::Run:
         UpdateMovement(ctx, move.x, move.y);
 
-        if (attackPressed)
+        // 구르기를 공격보다 먼저 본다. 둘이 동시에 눌리면 회피가 우선이다.
+        if (rollPressed)
+            ChangeState(ctx, PlayerState::Roll);
+        else if (attackPressed)
             ChangeState(ctx, PlayerState::Attack);
         else
             ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
@@ -300,6 +382,20 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         }
         break;
 
+    case PlayerState::Roll:
+        // ★ 이동 입력을 처리하지 않는다. 시작할 때 고정한 방향으로만 간다.
+        UpdateRoll();
+
+        if (m_stateTicks >= kRoll.TotalTicks())
+        {
+            // 구르기도 스태미나를 쓰므로 같은 고갈 규칙이 적용된다.
+            if (m_stamina.current < 0.0f)
+                ChangeState(ctx, PlayerState::Exhausted);
+            else
+                ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+        }
+        break;
+
     case PlayerState::Exhausted:
         // ★ 아무 입력도 처리하지 않는다. 완전히 무방비.
         //   상태 머신 덕분에 이 한 줄이 「모든 입력 처리에 !exhausted 를 붙이기」를
@@ -310,14 +406,19 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     }
 
     // ---- 상태와 무관한 판정 ----
-    m_touching = Intersects(PlayerHurtbox(), m_obstacle);
+    //   ★ 무적이면 몸 판정을 하지 않는다.
+    //     이것이 무적 프레임의 실체다 — 5-e 에서 적 공격을 이렇게 무시하게 된다.
+    m_touching = !Invincible() && Intersects(PlayerHurtbox(), m_obstacle);
+
     if (m_obstacleFlash > 0)
         --m_obstacleFlash;
 
     // ---- 상태와 무관한 엣지 입력 ----
     if (consumeEdgeInput)
     {
-        if (ctx.input.CancelPressed())
+        // 일시정지는 PausePressed 를 쓴다. 패드 B 가 구르기이므로
+        // CancelPressed 를 쓰면 구를 때마다 일시정지가 걸린다.
+        if (ctx.input.PausePressed())
         {
             ctx.audio.Play("ui_cancel");
             ctx.scenes.Push(std::make_unique<PauseScene>());
@@ -351,6 +452,17 @@ AABB PlayScene::PlayerHurtbox() const
         m_player.x + kHitHalfWidth,
         m_player.y - kHitFootGap
     };
+}
+
+
+bool PlayScene::Invincible() const
+{
+    if (m_state != PlayerState::Roll)
+        return false;
+
+    const RollData& r = kRoll;
+    return m_stateTicks >= r.windup
+        && m_stateTicks <  r.windup + r.invincible;
 }
 
 
@@ -399,6 +511,8 @@ void PlayScene::Render(Renderer& renderer)
     DirectX::XMVECTOR tint = DirectX::Colors::White;
     if (m_state == PlayerState::Exhausted)
         tint = DirectX::XMVectorSet(0.45f, 0.45f, 0.55f, 1.0f);   // 지쳐서 어둡게
+    else if (Invincible())
+        tint = DirectX::XMVectorSet(0.55f, 0.75f, 1.00f, 1.0f);   // 무적 = 푸르게
     else if (m_player.flash > 0)
         tint = DirectX::XMVectorSet(1.0f, 0.35f, 0.30f, 1.0f);
 
@@ -423,9 +537,14 @@ void PlayScene::Render(Renderer& renderer)
     // ---- 디버그 표시 (F1) ----
     if (m_showDebug)
     {
-        renderer.DrawRectOutline(SpriteBounds(),   DirectX::Colors::SlateGray);
-        renderer.DrawRectOutline(PlayerHurtbox(),  DirectX::Colors::Lime, 2.0f);
-        renderer.DrawRectOutline(m_obstacle,       DirectX::Colors::Yellow);
+        renderer.DrawRectOutline(SpriteBounds(), DirectX::Colors::SlateGray);
+
+        // ★ hurtbox 는 항상 그린다. 색만 바꿔서 무적을 보여 준다.
+        //   빈 사각형으로 만들었다면 이 표시가 사라져 「지금 무적인가」를 못 본다.
+        renderer.DrawRectOutline(PlayerHurtbox(),
+            Invincible() ? DirectX::Colors::DeepSkyBlue : DirectX::Colors::Lime, 2.0f);
+
+        renderer.DrawRectOutline(m_obstacle, DirectX::Colors::Yellow);
 
         // ★ 공격 히트박스 — active 구간에서만 나타난다.
         //   , 로 멈추고 . 로 밟으면 t8 에 나타나 t10 까지 있는 것을 볼 수 있다.
@@ -500,6 +619,16 @@ void PlayScene::RenderUI(Renderer& renderer)
                         a.startup, a.active, a.recovery),
             6.0f, 6.0f,
             AttackActive() ? DirectX::Colors::Red : DirectX::Colors::Orange, 1);
+    }
+    else if (m_state == PlayerState::Roll)
+    {
+        const RollData& r = kRoll;
+        renderer.DrawString(
+            std::format("STATE ROLL  t{:<3}{}   [{} {} {}]",
+                        m_stateTicks, RollPhase(m_stateTicks, r),
+                        r.windup, r.invincible, r.recovery),
+            6.0f, 6.0f,
+            Invincible() ? DirectX::Colors::DeepSkyBlue : DirectX::Colors::Orange, 1);
     }
     else
     {

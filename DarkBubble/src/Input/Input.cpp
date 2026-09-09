@@ -38,6 +38,14 @@ void Input::Poll()
 
     m_edges.attack  |= m_kbTracker.pressed.Space
                     || m_padTracker.a == PadTracker::PRESSED;
+
+    m_edges.roll    |= m_kbTracker.pressed.LeftShift
+                    || m_padTracker.b == PadTracker::PRESSED;
+
+    // ★ 일시정지를 Cancel 과 분리했다.
+    //   패드 B 가 구르기이므로, B 로 일시정지가 같이 걸리면 안 된다.
+    m_edges.pause   |= m_kbTracker.pressed.Escape
+                    || m_padTracker.start == PadTracker::PRESSED;
 }
 
 
