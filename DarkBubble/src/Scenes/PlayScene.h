@@ -20,7 +20,8 @@ public:
 
     bool Enter(SceneContext& ctx) override;
     void Update(SceneContext& ctx, bool consumeEdgeInput) override;
-    void Render(Renderer& renderer) override;
+    void Render(Renderer& renderer) override;     // 월드 : 캐릭터 · 장애물 · 히트박스
+    void RenderUI(Renderer& renderer) override;   // UI   : 안내 문구
 
 private:
     // 스프라이트가 차지하는 화면 영역 (64×64 전체)

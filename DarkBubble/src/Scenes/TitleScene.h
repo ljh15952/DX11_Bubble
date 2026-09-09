@@ -14,7 +14,10 @@ public:
 
     bool Enter(SceneContext& ctx) override;
     void Update(SceneContext& ctx, bool consumeEdgeInput) override;
-    void Render(Renderer& renderer) override;
+
+    // 메뉴 화면이라 월드에 그릴 것이 없다. UI 레이어만 쓴다.
+    void Render(Renderer&) override {}
+    void RenderUI(Renderer& renderer) override;
 
 private:
     int m_blinkTick = 0;

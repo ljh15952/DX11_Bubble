@@ -131,16 +131,35 @@ void SceneManager::UpdateStack(SceneContext& ctx, bool consumeEdgeInput)
 }
 
 
+size_t SceneManager::FirstVisibleIndex() const
+{
+    size_t first = m_stack.size() - 1;
+    while (first > 0 && m_stack[first]->DrawsBelow())
+        --first;
+    return first;
+}
+
+
 void SceneManager::RenderStack(Renderer& renderer)
 {
     if (m_stack.empty())
         return;
 
     // 그리기는 아래부터 위로. 위에 있는 것이 나중에 그려져 위에 덮인다.
-    size_t first = m_stack.size() - 1;
-    while (first > 0 && m_stack[first]->DrawsBelow())
-        --first;
-
+    const size_t first = FirstVisibleIndex();
     for (size_t i = first; i < m_stack.size(); ++i)
         m_stack[i]->Render(renderer);
+}
+
+
+void SceneManager::RenderUIStack(Renderer& renderer)
+{
+    if (m_stack.empty())
+        return;
+
+    // 월드와 같은 규칙으로 훑는다. 월드는 다 그린 뒤에 UI 를 한꺼번에 얹으므로
+    // Pause 의 어두운 판이 Play 의 UI 문구까지 덮는다 — 의도한 순서다.
+    const size_t first = FirstVisibleIndex();
+    for (size_t i = first; i < m_stack.size(); ++i)
+        m_stack[i]->RenderUI(renderer);
 }

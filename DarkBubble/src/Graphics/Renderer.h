@@ -42,10 +42,17 @@ public:
     // 이미지 파일을 읽어 SRV(셰이더 입력 뷰)를 돌려준다. 실패하면 nullptr.
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> LoadTexture(const wchar_t* path);
 
-    // BeginFrame : 패스 1 시작 — 캔버스 텍스처 바인딩, 뷰포트 640x360, 클리어
-    // EndFrame   : 패스 1 종료 후 패스 2 실행 — 확대해서 백버퍼에 그리고 Present
-    // 그 사이에 Sprites().Draw(...) 를 호출한다. 좌표는 캔버스 기준(640x360).
-    void BeginFrame();
+    // ---- 한 프레임의 흐름 ----
+    //   BeginFrame(view)  : 캔버스 바인딩 · 클리어 · **월드 레이어** 배치 시작
+    //                       view 행렬이 적용되므로 카메라·흔들림이 여기에만 걸린다
+    //   BeginUILayer()    : 월드 배치를 닫고 **UI 레이어** 배치 시작 (항등 행렬)
+    //   EndFrame()        : UI 배치를 닫고 패스 2(확대) 실행 후 Present
+    //
+    //   ★ 레이어를 나누는 이유:
+    //     체력 바나 대사 상자가 화면 흔들림을 같이 타면 고장난 것처럼 보인다.
+    //     카메라가 있는 게임은 예외 없이 이 구조를 가진다.
+    void BeginFrame(const DirectX::XMMATRIX& viewMatrix);
+    void BeginUILayer();
     void EndFrame();
 
     DirectX::SpriteBatch& Sprites() { return *m_spriteBatch; }

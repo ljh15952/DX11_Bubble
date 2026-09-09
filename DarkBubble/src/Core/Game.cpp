@@ -52,7 +52,7 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
 // ----------------------------------------------------------------------------
 void Game::Shutdown()
 {
-    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets, m_audio };
+    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets, m_audio, m_camera };
     m_scenes.Clear();
     m_scenes.ApplyPending(ctx);
 
@@ -72,7 +72,7 @@ int Game::Run()
     using Clock = std::chrono::steady_clock;
 
     // Scene 이 일할 때 필요한 것들. 참조만 담으므로 한 번 만들어 계속 쓴다.
-    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets, m_audio };
+    SceneContext ctx{ m_renderer, m_input, m_scenes, m_assets, m_audio, m_camera };
 
     // 첫 Scene 을 올린다. 요청은 지연되므로 여기서 한 번 적용해 준다.
     m_scenes.Replace(std::make_unique<TitleScene>());
@@ -142,6 +142,12 @@ int Game::Run()
         {
             Log::SetTick(++m_tickCount);
             m_scenes.UpdateStack(ctx, firstTickThisFrame);
+
+            // ★ Scene 갱신 "뒤" 에 카메라를 틱한다.
+            //   Scene 이 이번 틱에 Shake() 를 불렀다면 곧바로 반영되어야 한다.
+            //   앞에서 틱하면 흔들림이 한 틱 늦게 시작한다.
+            m_camera.Tick();
+
             firstTickThisFrame = false;
             accumulator -= Config::kTickSeconds;
         }
@@ -157,11 +163,16 @@ int Game::Run()
             continue;   // 다음 반복에서 WM_QUIT 를 받아 빠져나간다
         }
 
-        // ⑥ 그리기는 프레임당 1회
-        m_renderer.BeginFrame();
-        m_scenes.RenderStack(m_renderer);
+        // ⑥ 그리기는 프레임당 1회. 월드 → UI 순서.
+        m_renderer.BeginFrame(
+            m_camera.ViewMatrix(Config::kCanvasWidth, Config::kCanvasHeight));
+        m_scenes.RenderStack(m_renderer);       // 월드 (카메라·흔들림 적용)
+
+        m_renderer.BeginUILayer();
+        m_scenes.RenderUIStack(m_renderer);     // UI (카메라 무시)
         if (m_showStats)
-            DrawStatsOverlay();   // Scene 위에 항상 덮어 그린다
+            DrawStatsOverlay();                 // 오버레이도 UI 레이어. 흔들리면 못 읽는다
+
         m_renderer.EndFrame();
     }
 

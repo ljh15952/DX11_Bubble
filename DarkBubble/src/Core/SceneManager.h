@@ -46,7 +46,8 @@ public:
 
     // UpdatesBelow / DrawsBelow 를 따라 어디까지 처리할지 스스로 판단한다.
     void UpdateStack(SceneContext& ctx, bool consumeEdgeInput);
-    void RenderStack(Renderer& renderer);
+    void RenderStack(Renderer& renderer);     // 월드 레이어
+    void RenderUIStack(Renderer& renderer);   // UI 레이어
 
     bool   Empty() const { return m_stack.empty(); }
     size_t Depth() const { return m_stack.size(); }
@@ -69,6 +70,9 @@ private:
     void SetPending(Op op, std::unique_ptr<Scene> scene);
     void PushNow(SceneContext& ctx, std::unique_ptr<Scene> scene);
     void PopNow();
+
+    // DrawsBelow 를 따라 내려가, 실제로 그려야 하는 가장 아래 Scene 의 인덱스.
+    size_t FirstVisibleIndex() const;
 
     // 스택의 뒤쪽이 위(=화면에 가까운 쪽)다.
     std::vector<std::unique_ptr<Scene>> m_stack;

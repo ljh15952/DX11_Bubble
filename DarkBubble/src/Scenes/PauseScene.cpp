@@ -33,7 +33,7 @@ void PauseScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 }
 
 
-void PauseScene::Render(Renderer& renderer)
+void PauseScene::RenderUI(Renderer& renderer)
 {
     // ---- 화면 전체를 어둡게 ----
     //   알파 0.65 의 검정을 덮는다.

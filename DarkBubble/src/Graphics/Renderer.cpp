@@ -367,8 +367,9 @@ ComPtr<ID3D11ShaderResourceView> Renderer::LoadTexture(const wchar_t* path)
 
 // ----------------------------------------------------------------------------
 //  BeginFrame — 패스 1 시작. 게임은 저해상도 캔버스 텍스처에 그려진다.
+//               월드 레이어이므로 뷰 행렬(카메라 + 흔들림)이 적용된다.
 // ----------------------------------------------------------------------------
-void Renderer::BeginFrame()
+void Renderer::BeginFrame(const DirectX::XMMATRIX& viewMatrix)
 {
     // 캔버스 텍스처를 그림 대상으로 묶는다. 3번째 인자는 깊이/스텐실 뷰. 2D 라서 없다.
     // ※ &m_canvasRTV 가 아니라 GetAddressOf() 인 것에 주의.
@@ -391,6 +392,28 @@ void Renderer::BeginFrame()
     //   NonPremultiplied : WIC 로 읽은 PNG 는 알파가 곱해지지 않은(straight) 상태다.
     //                      기본값(premultiplied)으로 두면 가장자리에 검은 테두리가 생긴다.
     //   PointClamp       : 점 샘플링. 기본값인 선형 보간을 쓰면 도트가 흐려진다.
+    //
+    //   마지막 인자가 뷰 행렬이다. 이 배치의 모든 스프라이트에 적용된다.
+    //   중간 인자들은 기본값(nullptr)을 그대로 쓴다.
+    m_spriteBatch->Begin(
+        DirectX::SpriteSortMode_Deferred,
+        m_states->NonPremultiplied(),
+        m_states->PointClamp(),
+        nullptr,          // depthStencilState
+        nullptr,          // rasterizerState
+        nullptr,          // setCustomShaders
+        viewMatrix);      // ★ 카메라 + 흔들림
+}
+
+
+// ----------------------------------------------------------------------------
+//  BeginUILayer — 월드 배치를 닫고 UI 배치를 연다.
+//                 행렬을 넘기지 않으므로 항등 행렬 = 카메라 무시.
+// ----------------------------------------------------------------------------
+void Renderer::BeginUILayer()
+{
+    m_spriteBatch->End();     // 월드 레이어의 Draw 들이 여기서 GPU 로 나간다
+
     m_spriteBatch->Begin(
         DirectX::SpriteSortMode_Deferred,
         m_states->NonPremultiplied(),
@@ -403,7 +426,7 @@ void Renderer::BeginFrame()
 // ----------------------------------------------------------------------------
 void Renderer::EndFrame()
 {
-    m_spriteBatch->End();   // 패스 1 의 Draw 들이 여기서 GPU 로 나간다
+    m_spriteBatch->End();   // UI 레이어의 Draw 들이 여기서 GPU 로 나간다
 
     // ---- 패스 2: 캔버스 텍스처를 화면에 확대해서 그린다 ----
     //

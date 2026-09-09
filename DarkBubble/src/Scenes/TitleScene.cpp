@@ -41,7 +41,7 @@ void TitleScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 }
 
 
-void TitleScene::Render(Renderer& renderer)
+void TitleScene::RenderUI(Renderer& renderer)
 {
     const float cx = Config::kCanvasWidth  * 0.5f;
 

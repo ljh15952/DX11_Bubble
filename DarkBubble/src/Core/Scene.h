@@ -35,6 +35,7 @@ class Input;
 class SceneManager;
 class Assets;
 class Audio;
+class Camera;
 
 
 // Scene 이 일할 때 필요한 것들을 한 다발로 묶어 넘긴다.
@@ -50,6 +51,7 @@ struct SceneContext
     SceneManager& scenes;
     Assets&       assets;
     Audio&        audio;
+    Camera&       camera;
 };
 
 
@@ -82,7 +84,15 @@ public:
     //     그리는 중에 입력을 읽거나 Scene 을 전환하는 것은 버그의 씨앗이라
     //     (Update 와 Render 의 순서에 따라 결과가 달라진다)
     //     타입 수준에서 아예 불가능하게 막았다.
+    //
+    //   두 층으로 나뉜다:
+    //     Render   — 월드. 카메라와 화면 흔들림이 적용된다.
+    //     RenderUI — UI.  카메라를 무시한다. 체력 바·대사 상자·메뉴가 여기.
+    //
+    //   체력 바가 화면 흔들림을 같이 타면 고장난 것처럼 보인다.
+    //   메뉴만 있는 Scene 은 RenderUI 만 쓰면 된다.
     virtual void Render(Renderer&) = 0;
+    virtual void RenderUI(Renderer&) {}
 
     // ---- 스택 위에 올라갔을 때 아래 Scene 을 어떻게 취급할까 ----
     //   Pause 오버레이  : DrawsBelow = true,  UpdatesBelow = false

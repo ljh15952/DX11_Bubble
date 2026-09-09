@@ -21,7 +21,10 @@ public:
 
     bool Enter(SceneContext& ctx) override;
     void Update(SceneContext& ctx, bool consumeEdgeInput) override;
-    void Render(Renderer& renderer) override;
+
+    // 어두운 판과 문구는 UI 레이어. 화면이 흔들려도 흔들리면 안 된다.
+    void Render(Renderer&) override {}
+    void RenderUI(Renderer& renderer) override;
 
     bool DrawsBelow()   const override { return true;  }   // 게임 화면은 보이게
     bool UpdatesBelow() const override { return false; }   // 하지만 멈춰 있게

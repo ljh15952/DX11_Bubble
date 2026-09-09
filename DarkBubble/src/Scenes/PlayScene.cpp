@@ -6,6 +6,7 @@
 #include "Core/SceneManager.h"
 #include "Audio/Audio.h"
 #include "Graphics/Assets.h"
+#include "Graphics/Camera.h"
 #include "Graphics/Renderer.h"
 #include "Input/Input.h"
 
@@ -64,6 +65,10 @@ namespace
     //     흰색 번쩍이 필요하면 가산 블렌드로 한 번 더 그려야 한다.
     //     어두운 분위기의 게임이라 붉은 틴트로 충분하다.
     constexpr int kFlashTicks = 9;           // 0.15 초
+
+    // 화면 흔들림. 캔버스(640x360) 기준 픽셀이므로 화면에서는 2 배로 보인다.
+    constexpr float kShakeStrength = 3.0f;
+    constexpr int   kShakeTicks    = 10;     // 약 0.17 초
 
     // 같은 효과음을 그대로 반복하면 기계처럼 들린다.
     // 피치를 조금씩 흔들면 훨씬 자연스러워진다. 게임 오디오의 기본 기법.
@@ -173,6 +178,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         if (ctx.input.AttackPressed())
         {
             m_player.flash = kFlashTicks;
+
+            // 캔버스가 640x360 이므로 3 픽셀이면 화면에서는 6 픽셀. 충분히 세다.
+            ctx.camera.Shake(kShakeStrength, kShakeTicks);
+
             ctx.audio.Play("hit", 0.8f, RandomPitch(0.12f), PanFromX(m_player.x));
             Log::Info("[play] 공격 (나중에 여기에 상태머신이 들어간다)");
         }
@@ -255,6 +264,17 @@ void PlayScene::Render(Renderer& renderer)
             { m_player.x - 1.0f, m_player.y - 5.0f, m_player.x + 1.0f, m_player.y + 5.0f },
             DirectX::Colors::Magenta);
 
+    }
+}
+
+
+// ----------------------------------------------------------------------------
+//  RenderUI — 카메라를 무시한다. 화면이 흔들려도 글자는 제자리에 있어야 한다.
+// ----------------------------------------------------------------------------
+void PlayScene::RenderUI(Renderer& renderer)
+{
+    if (m_showDebug)
+    {
         renderer.DrawString("gray=sprite  green=hitbox  magenta=origin(feet)",
                             6.0f, Config::kCanvasHeight - 34.0f,
                             DirectX::Colors::Lime, 1);
@@ -263,7 +283,7 @@ void PlayScene::Render(Renderer& renderer)
                             DirectX::Colors::Gainsboro, 1);
     }
 
-    renderer.DrawString(m_touching ? "TOUCHING" : "",
-                        6.0f, Config::kCanvasHeight - 18.0f,
-                        DirectX::Colors::Crimson, 1);
+    if (m_touching)
+        renderer.DrawString("TOUCHING", 6.0f, Config::kCanvasHeight - 18.0f,
+                            DirectX::Colors::Crimson, 1);
 }
