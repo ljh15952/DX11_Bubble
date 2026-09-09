@@ -89,10 +89,30 @@ void SceneManager::ApplyPending(SceneContext& ctx)
     switch (op)
     {
     case Op::Replace:
+    {
+        // ★ 새 Scene 을 먼저 올려 보고, 성공했을 때만 아래를 비운다.
+        //
+        //   먼저 비우고 나서 Enter 가 실패하면 스택이 텅 비어 버리고,
+        //   Game 이 그것을 종료 신호로 해석해 게임이 조용히 꺼진다.
+        //   텍스처 파일 하나가 없어서 아무 말 없이 종료되는 것은 최악이다.
+        const size_t before = m_stack.size();
+        PushNow(ctx, std::move(incoming));
+
+        if (m_stack.size() == before)
+        {
+            // Enter 실패. 기존 스택을 그대로 둔다.
+            Log::Error("[scene] Replace 실패 — 기존 Scene 을 유지한다");
+            break;
+        }
+
+        // 성공했으니 새로 올린 것만 남기고 아래를 전부 뺀다.
+        std::unique_ptr<Scene> incomingScene = std::move(m_stack.back());
+        m_stack.pop_back();
         while (!m_stack.empty())
             PopNow();
-        PushNow(ctx, std::move(incoming));
+        m_stack.push_back(std::move(incomingScene));
         break;
+    }
 
     case Op::Push:
         PushNow(ctx, std::move(incoming));

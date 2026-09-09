@@ -8,6 +8,12 @@
 #include <format>
 #include <memory>
 
+namespace
+{
+    // 슬로우 모션 배율. 1/8 = 8 배 느리게.
+    constexpr double kSlowMotionScale = 0.125;
+}
+
 
 bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
 {
@@ -94,8 +100,14 @@ int Game::Run()
 
         // ①-b 창 크기가 바뀌었으면 스왑체인을 다시 만든다.
         int newW = 0, newH = 0;
-        if (m_window.ConsumeResize(newW, newH))
-            m_renderer.OnResize(newW, newH);
+        if (m_window.ConsumeResize(newW, newH) && !m_renderer.OnResize(newW, newH))
+        {
+            // 스왑체인 재생성 실패는 회복 불가다. 조용히 이상해지는 것보다
+            // 여기서 끝내는 편이 낫다.
+            MessageBoxW(nullptr, L"창 크기 변경 처리에 실패했습니다.",
+                        L"DarkBubble", MB_OK | MB_ICONERROR);
+            break;
+        }
 
         // ② 지난 프레임이 실제로 얼마나 걸렸는지 잰다
         const auto now = Clock::now();
@@ -145,7 +157,12 @@ int Game::Run()
         if (m_input.FreezeTogglePressed())
         {
             m_frozen = !m_frozen;
-            Log::Info("[game] 프레임 정지 {}", m_frozen ? "ON  (F4 = 1틱 전진)" : "OFF");
+            Log::Info("[game] 프레임 정지 {}", m_frozen ? "ON  ( . = 1틱 전진 )" : "OFF");
+        }
+        if (m_input.SlowTogglePressed())
+        {
+            m_slowMotion = !m_slowMotion;
+            Log::Info("[game] 슬로우 모션 {}", m_slowMotion ? "ON (1/8 배속)" : "OFF");
         }
         const bool stepOnce = (m_frozen && m_input.StepPressed());
 
@@ -164,7 +181,9 @@ int Game::Run()
         }
         else
         {
-            accumulator += frameTime;
+            // 슬로우 모션은 "시간이 느리게 흐른다" 로 표현한다.
+            // 틱 루프는 손대지 않고 쌓는 양만 줄인다 — 곱셈 하나로 끝난다.
+            accumulator += frameTime * (m_slowMotion ? kSlowMotionScale : 1.0);
             while (accumulator >= Config::kTickSeconds)
             {
                 ++ticksToRun;
@@ -186,6 +205,12 @@ int Game::Run()
 
             firstTickThisFrame = false;
         }
+
+        // ★ 틱이 실제로 돌았을 때만 엣지 입력을 비운다.
+        //   0 회 돌았으면(정지 중이거나 프레임이 아주 빠를 때) 붙잡아 둔 채로
+        //   다음 프레임에 넘긴다. 그래서 입력이 사라지지 않는다.
+        if (ticksToRun > 0)
+            m_input.ConsumeEdges();
 
         // ⑥ ★ Scene 전환은 틱 루프가 전부 끝난 뒤에 적용한다.
         //    Scene 이 자기 Update 안에서 자기를 교체해도 안전한 이유가 이것이다.
@@ -230,7 +255,7 @@ void Game::DrawStatsOverlay()
         "TEX {}  load {} / hit {}",
         m_fps, m_lastFrameMs,
         // 표시가 없으면 "게임이 죽었나?" 하고 헷갈린다
-        m_frozen ? "   [FROZEN  F4=STEP]" : "",
+        m_frozen ? "   [FROZEN  .=STEP]" : (m_slowMotion ? "   [SLOW 1/8]" : ""),
         m_tickCount,
         m_scenes.TopName(), m_scenes.Depth(),
         m_assets.Count(), m_assets.LoadCount(), m_assets.HitCount());

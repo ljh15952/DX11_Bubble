@@ -428,6 +428,14 @@ void Renderer::EndFrame()
 {
     m_spriteBatch->End();   // UI 레이어의 Draw 들이 여기서 GPU 로 나간다
 
+    // OnResize 가 실패하면 백버퍼 RTV 가 없는 상태가 된다.
+    // 그대로 진행하면 ClearRenderTargetView(nullptr) 로 죽는다.
+    if (!m_backBufferRTV)
+    {
+        Log::Error("[D3D] 백버퍼 RTV 가 없다 — 이 프레임은 표시하지 않는다");
+        return;
+    }
+
     // ---- 패스 2: 캔버스 텍스처를 화면에 확대해서 그린다 ----
     //
     //  ★ 순서가 중요하다.

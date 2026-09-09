@@ -18,60 +18,43 @@
 
 namespace
 {
-    // ---- 스프라이트시트 배치 ----
+    // ---- 스프라이트시트 배치 (player.png : 6 열 × 3 행, 64×64 셀) ----
     constexpr int kCellW = 64;
     constexpr int kCellH = 64;
 
     // ---- 애니메이션 클립 ----
     //   ticksPerFrame 이 애니메이션 속도. 60 / n = 애니메이션 fps.
-    //   나중에 이 값들이 JSON 으로 빠진다.
-    constexpr AnimationClip kIdleClip { /*row*/ 0, /*frames*/ 4, /*ticksPerFrame*/ 10, true };  // 6fps
-    constexpr AnimationClip kRunClip  { /*row*/ 1, /*frames*/ 4, /*ticksPerFrame*/  4, true };  // 15fps
+    //   ★ Attack 은 loop = false 다. 끝나면 Finished() 가 true 가 되어
+    //     상태를 되돌리는 신호가 된다.
+    constexpr AnimationClip kIdleClip   { /*row*/ 0, /*frames*/ 4, /*ticks*/ 10, /*loop*/ true  };  //  6fps
+    constexpr AnimationClip kRunClip    { /*row*/ 1, /*frames*/ 6, /*ticks*/  5, /*loop*/ true  };  // 12fps
+    constexpr AnimationClip kAttackClip { /*row*/ 2, /*frames*/ 6, /*ticks*/  4, /*loop*/ false };  // 15fps
+
+    // 6 프레임 × 4 틱 = 공격 한 번에 24 틱 (0.4 초).
+    // F2 로 멈추고 F4 를 24 번 누르면 정확히 셀 수 있다.
 
     // ---- 플레이어 (임시) ----
     //   ★ 좌표와 속도는 모두 캔버스 해상도(640x360) 기준이다.
-    constexpr float kPlayerSpeedPerSec  = 150.0f;                      // 640 폭을 약 4.3 초에 횡단
-    constexpr float kPlayerSpeedPerTick = kPlayerSpeedPerSec / 60.0f;  // 틱당 2.5 픽셀
+    constexpr float kPlayerSpeedPerSec  = 150.0f;
+    constexpr float kPlayerSpeedPerTick = kPlayerSpeedPerSec / 60.0f;   // 틱당 2.5 픽셀
 
     // ---- 원점(피벗) : 스프라이트 안에서 "발밑 가운데" ----
-    //   ★ 이 값을 Draw 의 origin 으로 넘기면 m_player.x / y 가
-    //     스프라이트의 좌상단이 아니라 캐릭터의 발 위치를 뜻하게 된다.
-    //
-    //     좌상단 기준                  발밑 기준
-    //       ●────────┐                 ┌────────┐
-    //       │  캐릭터 │                 │  캐릭터 │
-    //       └────────┘                 └───●────┘
-    //
-    //   바닥에 세우기 / 크기가 다른 적을 섞기 / 그림자 붙이기 / y 정렬이
-    //   전부 보정 없이 된다. 단위는 소스 셀 안의 픽셀이다(화면 픽셀이 아니다).
-    constexpr float kOriginX = kCellW * 0.5f;    // 32
-    constexpr float kOriginY = static_cast<float>(kCellH);   // 64 = 셀의 아래 끝
+    constexpr float kOriginX = kCellW * 0.5f;                 // 32
+    constexpr float kOriginY = static_cast<float>(kCellH);    // 64 = 셀의 아래 끝
 
     // ---- 히트박스 : 발밑 기준의 상대 좌표 ----
-    //   스프라이트(64×64)보다 훨씬 작다. 여백까지 판정에 넣으면
-    //   "안 맞았는데 맞았다" 가 되어 소울라이크의 재미가 사라진다.
-    constexpr float kHitHalfWidth = 12.0f;   // 좌우로 각각 12 → 폭 24
-    constexpr float kHitHeight    = 40.0f;
-    constexpr float kHitFootGap   = 12.0f;   // 발끝에서 히트박스 아래변까지
+    constexpr float kHitHalfWidth = 10.0f;
+    constexpr float kHitHeight    = 44.0f;
+    constexpr float kHitFootGap   = 2.0f;
 
-    // 아날로그 스틱은 완전히 0 이 되지 않으므로 여유를 둔다.
     constexpr float kMoveEpsilon = 0.01f;
 
-    // 발소리 간격. 틱 단위라 어느 PC 에서도 같은 리듬이 된다.
-    constexpr int kStepIntervalTicks = 18;   // 0.3 초
+    constexpr int kStepIntervalTicks = 15;   // 0.25 초
+    constexpr int kFlashTicks        = 9;    // 0.15 초 (피격 표현. 지금은 미사용)
 
-    // 피격/공격 시 붉게 번쩍이는 시간.
-    //   ※ color 인자는 "곱셈" 이라 원본보다 밝게는 못 만든다.
-    //     흰색 번쩍이 필요하면 가산 블렌드로 한 번 더 그려야 한다.
-    //     어두운 분위기의 게임이라 붉은 틴트로 충분하다.
-    constexpr int kFlashTicks = 9;           // 0.15 초
+    constexpr float kShakeStrength = 2.0f;
+    constexpr int   kShakeTicks    = 8;
 
-    // 화면 흔들림. 캔버스(640x360) 기준 픽셀이므로 화면에서는 2 배로 보인다.
-    constexpr float kShakeStrength = 3.0f;
-    constexpr int   kShakeTicks    = 10;     // 약 0.17 초
-
-    // 같은 효과음을 그대로 반복하면 기계처럼 들린다.
-    // 피치를 조금씩 흔들면 훨씬 자연스러워진다. 게임 오디오의 기본 기법.
     float RandomPitch(float spread)
     {
         static std::mt19937 rng{ 12345 };
@@ -79,94 +62,164 @@ namespace
         return dist(rng);
     }
 
-    // 화면 x 좌표를 스테레오 정위(-1 왼쪽 ~ +1 오른쪽)로 바꾼다.
     float PanFromX(float x)
     {
         return std::clamp(x / static_cast<float>(Config::kCanvasWidth) * 2.0f - 1.0f,
                           -1.0f, 1.0f);
+    }
+
+    const char* StateName(PlayerState s)
+    {
+        switch (s)
+        {
+        case PlayerState::Run:    return "RUN";
+        case PlayerState::Attack: return "ATTACK";
+        default:                  return "IDLE";
+        }
     }
 }
 
 
 bool PlayScene::Enter(SceneContext& ctx)
 {
-    // ★ Renderer 가 아니라 Assets 를 통해 얻는다.
-    //   두 번째부터는 디스크를 읽지 않고 캐시에서 나온다.
-    m_sheet = ctx.assets.Texture(L"assets/textures/sheet.png");
+    m_sheet = ctx.assets.Texture(L"assets/textures/player.png");
     if (!m_sheet)
-        return false;   // ★ 실패를 돌려주면 SceneManager 가 전환을 취소한다
+        return false;
 
     m_playerAnim.Play(kIdleClip);
 
-    Log::Info("[play] Arrows/WASD/Stick = move  Space = attack  Esc = pause");
-    Log::Info("[play] F1 = hitbox   F2 = freeze   F3 = stats   F4 = step 1 tick");
+    Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Esc = pause");
+    Log::Info("[play] F1 = hitbox   F3 = stats");
+    Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
+    Log::Info("[play] TIP: , 로 멈춘 뒤 Space 를 누르고 . 로 한 틱씩 밟으면");
+    Log::Info("[play]      공격이 몇 틱짜리인지 눈으로 셀 수 있다");
     return true;
 }
 
 
-void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
+// ----------------------------------------------------------------------------
+//  ChangeState — 상태 머신의 "Enter"
+//
+//    들어가는 순간 한 번만 해야 하는 일을 모아 둔다.
+//    이게 없으면 매 틱 Play() 를 부르게 되어 애니메이션이 프레임 0 에서 멈춘다.
+// ----------------------------------------------------------------------------
+void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
 {
-    // 번쩍임 타이머는 매 틱 줄인다. 엣지 입력과 무관하게 시간이 흘러야 한다.
-    if (m_player.flash > 0)
-        --m_player.flash;
+    if (m_state == next)
+        return;
 
-    // ---- 지속 입력: 이동 ----
-    const Input::MoveIntent move = ctx.input.Move();
-    const bool moving = (std::abs(move.x) > kMoveEpsilon || std::abs(move.y) > kMoveEpsilon);
+    m_state      = next;
+    m_stateTicks = 0;
 
-    // ---- 바라보는 방향 ----
-    //   좌우 입력이 있을 때만 갱신한다. 위/아래로만 움직이거나 멈췄을 때
-    //   방향이 초기화되면 캐릭터가 홱 돌아보는 것처럼 보인다.
-    if (move.x < -kMoveEpsilon)      m_player.facing = -1;
-    else if (move.x > kMoveEpsilon)  m_player.facing = +1;
+    switch (next)
+    {
+    case PlayerState::Idle:
+        m_playerAnim.Play(kIdleClip);
+        break;
 
-    // ---- 상태에 맞는 애니메이션 ----
-    //   매 틱 Play() 를 불러도 괜찮다. 같은 클립이면 내부에서 무시하므로
-    //   프레임이 0 으로 되돌아가지 않는다. (AnimationPlayer::Play 주석 참조)
-    m_playerAnim.Play(moving ? kRunClip : kIdleClip);
-    m_playerAnim.Tick();
+    case PlayerState::Run:
+        m_playerAnim.Play(kRunClip);
+        m_stepCooldown = 0;   // 달리기 시작하자마자 첫 발소리
+        break;
 
-    // ---- 발소리 ----
-    //   틱을 세어 일정 간격마다 울린다. 정지하면 카운터를 리셋해서
-    //   다시 걷기 시작할 때 곧바로 한 번 울리게 한다.
+    case PlayerState::Attack:
+        // forceRestart = true : 같은 클립이라도 처음부터 다시 재생한다.
+        // 연속 공격을 넣을 때 필요해진다.
+        m_playerAnim.Play(kAttackClip, true);
+
+        // ※ 지금은 공격 "시작" 에서 소리와 흔들림을 낸다.
+        //   5-b 에서 프레임 데이터가 들어오면 실제로 맞는 순간(지속 구간)으로 옮긴다.
+        ctx.camera.Shake(kShakeStrength, kShakeTicks);
+        ctx.audio.Play("hit", 0.7f, RandomPitch(0.12f), PanFromX(m_player.x));
+        break;
+    }
+}
+
+
+// ----------------------------------------------------------------------------
+//  UpdateMovement — Idle / Run 에서만 불린다.
+//    "공격 중에는 이동 불가" 를 !attacking 조건으로 흩뿌리지 않고
+//    아예 호출하지 않는 것으로 표현한다. 이것이 상태 머신의 요점이다.
+// ----------------------------------------------------------------------------
+void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
+{
+    // 바라보는 방향은 좌우 입력이 있을 때만 갱신한다.
+    if (moveX < -kMoveEpsilon)      m_player.facing = -1;
+    else if (moveX > kMoveEpsilon)  m_player.facing = +1;
+
+    m_player.x += moveX * kPlayerSpeedPerTick;
+    m_player.y += moveY * kPlayerSpeedPerTick;
+
+    m_player.x = std::clamp(m_player.x, kOriginX,
+                            static_cast<float>(Config::kCanvasWidth) - kOriginX);
+    m_player.y = std::clamp(m_player.y, kOriginY,
+                            static_cast<float>(Config::kCanvasHeight));
+
+    // 발소리 — 틱을 세어 일정 간격마다
+    const bool moving = (std::abs(moveX) > kMoveEpsilon || std::abs(moveY) > kMoveEpsilon);
     if (moving)
     {
         if (--m_stepCooldown <= 0)
         {
             m_stepCooldown = kStepIntervalTicks;
-            ctx.audio.Play("step", 0.5f, RandomPitch(0.15f), PanFromX(m_player.x));
+            ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromX(m_player.x));
         }
     }
     else
     {
         m_stepCooldown = 0;
     }
+}
 
-    m_player.x += move.x * kPlayerSpeedPerTick;
-    m_player.y += move.y * kPlayerSpeedPerTick;
 
-    // 화면 밖으로 나가지 않게. 기준은 창이 아니라 캔버스다.
-    // ★ 원점이 발밑이므로 경계값이 바뀌었다.
-    //   x 는 좌우로 셀의 절반, y 는 위로 셀 높이만큼 여유가 필요하다.
-    m_player.x = std::clamp(m_player.x, kOriginX,
-                            static_cast<float>(Config::kCanvasWidth) - kOriginX);
-    m_player.y = std::clamp(m_player.y, kOriginY,
-                            static_cast<float>(Config::kCanvasHeight));
+void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
+{
+    // ---- 시간은 상태와 무관하게 매 틱 흐른다 ----
+    //   ★ 애니메이션 진행도 여기다. 상태 분기 안에 넣으면 안 된다.
+    //     빠뜨리면 프레임이 0 에서 멈추고, loop=false 클립의 Finished() 가
+    //     영원히 false 가 되어 Attack 상태에서 빠져나오지 못한다.
+    ++m_stateTicks;
+    m_playerAnim.Tick();
 
-    // ---- 충돌 판정 ----
-    //   스프라이트 전체가 아니라 히트박스로 판정한다.
+    if (m_player.flash > 0)
+        --m_player.flash;
+
+    const Input::MoveIntent move = ctx.input.Move();
+    const bool moving = (std::abs(move.x) > kMoveEpsilon || std::abs(move.y) > kMoveEpsilon);
+    const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
+
+    // ---- 상태별 처리 ----
+    switch (m_state)
+    {
+    case PlayerState::Idle:
+    case PlayerState::Run:
+        UpdateMovement(ctx, move.x, move.y);
+
+        if (attackPressed)
+            ChangeState(ctx, PlayerState::Attack);
+        else
+            ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+        break;
+
+    case PlayerState::Attack:
+        // ★ 이동 입력을 처리하지 않는다 = 공격 중에는 못 움직인다.
+        //   방향 전환도 막힌다. 소울류의 "한 번 휘두르면 끝까지 간다" 감각.
+        //
+        //   모션이 끝나면(loop=false 클립이 마지막 프레임에 도달) 복귀.
+        if (m_playerAnim.Finished())
+            ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+        break;
+    }
+
+    // ---- 상태와 무관한 판정 ----
     m_touching = Intersects(PlayerHitbox(), m_obstacle);
 
-    // ---- 엣지 입력: 프레임의 첫 틱에서만 소비 ----
+    // ---- 상태와 무관한 엣지 입력 ----
     if (consumeEdgeInput)
     {
         if (ctx.input.CancelPressed())
         {
             ctx.audio.Play("ui_cancel");
-            // ★ Push 다. Replace 가 아니다.
-            //   PlayScene 이 그대로 살아 있어서 플레이어 위치와 애니메이션이 유지된다.
-            //   그리고 이 요청은 지금 처리되지 않는다 — 틱 루프가 끝난 뒤에 적용된다.
-            //   그래서 아래 코드가 계속 실행돼도 안전하다.
             ctx.scenes.Push(std::make_unique<PauseScene>());
         }
 
@@ -175,22 +228,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
             m_showDebug = !m_showDebug;
             Log::Info("[play] 히트박스 표시 {}", m_showDebug ? "ON" : "OFF");
         }
-
-        if (ctx.input.AttackPressed())
-        {
-            m_player.flash = kFlashTicks;
-
-            // 캔버스가 640x360 이므로 3 픽셀이면 화면에서는 6 픽셀. 충분히 세다.
-            ctx.camera.Shake(kShakeStrength, kShakeTicks);
-
-            ctx.audio.Play("hit", 0.8f, RandomPitch(0.12f), PanFromX(m_player.x));
-            Log::Info("[play] 공격 (나중에 여기에 상태머신이 들어간다)");
-        }
     }
 }
 
 
-// 원점이 발밑이므로, 스프라이트는 그 지점에서 위로/좌우로 펼쳐진다.
 AABB PlayScene::SpriteBounds() const
 {
     return {
@@ -204,8 +245,6 @@ AABB PlayScene::SpriteBounds() const
 
 AABB PlayScene::PlayerHitbox() const
 {
-    // 발밑 기준의 상대 좌표라 좌우 반전과 무관하게 그대로 쓸 수 있다.
-    // (좌상단 기준이었다면 반전할 때 오프셋도 뒤집어야 했다)
     return {
         m_player.x - kHitHalfWidth,
         m_player.y - kHitFootGap - kHitHeight,
@@ -223,29 +262,15 @@ void PlayScene::Render(Renderer& renderer)
         m_touching ? DirectX::Colors::Crimson : DirectX::Colors::DimGray);
 
     // ---- 플레이어 ----
-    //   Draw 의 인자를 전부 쓰는 곳이다.
-
-    // ④ color 는 곱셈이다. White(1,1,1,1) 를 곱하면 원본 그대로.
-    //    붉은 색을 곱하면 G·B 가 깎여 붉게 보인다.
     DirectX::XMVECTOR tint = DirectX::Colors::White;
     if (m_player.flash > 0)
         tint = DirectX::XMVectorSet(1.0f, 0.35f, 0.30f, 1.0f);
 
-    // ⑧ effects 는 텍스처 좌표를 뒤집는다.
-    //    화면에서 차지하는 사각형은 그대로고 그림만 거울처럼 뒤집힌다.
     const DirectX::SpriteEffects fx = (m_player.facing < 0)
         ? DirectX::SpriteEffects_FlipHorizontally
         : DirectX::SpriteEffects_None;
 
-    // ★ 그릴 때는 정수 좌표로 맞춘다.
-    //
-    //   m_player.x 는 틱당 2.5 픽셀씩 움직여 소수가 된다(122.5 등).
-    //   소수 위치에 그리면 스프라이트 가장자리 픽셀의 중심이 소스 사각형 밖
-    //   0.5 텍셀을 가리켜 시트의 "옆 칸" 을 물어온다 = 1 픽셀 선이 생긴다.
-    //   (텍스처 블리딩. PointClamp 는 텍스처 전체 경계만 막아 주고
-    //    시트 안의 칸 경계는 텍스처 내부라 그냥 옆 칸을 읽는다)
-    //
-    //   계산은 소수로, 그리기는 정수로 — 픽셀아트에서 계속 반복되는 규칙이다.
+    // ★ 그릴 때는 정수 좌표로. 소수 위치에 그리면 시트의 옆 칸을 물어온다.
     const DirectX::XMFLOAT2 drawPos{
         std::round(m_player.x),
         std::round(m_player.y)
@@ -253,41 +278,39 @@ void PlayScene::Render(Renderer& renderer)
 
     const RECT src = m_playerAnim.SourceRect(kCellW, kCellH);
     renderer.Sprites().Draw(
-        m_sheet.Get(),
-        drawPos,                                     // ② 발밑 위치 (정수)
-        &src,                                        // ③ 시트의 어느 칸
-        tint,                                        // ④ 곱할 색
-        0.0f,                                        // ⑤ 회전(라디안)
-        DirectX::XMFLOAT2(kOriginX, kOriginY),       // ⑥ 원점 = 발밑 가운데
-        1.0f,                                        // ⑦ 확대
-        fx);                                         // ⑧ 좌우 반전
+        m_sheet.Get(), drawPos, &src, tint,
+        0.0f,
+        DirectX::XMFLOAT2(kOriginX, kOriginY),
+        1.0f,
+        fx);
 
     // ---- 디버그 표시 (F1) ----
     if (m_showDebug)
     {
-        // 회색 = 스프라이트 범위(64×64) / 초록 = 실제 히트박스 / 노랑 = 장애물
         renderer.DrawRectOutline(SpriteBounds(), DirectX::Colors::SlateGray);
         renderer.DrawRectOutline(PlayerHitbox(), DirectX::Colors::Lime, 2.0f);
         renderer.DrawRectOutline(m_obstacle,     DirectX::Colors::Yellow);
 
-        // ★ 원점(발밑)을 십자로 표시한다.
-        //   m_player.x / y 가 실제로 어디를 가리키는지 눈으로 확인할 수 있다.
+        // 원점(발밑)을 십자로
         renderer.DrawFilledRect(
             { m_player.x - 5.0f, m_player.y - 1.0f, m_player.x + 5.0f, m_player.y + 1.0f },
             DirectX::Colors::Magenta);
         renderer.DrawFilledRect(
             { m_player.x - 1.0f, m_player.y - 5.0f, m_player.x + 1.0f, m_player.y + 5.0f },
             DirectX::Colors::Magenta);
-
     }
 }
 
 
-// ----------------------------------------------------------------------------
-//  RenderUI — 카메라를 무시한다. 화면이 흔들려도 글자는 제자리에 있어야 한다.
-// ----------------------------------------------------------------------------
 void PlayScene::RenderUI(Renderer& renderer)
 {
+    // ★ 상태 머신을 눈으로 보기 위한 표시.
+    //   F2 로 멈추고 F4 를 눌러 가며 STATE 와 t 를 세면
+    //   「공격이 몇 틱짜리인가」를 직접 확인할 수 있다.
+    renderer.DrawString(
+        std::string("STATE ") + StateName(m_state) + "  t" + std::to_string(m_stateTicks),
+        6.0f, 6.0f, DirectX::Colors::Orange, 1);
+
     if (m_showDebug)
     {
         renderer.DrawString("gray=sprite  green=hitbox  magenta=origin(feet)",

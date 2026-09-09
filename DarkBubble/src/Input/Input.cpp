@@ -23,6 +23,27 @@ void Input::Poll()
     m_pad = m_gamePad->GetState(0);
     if (m_pad.IsConnected())
         m_padTracker.Update(m_pad);
+
+    // ★ 게임플레이 엣지는 |= 로 누적한다. ConsumeEdges 까지 사라지지 않는다.
+    //   정지 중에 누른 공격이 다음 스텝에서 살아나는 장치이고,
+    //   프레임이 빨라 틱이 0 회 도는 프레임에서 입력이 사라지는 것도 막아 준다.
+    using PadTracker = DirectX::GamePad::ButtonStateTracker;
+
+    m_edges.confirm |= m_kbTracker.pressed.Enter
+                    || m_kbTracker.pressed.Space
+                    || m_padTracker.a == PadTracker::PRESSED;
+
+    m_edges.cancel  |= m_kbTracker.pressed.Escape
+                    || m_padTracker.b == PadTracker::PRESSED;
+
+    m_edges.attack  |= m_kbTracker.pressed.Space
+                    || m_padTracker.a == PadTracker::PRESSED;
+}
+
+
+void Input::ConsumeEdges()
+{
+    m_edges = {};
 }
 
 
@@ -54,47 +75,12 @@ Input::MoveIntent Input::Move() const
 }
 
 
-bool Input::AttackPressed() const
-{
-    return m_kbTracker.pressed.Space
-        || m_padTracker.a == DirectX::GamePad::ButtonStateTracker::PRESSED;
-}
-
-
-bool Input::ConfirmPressed() const
-{
-    return m_kbTracker.pressed.Enter
-        || m_kbTracker.pressed.Space
-        || m_padTracker.a == DirectX::GamePad::ButtonStateTracker::PRESSED;
-}
-
-
-bool Input::CancelPressed() const
-{
-    return m_kbTracker.pressed.Escape
-        || m_padTracker.b == DirectX::GamePad::ButtonStateTracker::PRESSED;
-}
-
-
-bool Input::DebugTogglePressed() const
-{
-    return m_kbTracker.pressed.F1;
-}
-
-
-bool Input::FreezeTogglePressed() const
-{
-    return m_kbTracker.pressed.F2;
-}
-
-
-bool Input::StatsTogglePressed() const
-{
-    return m_kbTracker.pressed.F3;
-}
-
-
-bool Input::StepPressed() const
-{
-    return m_kbTracker.pressed.F4;
-}
+// ---- 디버그 / 엔진 키 ----
+//   Game 이 틱 밖에서 프레임당 1회 읽으므로 누적할 필요가 없다.
+//   , . / 는 키보드에서 나란히 있고 게임플레이에 쓰이지 않는다.
+//   그리고 , . 는 영상 편집기의 프레임 이동 키와 같은 관례다.
+bool Input::DebugTogglePressed()  const { return m_kbTracker.pressed.F1; }
+bool Input::StatsTogglePressed()  const { return m_kbTracker.pressed.F3; }
+bool Input::FreezeTogglePressed() const { return m_kbTracker.pressed.OemComma;    }   // ,
+bool Input::StepPressed()         const { return m_kbTracker.pressed.OemPeriod;   }   // .
+bool Input::SlowTogglePressed()   const { return m_kbTracker.pressed.OemQuestion; }   // /

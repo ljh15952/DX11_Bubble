@@ -32,19 +32,35 @@ public:
     // 프레임당 정확히 1회 호출. "방금 눌렸다" 판정의 기준이 여기서 갱신된다.
     void Poll();
 
+    // ★ 틱이 실제로 돈 뒤에 Game 이 호출한다. 붙잡아 둔 엣지 입력을 비운다.
+    //
+    //   왜 필요한가:
+    //     엣지 입력("방금 눌림")은 Poll 시점에만 참이다. 그런데 프레임 정지 중이거나
+    //     프레임이 아주 빨라 이번 프레임에 틱이 0 회 도는 경우, 그 입력을 아무도
+    //     읽지 못하고 사라진다.
+    //     그래서 Poll 에서 엣지를 누적해 두고, 틱이 실제로 돌았을 때만 비운다.
+    //
+    //   이 덕분에 "정지 → Space → 스텝" 순서로 공격을 처음부터 관찰할 수 있다.
+    void ConsumeEdges();
+
     // ---- 지속 입력 (여러 틱에 걸쳐 여러 번 처리해도 되는 것) ----
     MoveIntent Move() const;
 
-    // ---- 엣지 입력 (한 번만 소비해야 하는 것) ----
+    // ---- 게임플레이 엣지 입력 ----
+    //   Scene::Update 안(= 틱 안)에서 읽힌다. 그래서 ConsumeEdges 까지 붙잡아 둔다.
     //   메뉴용(Confirm/Cancel)과 게임플레이용(Attack)을 나눠 둔다.
     //   같은 물리 키를 쓰더라도 이름이 다르면 Scene 마다 의미가 분명해진다.
-    bool ConfirmPressed()     const;   // Enter / Space / 패드 A
-    bool CancelPressed()      const;   // Esc / 패드 B
-    bool AttackPressed()      const;   // Space / 패드 A
-    bool DebugTogglePressed()  const;  // F1 — 히트박스 표시 on/off
-    bool FreezeTogglePressed() const;  // F2 — 프레임 정지 on/off
-    bool StatsTogglePressed()  const;  // F3 — FPS / 틱 오버레이 on/off
-    bool StepPressed()         const;  // F4 — 1 틱 전진 (정지 중일 때)
+    bool ConfirmPressed() const { return m_edges.confirm; }   // Enter / Space / 패드 A
+    bool CancelPressed()  const { return m_edges.cancel;  }   // Esc / 패드 B
+    bool AttackPressed()  const { return m_edges.attack;  }   // Space / 패드 A
+
+    // ---- 디버그 / 엔진 키 ----
+    //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
+    bool DebugTogglePressed()  const;  // F1  — 히트박스 표시
+    bool StatsTogglePressed()  const;  // F3  — FPS / 틱 오버레이
+    bool FreezeTogglePressed() const;  // ,   — 프레임 정지
+    bool StepPressed()         const;  // .   — 1 틱 전진
+    bool SlowTogglePressed()   const;  // /   — 슬로우 모션
 
 private:
     std::unique_ptr<DirectX::Keyboard> m_keyboard;
@@ -57,4 +73,13 @@ private:
 
     DirectX::Keyboard::State m_kb  = {};
     DirectX::GamePad::State  m_pad = {};
+
+    // 틱이 돌 때까지 붙잡아 두는 게임플레이 엣지 입력
+    struct Edges
+    {
+        bool confirm = false;
+        bool cancel  = false;
+        bool attack  = false;
+    };
+    Edges m_edges;
 };
