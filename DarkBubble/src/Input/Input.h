@@ -62,6 +62,13 @@ public:
     // ---- 디버그 / 엔진 키 ----
     //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
     bool DebugTogglePressed()  const;  // F1  — 히트박스 표시
+
+    // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키다.
+    //   분기가 둘인 시스템은 둘 다 봐야 이해된다 —
+    //   「같은 공격에 한 번은 튕겨나가고 한 번은 그대로 서서 휘두른다」.
+    //   6단계에서 진짜 장비 시스템이 오면 이 키는 버린다.
+    bool ArmorSwapPressed()    const;  // F2  — 갑옷 갈아입기 (임시)
+
     bool StatsTogglePressed()  const;  // F3  — FPS / 틱 오버레이
     bool FreezeTogglePressed() const;  // ,   — 프레임 정지
     bool StepPressed()         const;  // .   — 1 틱 전진

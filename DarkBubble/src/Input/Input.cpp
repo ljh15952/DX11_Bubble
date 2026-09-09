@@ -88,6 +88,7 @@ Input::MoveIntent Input::Move() const
 //   , . / 는 키보드에서 나란히 있고 게임플레이에 쓰이지 않는다.
 //   그리고 , . 는 영상 편집기의 프레임 이동 키와 같은 관례다.
 bool Input::DebugTogglePressed()  const { return m_kbTracker.pressed.F1; }
+bool Input::ArmorSwapPressed()    const { return m_kbTracker.pressed.F2; }
 bool Input::StatsTogglePressed()  const { return m_kbTracker.pressed.F3; }
 bool Input::FreezeTogglePressed() const { return m_kbTracker.pressed.OemComma;    }   // ,
 bool Input::StepPressed()         const { return m_kbTracker.pressed.OemPeriod;   }   // .

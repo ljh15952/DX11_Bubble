@@ -49,6 +49,17 @@ enum class PlayerState
     //   그러면 긴장이 없다. 「부족해도 나가고, 그 결과 무방비가 된다」가
     //   욕심에 벌을 주는 구조를 만든다.
     Exhausted,
+
+    // ★ 피격 경직. 입력을 받지 않는다(Exhausted 와 같은 구조).
+    //
+    //   여기에 들어갈지 말지는 **숫자가 정한다** — 갑옷의 강인도(poise)가
+    //   맞은 공격의 충격력(impact)보다 크면 이 상태에 들어가지 않는다.
+    //   「상태는 안 늘어나고, 다양성은 데이터에서」의 또 하나의 적용이다.
+    Hurt,
+
+    // HP 0. 아무 입력도 받지 않는다.
+    // ★ 5-e-4 에서 DeathScene 전환으로 바뀐다. 지금은 화면에 표시만 한다.
+    Dead,
 };
 
 
@@ -86,7 +97,83 @@ struct AttackData
     int damage      = 12;
     int staminaCost = 28;   // 100 짜리 스태미나로 3 번은 되고 4 번째에 고갈된다
 
+    // ★ 강인도 데미지. 맞는 쪽의 poise 와 비교되어 **경직 여부**를 정한다.
+    //   damage 와 일부러 다른 숫자로 둔다. 합치면
+    //   「약하지만 크게 휘청이게 하는 공격」(방패 밀치기 같은 것)을 못 만든다.
+    int impact      = 14;
+
     int TotalTicks() const { return startup + active + recovery; }
+};
+
+
+// ============================================================================
+//  ★ 이 구조체를 플레이어와 적이 **같이 쓴다.**
+//
+//    「공격」은 누가 하든 같은 개념이다 — 발생·지속·후딜이 있고, 상자가 있고,
+//    데미지와 충격력이 있다. 방향만 반대다.
+//    6단계에서 weapons.json 과 enemies.json 이 **같은 스키마**를 쓰게 된다.
+//
+//    적은 staminaCost 를 쓰지 않고 플레이어는 아직 impact 를 쓰지 않는다.
+//    안 쓰는 칸이 남는 것은 값이 싸다 — 구조를 두 벌 만드는 것보다 훨씬 싸다.
+// ============================================================================
+
+
+// ============================================================================
+//  ArmorData — 강인도(poise)
+//
+//    ★ 「경직을 둘까 말까」를 코드가 아니라 데이터가 결정하게 만드는 장치.
+//
+//        poise >= impact  →  데미지만 받고 자리에서 버틴다 (경직 없음)
+//        poise <  impact  →  Hurt(경직) + 넉백 + 피격 무적
+//
+//    그래서 갑옷이 「강함」이 아니라 **「지불 방식」**이 된다.
+//
+//        가벼운 갑옷  poise 낮음 → 경직 O   구르기 빠름  → 「흘려서 산다」
+//        무거운 갑옷  poise 높음 → 경직 X   구르기 느림  → 「버텨서 산다」
+//
+//    버티는 쪽은 안전한 것이 아니다 — 맞을 때마다 HP 가 확실히 깎인다.
+//    구르기는 스태미나로, 버티기는 HP 로 지불한다.
+//
+//    ※ 지금은 **문턱(threshold)** 방식이다(다크소울 1식).
+//      나중에 소모(게이지) 방식으로 바꾸려면 위의 비교 한 줄이
+//      게이지 감산으로 바뀔 뿐이다. 자리를 잡아 두는 것으로 충분하다.
+// ============================================================================
+struct ArmorData
+{
+    const char* name  = "CLOTH";
+    int         poise = 10;
+
+    // 방어력(데미지 감산)은 일부러 넣지 않았다.
+    // poise 와 한 숫자로 합치면 「가볍지만 튼튼한 갑옷」을 만들 수 없어진다.
+};
+
+
+// ============================================================================
+//  HurtData — 피격 경직
+//
+//      t0            ticks              invuln
+//      │─── 경직 (입력 없음) ───│
+//      │──────── 피격 무적 ──────────│
+//                                 ↑ 여기가 핵심
+//
+//    ★ invuln > ticks 여야 한다.
+//
+//      같게 두면 **경직이 풀리는 그 틱에 다시 맞는다.** 적이 두 마리면
+//      영원히 못 움직인다 — 이것을 스턴락(stun-lock)이라 하고, 있는 게임은
+//      「억울하게 죽었다」는 감각을 준다.
+//      「경직이 풀리고 나서도 조금 더 안전」이 스턴락 방지의 실제 조건이다.
+//
+//      버그처럼 보이지 않는 채로 남기 때문에, 숫자로 못 박아 둔다.
+// ============================================================================
+struct HurtData
+{
+    int   ticks     = 18;    // 경직 (입력 없음)
+    int   invuln    = 24;    // ★ 반드시 ticks 보다 길게
+    float knockback = 22.0f; // 밀려나는 거리 (캔버스 픽셀)
+
+    // 넉백은 타격감 때문만이 아니다.
+    // 밀려나면 **적의 다음 공격 사거리에서 벗어난다** —
+    // 피격 무적이 시간으로 막는 것을 넉백은 거리로 막는다.
 };
 
 
@@ -182,6 +269,12 @@ enum class EnemyState
 {
     Idle,
     Chase,
+
+    // ★ 사거리 안에서 공격. 플레이어의 Attack 과 완전히 같은 구조다 —
+    //   startup / active / recovery 를 쓰고, active 구간에만 판정이 있다.
+    //   startup 구간에는 예고(`!`)를 띄운다. 예고가 없으면 회피는 운이 된다.
+    Attack,
+
     Crawl,
     Dead,
 };
@@ -210,8 +303,12 @@ private:
     // 스태미나 회복. 상태와 무관하게 매 틱 불린다.
     void UpdateStamina();
 
-    // 스태미나 바. UI 레이어에 그린다 — 화면이 흔들려도 제자리에 있어야 한다.
+    // 바(bar) 는 UI 레이어에 그린다 — 화면이 흔들려도 제자리에 있어야 한다.
     void DrawStaminaBar(Renderer& renderer) const;
+    void DrawHpBar(Renderer& renderer) const;
+
+    // 지금 입고 있는 갑옷. F2 로 갈아입는다(임시).
+    const ArmorData& Armor() const;
 
     AABB SpriteBounds() const;
 
@@ -224,15 +321,46 @@ private:
     // 지금 공격 판정이 존재하는가 (active 구간인가)
     bool AttackActive() const;
 
-    // 지금 무적인가 (구르기의 invincible 구간인가)
+    // ★ 무적은 두 종류다. 같은 함수로 판정되지만 **성격이 다르다.**
     //
+    //     ① 구르기 무적 — 플레이어가 벌어낸 것 (스태미나를 내고 타이밍을 맞췄다)
+    //                     → 게임 디자인. 재미를 만든다
+    //     ② 피격 무적   — 게임이 주는 안전장치 (스턴락 방지)
+    //                     → 게임 공학. 불공평을 막는다
+    //
+    //   목적이 다르므로 길이를 따로 두고, F1 표시 색도 나눈다.
+    //   그래야 「지금 어느 무적인가」가 눈에 보인다.
+    //
+    //   ★ ② 는 ①의 부속품이 아니라 **경직의 부속품**이다.
+    //     경직이 없으면(강인도로 버텨내면) 못 움직이는 구간이 없으므로
+    //     스턴락 위험도 없고, 그래서 피격 무적도 주지 않는다.
+    bool RollInvincible() const;   // ① 만
+    bool Invincible()     const;   // ① 또는 ②
+
     // ★ hurtbox 를 빈 사각형으로 만드는 방법도 있지만, 그러면 F1 에서
     //   「지금 무적인가」를 눈으로 볼 수 없다. hurtbox 는 그대로 두고
-    //   판정하는 쪽에서 이것을 확인하면, 색만 바꿔서 표시할 수 있다.
-    bool Invincible() const;
+    //   판정하는 쪽에서 위 함수를 확인하면, 색만 바꿔서 표시할 수 있다.
+
+    // 피격 처리. **경직 여부를 여기서 강인도로 결정한다.**
+    void HitPlayer(SceneContext& ctx, const AttackData& atk);
+
+    // ★ 남은 틱에 비례해 감속하며 미끄러진다. 총 이동량이 distance 가 되도록 정규화.
+    //
+    //      속도
+    //       │▓▓▓▓▓▓
+    //       │▓▓▓▓
+    //       │▓▓
+    //       └────────→ 틱
+    //
+    //   구르기와 넉백이 이것을 공유한다. 일정 속도로 움직이면 둘 다 어색하다.
+    //   카메라 흔들림 감쇠와 같은 발상이다.
+    void SlideDecaying(float dirX, float dirY, float distance, int totalTicks);
 
     // 구르기 이동. Roll 상태에서만 불린다.
     void UpdateRoll();
+
+    // 넉백 이동. Hurt 상태에서만 불린다.
+    void UpdateKnockback();
 
     // ---- 적 ----
     AABB EnemyPartBox(int part) const;
@@ -247,6 +375,44 @@ private:
 
     void DrawEnemyDebug(Renderer& renderer) const;
 
+    // ---- 적 공격 : 플레이어의 공격과 대칭이다 ----
+    //   AttackActive()      ↔  EnemyAttackActive()
+    //   AttackHitbox()      ↔  EnemyAttackHitbox()
+    //   m_hitThisSwing      ↔  m_enemy.hitThisSwing
+    const AttackData& EnemyAttack() const;   // 자세에 따라 swing / bite
+    bool  EnemyAttackActive() const;
+    AABB  EnemyAttackHitbox() const;
+
+    // ★ startup 구간 = 예고(telegraph).
+    //   적의 startup 이 몇 틱이든, 플레이어가 그 시작을 볼 수 없으면 회피는 운이다.
+    //   지금은 그림이 없으므로 머리 위 `!` 로 대신한다.
+    //   ※ 이것이 기획서 1.1 의 「初心者の指輪 = 적의 공격 예고」의 원형이다.
+    //     나중에 이 표시를 지문 장착 여부로 감싸면 그대로 아이템이 된다.
+    bool  EnemyTelegraph() const;
+
+    // 적 공격의 **가로** 사거리. 자세마다 다르다(물어뜯기가 더 짧다).
+    float EnemyAttackRange() const;
+
+    // ★ 공격할 수 있는 위치에 있는가.
+    //
+    //   거리(원형)로 재면 안 된다 — 히트박스가 **가로로 뻗기** 때문이다.
+    //
+    //          ┌──────────┐
+    //     적 ──┤ 히트박스  │   ← 가로로 뻗는다
+    //          └──────────┘
+    //          ↕ 세로는 좁다
+    //
+    //   플레이어가 위/아래로 34px 떨어져 있으면 **거리는 사거리 안**이지만
+    //   상자는 옆으로 뻗어 있어 영원히 헛친다. 적이 제자리에서
+    //   허공을 계속 후려치는 상태가 된다.
+    //   그래서 가로(사거리)와 세로(허용폭)를 따로 본다.
+    //
+    //   ★ 그리고 이 하나가 「멈추는 위치」와 「공격하는 위치」 양쪽에 쓰인다.
+    //     둘을 다른 조건으로 두면 「멈췄는데 못 때리는」 적이 생긴다.
+    bool EnemyInAttackPosition() const;
+
+    void  TryEnemyAttack(SceneContext& ctx);
+
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
 
     // ---- 임시 플레이어. 적이 등장하면 Gameplay/Character 로 뺀다 ----
@@ -257,6 +423,15 @@ private:
         float y      = 260.0f;
         int   facing = 1;     // +1 = 오른쪽, -1 = 왼쪽
         int   flash  = 0;     // 남은 번쩍임 틱 (피격 표현용)
+
+        // ★ 플레이어는 부위별 HP 가 아니라 **단일 HP** 다.
+        //   부위 파괴는 적에게만 있는 시스템이다(기획서 3.2).
+        //   플레이어까지 부위를 나누면 UI 와 조작이 모두 무거워진다.
+        int   hp     = 100;
+
+        // 넉백 방향. 적 → 플레이어 방향으로 피격 시점에 고정된다.
+        float knockDirX = -1.0f;
+        float knockDirY =  0.0f;
 
         // ★ 구르기 시작 시점에 고정되는 방향.
         //   중간에 방향키를 바꿔도 무시된다 — 「한 번 구르면 끝까지 간다」.
@@ -301,20 +476,52 @@ private:
 
         EnemyState state      = EnemyState::Idle;
         int        stateTicks = 0;
+
+        // 다음 공격까지 남은 틱. 없으면 사거리에 들어온 동안 무한 공격이 된다.
+        int  attackCooldown = 0;
+
+        // ★ 어느 공격인가를 **시작 시점에 고정한다** (swing / bite).
+        //   매번 EnemyLegsBroken() 으로 판정하면, 휘두르는 도중에 다리가
+        //   부서지는 순간 프레임 데이터가 통째로 바뀌어(60틱 → 57틱)
+        //   active 구간을 건너뛰거나 두 번 지나간다.
+        //   구르기 방향을 시작할 때 고정하는 것과 완전히 같은 이유다.
+        bool attackIsBite = false;
+
+        // ★ 플레이어의 m_hitThisSwing 과 같은 장치.
+        //   active 가 4틱이면 이것 없이는 한 번 휘두를 때 데미지가 4번 들어간다.
+        //   ※ 이쪽은 Enemy 안에 둔다 — 적이 여러 마리가 되면
+        //     각자 자기 휘두르기를 기억해야 하기 때문이다.
+        bool hitThisSwing = false;
     };
     Enemy m_enemy;
 
-    void ChangeEnemyState(EnemyState next);
-    void UpdateEnemy();
+    // ctx 를 받는다 — 공격에 들어갈 때 소리를 내야 한다.
+    void ChangeEnemyState(SceneContext& ctx, EnemyState next);
+    void UpdateEnemy(SceneContext& ctx);
 
     // 플레이어 쪽으로 speed 만큼 다가간다. Chase / Crawl 이 공유한다.
+    // 공격 위치에 도달하면 멈춘다.
     void MoveEnemyTowardPlayer(float speedPerTick);
 
+    bool PlayerDead()      const { return m_state == PlayerState::Dead; }
     bool EnemyDead()       const { return m_enemy.state == EnemyState::Dead; }
     bool EnemyLegsBroken() const { return m_enemy.hp[Part_Legs] <= 0; }
 
-    // 몸이 적에 닿아 있는가 (무적 프레임 확인용)
-    bool m_touching = false;
+    // ★ 5-e-2 의 m_touching(접촉 판정)은 제거했다.
+    //   실제 공격 판정이 들어왔으므로 역할이 끝났고,
+    //   접촉 데미지는 두지 않는다(다크소울과 같이 — 맞아야 아프다).
+
+    // ---- 피격 무적 ----
+    //   ② 쪽 무적. 남은 틱. 경직과 한 세트로만 주어진다.
+    int m_invulnTicks = 0;
+
+    // ★ Hurt 에 들어오기 직전의 상태.
+    //   이게 없으면 「고갈 경직 중에 맞으면 경직이 풀린다」가 되어
+    //   **피격이 이득**이 되어 버린다.
+    PlayerState m_stateBeforeHurt = PlayerState::Idle;
+
+    // 지금 입고 있는 갑옷 번호. F2 로 바뀐다(임시).
+    int m_armorIndex = 0;
 
     // ★ 한 번 휘두를 때 한 번만 맞게 하는 장치.
     //   active 가 3틱이면 판정이 3틱 동안 존재하므로,

@@ -1,4 +1,4 @@
-# 줄바꿈은 git 이 자동 정규화 (저장소 안에서는 항상 LF)
+﻿# 줄바꿈은 git 이 자동 정규화 (저장소 안에서는 항상 LF)
 * text=auto
 
 # Visual Studio 프로젝트 파일은 CRLF 로 체크아웃 (VS 가 그렇게 저장함)
@@ -15,6 +15,9 @@
 *.hlsl  text
 *.json  text
 *.md    text
+
+# 에셋 생성 스크립트. ★ UTF-8 BOM 이 필요하다 (BOM 없으면 CP932 로 오독)
+*.ps1   text eol=crlf
 
 # 바이너리 (줄바꿈 변환 금지)
 *.png        binary
