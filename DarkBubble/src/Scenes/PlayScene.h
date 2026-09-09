@@ -38,6 +38,14 @@ enum class PlayerState
     Idle,
     Run,
     Attack,
+
+    // ★ 스태미나가 0 미만으로 내려간 뒤의 경직.
+    //   아무 입력도 받지 않는다. 회복될 때까지 완전히 무방비다.
+    //
+    //   「스태미나가 부족하면 행동이 안 나간다」로 만들 수도 있지만
+    //   그러면 긴장이 없다. 「부족해도 나가고, 그 결과 무방비가 된다」가
+    //   욕심에 벌을 주는 구조를 만든다.
+    Exhausted,
 };
 
 
@@ -72,7 +80,8 @@ struct AttackData
     float height         = 24.0f;   // 히트박스 높이
     float heightFromFoot = 34.0f;   // 발끝에서 히트박스 중심까지
 
-    int damage = 12;
+    int damage      = 12;
+    int staminaCost = 28;   // 100 짜리 스태미나로 3 번은 되고 4 번째에 고갈된다
 
     int TotalTicks() const { return startup + active + recovery; }
 };
@@ -97,6 +106,12 @@ private:
 
     // 이동 처리. Idle / Run 상태에서만 불린다.
     void UpdateMovement(SceneContext& ctx, float moveX, float moveY);
+
+    // 스태미나 회복. 상태와 무관하게 매 틱 불린다.
+    void UpdateStamina();
+
+    // 스태미나 바. UI 레이어에 그린다 — 화면이 흔들려도 제자리에 있어야 한다.
+    void DrawStaminaBar(Renderer& renderer) const;
 
     AABB SpriteBounds() const;
 
@@ -133,6 +148,16 @@ private:
     //     틱 11~  후딜   히트박스 없음
     //   5-b 에서 이 값으로 공격 판정을 켜고 끈다.
     int m_stateTicks = 0;
+
+    // ---- 스태미나 ----
+    //   ★ float 이다. int 로 하면 틱당 0.9 가 0 으로 잘려 영원히 회복되지 않는다.
+    //     이동 좌표와 같은 이유다 — 계산은 소수로, 표시할 때만 정리.
+    struct Stamina
+    {
+        float current = 100.0f;
+        int   delay   = 0;    // 회복이 시작되기까지 남은 틱
+    };
+    Stamina m_stamina;
 
     // 화면에 고정된 장애물. 몸이 닿으면 색이 바뀌고, 공격이 맞으면 번쩍인다.
     AABB m_obstacle{ 280.0f, 200.0f, 340.0f, 258.0f };

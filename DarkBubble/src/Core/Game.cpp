@@ -123,16 +123,7 @@ int Game::Run()
         // ※ accumulator 에 더하는 것은 아래 ④ 에서 한다.
         //   정지 중에는 쌓으면 안 되기 때문에 조건 분기 안으로 옮겼다.
 
-        // FPS 측정. 1 초에 한 번만 갱신해야 숫자가 안 튀어서 읽을 수 있다.
         m_lastFrameMs = frameTime * 1000.0;
-        m_fpsAccum += frameTime;
-        ++m_fpsFrames;
-        if (m_fpsAccum >= 1.0)
-        {
-            m_fps       = m_fpsFrames / m_fpsAccum;
-            m_fpsFrames = 0;
-            m_fpsAccum  = 0.0;
-        }
 
         // ③ 입력 폴링은 "프레임당 1회". Update 안에서 하면 안 된다.
         m_input.Poll();
@@ -207,6 +198,24 @@ int Game::Run()
             firstTickThisFrame = false;
         }
 
+        // ---- 측정 ----
+        //   ★ TPS(초당 틱)를 같이 잰다. 정상이면 항상 60 이어야 한다.
+        //     이 표시가 있으면 "게임이 빨라진 것 같다" 를 즉시 확인할 수 있다.
+        //     실제로 accumulator 를 두 번 더해 2배속이 된 버그를 낸 적이 있고,
+        //     그때 이 숫자가 있었다면 120 으로 즉시 보였을 것이다.
+        //   1 초에 한 번만 갱신해야 숫자가 안 튀어서 읽을 수 있다.
+        m_fpsAccum += frameTime;
+        ++m_fpsFrames;
+        m_tpsTicks += ticksToRun;
+        if (m_fpsAccum >= 1.0)
+        {
+            m_fps       = m_fpsFrames / m_fpsAccum;
+            m_tps       = m_tpsTicks  / m_fpsAccum;
+            m_fpsFrames = 0;
+            m_tpsTicks  = 0;
+            m_fpsAccum  = 0.0;
+        }
+
         // ★ 틱이 실제로 돌았을 때만 엣지 입력을 비운다.
         //   0 회 돌았으면(정지 중이거나 프레임이 아주 빠를 때) 붙잡아 둔 채로
         //   다음 프레임에 넘긴다. 그래서 입력이 사라지지 않는다.
@@ -250,11 +259,11 @@ int Game::Run()
 void Game::DrawStatsOverlay()
 {
     const std::string text = std::format(
-        "FPS {:5.1f}  FRAME {:5.2f}ms{}\n"
+        "FPS {:5.1f}   TPS {:5.1f}   FRAME {:5.2f}ms{}\n"
         "TICK {}\n"
         "SCENE {} (depth {})\n"
         "TEX {}  load {} / hit {}",
-        m_fps, m_lastFrameMs,
+        m_fps, m_tps, m_lastFrameMs,
         // 표시가 없으면 "게임이 죽었나?" 하고 헷갈린다
         m_frozen ? "   [FROZEN  .=STEP]" : (m_slowMotion ? "   [SLOW 1/8]" : ""),
         m_tickCount,

@@ -62,6 +62,17 @@ namespace
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
 
+    // ---- 스태미나 ----
+    //   공격 28 이므로 100 으로 3 번은 되고 4 번째에 고갈된다.
+    //   「세 번은 되고 네 번은 안 된다」가 몸으로 익혀지는 배치.
+    constexpr float kStaminaMax          = 100.0f;
+    constexpr float kStaminaRegenPerTick = 0.9f;   // 초당 54
+    constexpr int   kStaminaRegenDelay   = 36;     // 0.6 초. 행동할 때마다 초기화된다
+    constexpr float kStaminaExhaustExit  = 25.0f;  // 이 이상 회복되면 경직 해제
+
+    //   ★ 회복 지연이 없으면 공격하는 동안에도 회복되어 스태미나가 의미를 잃는다.
+    //     지연(36틱)이 공격 길이(24틱)보다 길어서 연속 공격 중에는 전혀 안 찬다.
+
     float RandomPitch(float spread)
     {
         static std::mt19937 rng{ 12345 };
@@ -79,9 +90,10 @@ namespace
     {
         switch (s)
         {
-        case PlayerState::Run:    return "RUN";
-        case PlayerState::Attack: return "ATTACK";
-        default:                  return "IDLE";
+        case PlayerState::Run:       return "RUN";
+        case PlayerState::Attack:    return "ATTACK";
+        case PlayerState::Exhausted: return "EXHAUSTED";
+        default:                     return "IDLE";
         }
     }
 
@@ -145,9 +157,22 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
         // 이번 휘두르기의 "이미 맞춘 대상" 기록을 비운다.
         m_hitObstacleThisSwing = false;
 
+        // ★ 스태미나를 여기서 소모한다.
+        //   부족해도 공격은 나간다. 0 미만이 되면 공격이 끝난 뒤 Exhausted 로 간다.
+        //   「부족하면 안 나감」이 아니라 「나가고 대가를 치름」이 이 게임의 규칙이다.
+        m_stamina.current -= static_cast<float>(kDaggerLight.staminaCost);
+        m_stamina.delay    = kStaminaRegenDelay;
+
         // 휘두르는 소리. ★ 맞는 소리(hit)는 실제로 겹칠 때만 낸다.
         //   둘을 나눠야 헛치기와 명중이 소리로 구분된다.
         ctx.audio.Play("swing", 0.55f, RandomPitch(0.12f), PanFromX(m_player.x));
+        break;
+
+    case PlayerState::Exhausted:
+        // 지친 전용 애니메이션이 아직 없으므로 idle 을 쓰고 색으로 구분한다.
+        m_playerAnim.Play(kIdleClip);
+        ctx.audio.Play("ui_cancel", 0.45f);
+        Log::Info("[play] 스태미나 고갈 — 경직 (stam {:.1f})", m_stamina.current);
         break;
     }
 }
@@ -189,6 +214,27 @@ void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
 }
 
 
+// ----------------------------------------------------------------------------
+//  UpdateStamina — 상태와 무관하게 매 틱
+// ----------------------------------------------------------------------------
+void PlayScene::UpdateStamina()
+{
+    // 회복 지연 중이면 아직 안 찬다. 행동할 때마다 이 값이 초기화된다.
+    if (m_stamina.delay > 0)
+    {
+        --m_stamina.delay;
+        return;
+    }
+
+    if (m_stamina.current < kStaminaMax)
+    {
+        m_stamina.current += kStaminaRegenPerTick;
+        if (m_stamina.current > kStaminaMax)
+            m_stamina.current = kStaminaMax;
+    }
+}
+
+
 void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 {
     // ---- 시간은 상태와 무관하게 매 틱 흐른다 ----
@@ -197,6 +243,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //     영원히 false 가 되어 Attack 상태에서 빠져나오지 못한다.
     ++m_stateTicks;
     m_playerAnim.Tick();
+    UpdateStamina();
 
     if (m_player.flash > 0)
         --m_player.flash;
@@ -243,7 +290,22 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         //   Finished() 로 판정하면 프레임 데이터 숫자를 바꿔도 타이밍이 안 바뀐다.
         //   데이터가 진실이고, 애니메이션은 거기에 맞춘다.
         if (m_stateTicks >= kDaggerLight.TotalTicks())
-            ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+        {
+            // ★ 공격이 끝난 시점에 스태미나가 0 미만이면 경직에 들어간다.
+            //   공격 자체는 정상적으로 나갔다 — 대가를 뒤에 치르는 것이다.
+            if (m_stamina.current < 0.0f)
+                ChangeState(ctx, PlayerState::Exhausted);
+            else
+                ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+        }
+        break;
+
+    case PlayerState::Exhausted:
+        // ★ 아무 입력도 처리하지 않는다. 완전히 무방비.
+        //   상태 머신 덕분에 이 한 줄이 「모든 입력 처리에 !exhausted 를 붙이기」를
+        //   대신한다.
+        if (m_stamina.current >= kStaminaExhaustExit)
+            ChangeState(ctx, PlayerState::Idle);
         break;
     }
 
@@ -335,7 +397,9 @@ void PlayScene::Render(Renderer& renderer)
 
     // ---- 플레이어 ----
     DirectX::XMVECTOR tint = DirectX::Colors::White;
-    if (m_player.flash > 0)
+    if (m_state == PlayerState::Exhausted)
+        tint = DirectX::XMVectorSet(0.45f, 0.45f, 0.55f, 1.0f);   // 지쳐서 어둡게
+    else if (m_player.flash > 0)
         tint = DirectX::XMVectorSet(1.0f, 0.35f, 0.30f, 1.0f);
 
     const DirectX::SpriteEffects fx = (m_player.facing < 0)
@@ -383,8 +447,47 @@ void PlayScene::Render(Renderer& renderer)
 }
 
 
+// ----------------------------------------------------------------------------
+//  DrawStaminaBar
+//    스태미나는 화면에 보이지 않으면 게임이 성립하지 않는다.
+//    플레이어가 남은 양을 모르면 관리할 수가 없다.
+// ----------------------------------------------------------------------------
+void PlayScene::DrawStaminaBar(Renderer& renderer) const
+{
+    constexpr float kBarX = 12.0f;
+    constexpr float kBarW = 150.0f;
+    constexpr float kBarH = 9.0f;
+    const float     barY  = Config::kCanvasHeight - 24.0f;
+
+    // 테두리 겸 배경
+    renderer.DrawFilledRect(
+        AABB::FromXYWH(kBarX - 1.0f, barY - 1.0f, kBarW + 2.0f, kBarH + 2.0f),
+        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.7f));
+
+    // ★ current 는 음수가 될 수 있으므로 표시 비율은 0 으로 자른다.
+    const float ratio = std::clamp(m_stamina.current / kStaminaMax, 0.0f, 1.0f);
+
+    DirectX::XMVECTOR color = DirectX::XMVectorSet(0.35f, 0.80f, 0.45f, 1.0f);   // 녹색
+    if (m_state == PlayerState::Exhausted)
+        color = DirectX::XMVectorSet(0.85f, 0.20f, 0.20f, 1.0f);                // 경직 = 빨강
+    else if (ratio < 0.3f)
+        color = DirectX::XMVectorSet(0.90f, 0.75f, 0.25f, 1.0f);                // 부족 = 노랑
+
+    if (ratio > 0.0f)
+    {
+        renderer.DrawFilledRect(
+            AABB::FromXYWH(kBarX, barY, kBarW * ratio, kBarH), color);
+    }
+
+    renderer.DrawString("STAM", kBarX + kBarW + 6.0f, barY - 2.0f,
+                        DirectX::Colors::DimGray, 1);
+}
+
+
 void PlayScene::RenderUI(Renderer& renderer)
 {
+    DrawStaminaBar(renderer);
+
     // ★ 상태 머신을 눈으로 보기 위한 표시.
     //   F2 로 멈추고 F4 를 눌러 가며 STATE 와 t 를 세면
     //   「공격이 몇 틱짜리인가」를 직접 확인할 수 있다.
@@ -402,7 +505,17 @@ void PlayScene::RenderUI(Renderer& renderer)
     {
         renderer.DrawString(
             std::format("STATE {}  t{}", StateName(m_state), m_stateTicks),
-            6.0f, 6.0f, DirectX::Colors::Orange, 1);
+            6.0f, 6.0f,
+            m_state == PlayerState::Exhausted ? DirectX::Colors::Red
+                                              : DirectX::Colors::Orange, 1);
+    }
+
+    if (m_showDebug)
+    {
+        renderer.DrawString(
+            std::format("stam {:6.1f} / {:.0f}   regen delay {:2}",
+                        m_stamina.current, kStaminaMax, m_stamina.delay),
+            6.0f, 20.0f, DirectX::Colors::Gainsboro, 1);
     }
 
     if (m_showDebug)

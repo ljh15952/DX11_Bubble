@@ -54,4 +54,11 @@ private:
     int    m_fpsFrames  = 0;
     double m_fps        = 0.0;
     double m_lastFrameMs = 0.0;
+
+    // ---- TPS (초당 틱) ----
+    //   ★ 정상이면 항상 60 이다. 이 숫자가 어긋나면 시간 처리가 깨진 것이다.
+    //     프레임 레이트와 달리 하드웨어에 좌우되지 않아야 하는 값이라,
+    //     FPS 보다 오히려 이쪽이 중요한 지표다.
+    int    m_tpsTicks   = 0;
+    double m_tps        = 0.0;
 };
