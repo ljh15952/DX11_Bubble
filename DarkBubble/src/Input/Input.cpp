@@ -82,7 +82,19 @@ bool Input::DebugTogglePressed() const
 }
 
 
+bool Input::FreezeTogglePressed() const
+{
+    return m_kbTracker.pressed.F2;
+}
+
+
 bool Input::StatsTogglePressed() const
 {
     return m_kbTracker.pressed.F3;
+}
+
+
+bool Input::StepPressed() const
+{
+    return m_kbTracker.pressed.F4;
 }

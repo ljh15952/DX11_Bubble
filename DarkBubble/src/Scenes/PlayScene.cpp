@@ -98,7 +98,8 @@ bool PlayScene::Enter(SceneContext& ctx)
 
     m_playerAnim.Play(kIdleClip);
 
-    Log::Info("[play] Arrows/WASD/Stick = move  Space = attack  F1 = hitbox  F3 = stats  Esc = pause");
+    Log::Info("[play] Arrows/WASD/Stick = move  Space = attack  Esc = pause");
+    Log::Info("[play] F1 = hitbox   F2 = freeze   F3 = stats   F4 = step 1 tick");
     return true;
 }
 
@@ -236,10 +237,24 @@ void PlayScene::Render(Renderer& renderer)
         ? DirectX::SpriteEffects_FlipHorizontally
         : DirectX::SpriteEffects_None;
 
+    // ★ 그릴 때는 정수 좌표로 맞춘다.
+    //
+    //   m_player.x 는 틱당 2.5 픽셀씩 움직여 소수가 된다(122.5 등).
+    //   소수 위치에 그리면 스프라이트 가장자리 픽셀의 중심이 소스 사각형 밖
+    //   0.5 텍셀을 가리켜 시트의 "옆 칸" 을 물어온다 = 1 픽셀 선이 생긴다.
+    //   (텍스처 블리딩. PointClamp 는 텍스처 전체 경계만 막아 주고
+    //    시트 안의 칸 경계는 텍스처 내부라 그냥 옆 칸을 읽는다)
+    //
+    //   계산은 소수로, 그리기는 정수로 — 픽셀아트에서 계속 반복되는 규칙이다.
+    const DirectX::XMFLOAT2 drawPos{
+        std::round(m_player.x),
+        std::round(m_player.y)
+    };
+
     const RECT src = m_playerAnim.SourceRect(kCellW, kCellH);
     renderer.Sprites().Draw(
         m_sheet.Get(),
-        DirectX::XMFLOAT2(m_player.x, m_player.y),   // ② 발밑 위치
+        drawPos,                                     // ② 발밑 위치 (정수)
         &src,                                        // ③ 시트의 어느 칸
         tint,                                        // ④ 곱할 색
         0.0f,                                        // ⑤ 회전(라디안)

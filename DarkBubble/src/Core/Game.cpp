@@ -107,7 +107,8 @@ int Game::Run()
         if (frameTime > Config::kMaxFrameSeconds)
             frameTime = Config::kMaxFrameSeconds;
 
-        accumulator += frameTime;
+        // ※ accumulator 에 더하는 것은 아래 ④ 에서 한다.
+        //   정지 중에는 쌓으면 안 되기 때문에 조건 분기 안으로 옮겼다.
 
         // FPS 측정. 1 초에 한 번만 갱신해야 숫자가 안 튀어서 읽을 수 있다.
         m_lastFrameMs = frameTime * 1000.0;
@@ -136,9 +137,44 @@ int Game::Run()
             Log::Info("[game] 통계 오버레이 {}", m_showStats ? "ON" : "OFF");
         }
 
-        // ④ 통장이 찰 때마다 정확히 1 틱씩 처리한다.
+        // ---- 프레임 정지 / 스테핑 ----
+        //   ★ PauseScene 과는 다른 것이다.
+        //     PauseScene 은 게임 기능이라 PlayScene 만 멈추지만,
+        //     이건 디버그 도구라 Scene 스택 전체와 카메라까지 통째로 멈춘다.
+        //     그래서 Scene 이 아니라 루프 자체에 있다.
+        if (m_input.FreezeTogglePressed())
+        {
+            m_frozen = !m_frozen;
+            Log::Info("[game] 프레임 정지 {}", m_frozen ? "ON  (F4 = 1틱 전진)" : "OFF");
+        }
+        const bool stepOnce = (m_frozen && m_input.StepPressed());
+
+        // ④ 이번 프레임에 몇 틱을 돌릴지 먼저 정한다.
+        //    "몇 틱인가" 와 "한 틱을 어떻게 도는가" 를 나눠 두면
+        //    정지 / 스테핑 같은 것이 앞쪽 계산만 바꿔서 끼어들 수 있다.
+        int ticksToRun = 0;
+
+        if (m_frozen)
+        {
+            // ★ 정지 중에는 시간을 쌓지 않는다.
+            //   쌓으면 10 초 멈췄다 해제하는 순간 600 틱이 한꺼번에 실행되어
+            //   캐릭터가 순간이동한다. 「죽음의 나선」 상한과 같은 종류의 문제다.
+            accumulator = 0.0;
+            ticksToRun  = stepOnce ? 1 : 0;
+        }
+        else
+        {
+            accumulator += frameTime;
+            while (accumulator >= Config::kTickSeconds)
+            {
+                ++ticksToRun;
+                accumulator -= Config::kTickSeconds;
+            }
+        }
+
+        // ⑤ 정확히 1 틱씩 처리한다.
         bool firstTickThisFrame = true;
-        while (accumulator >= Config::kTickSeconds)
+        for (int i = 0; i < ticksToRun; ++i)
         {
             Log::SetTick(++m_tickCount);
             m_scenes.UpdateStack(ctx, firstTickThisFrame);
@@ -149,10 +185,9 @@ int Game::Run()
             m_camera.Tick();
 
             firstTickThisFrame = false;
-            accumulator -= Config::kTickSeconds;
         }
 
-        // ⑤ ★ Scene 전환은 틱 루프가 전부 끝난 뒤에 적용한다.
+        // ⑥ ★ Scene 전환은 틱 루프가 전부 끝난 뒤에 적용한다.
         //    Scene 이 자기 Update 안에서 자기를 교체해도 안전한 이유가 이것이다.
         m_scenes.ApplyPending(ctx);
 
@@ -163,7 +198,8 @@ int Game::Run()
             continue;   // 다음 반복에서 WM_QUIT 를 받아 빠져나간다
         }
 
-        // ⑥ 그리기는 프레임당 1회. 월드 → UI 순서.
+        // ⑦ 그리기는 프레임당 1회. 월드 → UI 순서.
+        //    ★ 정지 중에도 그린다. 멈춘 화면을 봐야 하니까.
         m_renderer.BeginFrame(
             m_camera.ViewMatrix(Config::kCanvasWidth, Config::kCanvasHeight));
         m_scenes.RenderStack(m_renderer);       // 월드 (카메라·흔들림 적용)
@@ -188,11 +224,13 @@ int Game::Run()
 void Game::DrawStatsOverlay()
 {
     const std::string text = std::format(
-        "FPS {:5.1f}  FRAME {:5.2f}ms\n"
+        "FPS {:5.1f}  FRAME {:5.2f}ms{}\n"
         "TICK {}\n"
         "SCENE {} (depth {})\n"
         "TEX {}  load {} / hit {}",
         m_fps, m_lastFrameMs,
+        // 표시가 없으면 "게임이 죽었나?" 하고 헷갈린다
+        m_frozen ? "   [FROZEN  F4=STEP]" : "",
         m_tickCount,
         m_scenes.TopName(), m_scenes.Depth(),
         m_assets.Count(), m_assets.LoadCount(), m_assets.HitCount());
@@ -204,5 +242,6 @@ void Game::DrawStatsOverlay()
         AABB::FromXYWH(2.0f, 2.0f, w + 8.0f, h + 6.0f),
         DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.55f));
 
-    m_renderer.DrawString(text, 6.0f, 5.0f, DirectX::Colors::Lime, 1);
+    m_renderer.DrawString(text, 6.0f, 5.0f,
+                          m_frozen ? DirectX::Colors::Yellow : DirectX::Colors::Lime, 1);
 }

@@ -44,6 +44,10 @@ private:
     //   1 초 동안 몇 프레임을 그렸는지 세어 나눈다.
     //   매 프레임 1/frameTime 을 쓰면 값이 심하게 튀어서 읽을 수가 없다.
     bool   m_showStats  = false;
+
+    // 프레임 정지(F2) + 1틱 전진(F4). 디버그 도구라 Scene 은 존재를 모른다.
+    bool   m_frozen     = false;
+
     double m_fpsAccum   = 0.0;
     int    m_fpsFrames  = 0;
     double m_fps        = 0.0;
