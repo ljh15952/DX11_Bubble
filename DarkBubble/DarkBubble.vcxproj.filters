@@ -46,6 +46,9 @@
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
+    <ClCompile Include="src\Gameplay\WeaponPickup.cpp">
+      <Filter>Gameplay</Filter>
+    </ClCompile>
     <ClCompile Include="src\Gameplay\StaminaComponent.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
@@ -133,6 +136,9 @@
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\EnemyBrain.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\WeaponPickup.h">
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\StaminaComponent.h">

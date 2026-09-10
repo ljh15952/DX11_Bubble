@@ -29,6 +29,7 @@ class StaminaComponent;
 class PlayerController;
 class PartsComponent;
 class PoiseComponent;
+class WeaponPickup;
 class EnemyBrain;
 
 class PlayScene final : public Scene
@@ -51,6 +52,11 @@ private:
     void TryPlayerHit(SceneContext& ctx);   // 플레이어 → 적
     void TryEnemyHit(SceneContext& ctx);    // 적 → 플레이어
 
+    // ---- 월드에 떨어진 물건 ----
+    //   ★ 컨트롤러는 월드를 모른다. 「떨궈야 한다」는 요청만 하고
+    //     어디에 놓을지·주울 수 있는지는 Scene 이 정한다.
+    void UpdateWeaponPickup(SceneContext& ctx);
+
     // ★ 초기화와 부활은 **같은 일**이다. 두 벌로 만들면 반드시 어긋난다 —
     //   나중에 필드를 하나 추가할 때 한쪽만 고치고, 「두 번째 판부터 뭔가
     //   이상하다」는 재현하기 어려운 버그가 된다. Enter 가 이것을 부른다.
@@ -64,13 +70,16 @@ private:
     //     따로 외울 것이 없다. (그리기만 예외 — Component::RenderDebug 참조)
     GameObject m_playerObj{ "player" };
     GameObject m_enemyObj { "enemy"  };
+    GameObject m_weaponObj{ "weapon" };   // 땅에 떨어진 무기
 
     // Start 에서 캐시한다. 매번 dynamic_cast 하지 않기 위해서다.
     //   ★ 스프라이트와 스태미나는 여기 없다. Scene 이 쓸 일이 없기 때문이다 —
     //     컨트롤러가 자기 Start 에서 Require 로 찾아 쓴다.
     //     Scene 이 들고 있으면 「누가 누구를 쓰는가」가 흐려진다.
-    PlayerController* m_player     = nullptr;
+    PlayerController* m_player      = nullptr;
+    PartsComponent*   m_playerParts = nullptr;
     PartsComponent*   m_enemyParts = nullptr;
     PoiseComponent*   m_enemyPoise = nullptr;
+    WeaponPickup*     m_pickup     = nullptr;
     EnemyBrain*       m_enemyBrain = nullptr;
 };

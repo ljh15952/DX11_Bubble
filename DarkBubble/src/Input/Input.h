@@ -12,6 +12,7 @@
 #include <memory>
 #include <Keyboard.h>
 #include <GamePad.h>
+#include <Mouse.h>
 
 class Input
 {
@@ -23,7 +24,10 @@ public:
         float y = 0.0f;   // 화면 좌표계 기준. 아래로 갈수록 +
     };
 
-    void Initialize();
+    // ★ 마우스는 창을 알아야 한다(좌표계 · 캡처). 키보드·패드는 필요 없다.
+    //   장치마다 초기화 요구가 다른 것을 Input 이 흡수한다 —
+    //   Game 은 「입력을 초기화해라」만 알면 된다.
+    void Initialize(HWND hwnd);
 
     // 창 프로시저에서 호출한다.
     // DirectXTK Keyboard 는 스스로 메시지를 받을 수 없어 배달이 필요하다.
@@ -67,7 +71,8 @@ public:
     bool ConfirmPressed() const { return m_edges.confirm; }   // Enter / Space / 패드 A  (메뉴)
     bool CancelPressed()  const { return m_edges.cancel;  }   // Esc / 패드 B            (메뉴)
 
-    bool AttackPressed()  const { return m_edges.attack;  }   // Space / 패드 A          (게임)
+    bool AttackPressed()  const { return m_edges.attack;  }   // 좌클릭 / Space / 패드 A
+    bool BitePressed()    const { return m_edges.bite;    }   // 우클릭 / 패드 Y
     bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
     bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
 
@@ -94,11 +99,15 @@ private:
 
     // Tracker 는 직전 프레임의 상태를 들고 있다가
     // 「지금 눌려 있다」와 「방금 눌렸다」를 구분해 준다.
+    std::unique_ptr<DirectX::Mouse> m_mouse;
+
     DirectX::Keyboard::KeyboardStateTracker m_kbTracker;
     DirectX::GamePad::ButtonStateTracker    m_padTracker;
+    DirectX::Mouse::ButtonStateTracker      m_mouseTracker;
 
     DirectX::Keyboard::State m_kb  = {};
     DirectX::GamePad::State  m_pad = {};
+    DirectX::Mouse::State    m_ms  = {};
 
     // 틱이 돌 때까지 붙잡아 두는 게임플레이 엣지 입력
     struct Edges
@@ -108,6 +117,7 @@ private:
         bool attack  = false;
         bool roll    = false;
         bool pause   = false;
+        bool bite    = false;
 
         // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키.
         //   6단계에서 진짜 장비 시스템이 오면 버린다.

@@ -1,17 +1,20 @@
 ﻿#include "Input/Input.h"
 #include <cmath>
 
-void Input::Initialize()
+void Input::Initialize(HWND hwnd)
 {
     m_keyboard = std::make_unique<DirectX::Keyboard>();
     m_gamePad  = std::make_unique<DirectX::GamePad>();
+    m_mouse    = std::make_unique<DirectX::Mouse>();
+    m_mouse->SetWindow(hwnd);
 }
 
 
 void Input::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    // Keyboard 는 내부적으로 싱글턴이라 인스턴스 없이 static 으로 호출할 수 있다.
+    // Keyboard / Mouse 는 내부적으로 싱글턴이라 인스턴스 없이 static 으로 호출한다.
     DirectX::Keyboard::ProcessMessage(msg, wParam, lParam);
+    DirectX::Mouse::ProcessMessage(msg, wParam, lParam);
 }
 
 
@@ -23,6 +26,9 @@ void Input::Poll()
     m_pad = m_gamePad->GetState(0);
     if (m_pad.IsConnected())
         m_padTracker.Update(m_pad);
+
+    m_ms = m_mouse->GetState();
+    m_mouseTracker.Update(m_ms);
 
     // ★ 게임플레이 엣지는 |= 로 누적한다. ConsumeEdges 까지 사라지지 않는다.
     //   정지 중에 누른 공격이 다음 스텝에서 살아나는 장치이고,
@@ -36,8 +42,17 @@ void Input::Poll()
     m_edges.cancel  |= m_kbTracker.pressed.Escape
                     || m_padTracker.b == PadTracker::PRESSED;
 
+    // ★ 같은 「의도」에 여러 입력을 묶는다. Input 이 키가 아니라 의도로
+    //   번역하도록 처음부터 설계해 둔 덕에 장치를 늘려도 게임 코드가 안 바뀐다.
+    using MouseTracker = DirectX::Mouse::ButtonStateTracker;
+
     m_edges.attack  |= m_kbTracker.pressed.Space
-                    || m_padTracker.a == PadTracker::PRESSED;
+                    || m_padTracker.a == PadTracker::PRESSED
+                    || m_mouseTracker.leftButton == MouseTracker::PRESSED;
+
+    // ★ 물기 — 팔이 없어도 쓸 수 있는 최후의 수단이라 **항상** 받는다.
+    m_edges.bite    |= m_padTracker.y == PadTracker::PRESSED
+                    || m_mouseTracker.rightButton == MouseTracker::PRESSED;
 
     m_edges.roll    |= m_kbTracker.pressed.LeftShift
                     || m_padTracker.b == PadTracker::PRESSED;

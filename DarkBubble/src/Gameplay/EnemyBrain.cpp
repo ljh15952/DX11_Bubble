@@ -132,7 +132,7 @@ float EnemyBrain::AttackRange() const
 {
     // 이쪽은 latch 가 아니라 **현재 자세**를 본다 —
     // 「지금 다가갈까 공격할까」를 판단하는 값이므로 최신이어야 한다.
-    return m_parts->LegsBroken() ? kBiteRange : kSwingRange;
+    return m_parts->Prone() ? kBiteRange : kSwingRange;
 }
 
 
@@ -243,13 +243,13 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
 
     case EnemyState::Hurt:
         // 전용 그림이 없으므로 자세를 유지하고 틴트로 구분한다(ApplyTint).
-        m_sprite->Play(m_parts->LegsBroken() ? kCrawlClip : kIdleClip, true);
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
         ctx.audio.Play("ui_cancel", 0.5f, -0.4f, PanFromCanvasX(Owner().transform.x));
         break;
 
     case EnemyState::Attack:
         // ★ 어느 공격인지 여기서 고정한다. 도중에 다리가 부서져도 안 바뀐다.
-        m_attackIsBite = m_parts->LegsBroken();
+        m_attackIsBite = m_parts->Prone();
         m_hitThisSwing = false;
 
         // forceRestart : 같은 공격을 연달아 낼 때 처음부터 다시 재생되어야 한다.
@@ -316,13 +316,13 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
         {
         case EnemyState::Idle:
             if (dist <= kSightRange)
-                ChangeState(ctx, m_parts->LegsBroken() ? EnemyState::Crawl
+                ChangeState(ctx, m_parts->Prone() ? EnemyState::Crawl
                                                        : EnemyState::Chase);
             break;
 
         case EnemyState::Chase:
             // ★ 부위 파괴가 행동을 바꾸는 지점.
-            if (m_parts->LegsBroken())
+            if (m_parts->Prone())
             {
                 ChangeState(ctx, EnemyState::Crawl);
                 break;
@@ -350,7 +350,7 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
             }
             if (m_stateTicks >= kHurtTicks)
             {
-                ChangeState(ctx, m_parts->LegsBroken() ? EnemyState::Crawl
+                ChangeState(ctx, m_parts->Prone() ? EnemyState::Crawl
                                                        : EnemyState::Chase);
             }
             break;
@@ -364,7 +364,7 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
             if (m_stateTicks >= CurrentAttack().TotalTicks())
             {
                 m_attackCooldown = kAttackCooldown;
-                ChangeState(ctx, m_parts->LegsBroken() ? EnemyState::Crawl
+                ChangeState(ctx, m_parts->Prone() ? EnemyState::Crawl
                                                        : EnemyState::Chase);
             }
             break;
@@ -457,6 +457,10 @@ void EnemyBrain::RenderUI(Renderer& renderer)
             AttackActive() ? DirectX::Colors::Red : DirectX::Colors::Orange, 1);
         return;
     }
+
+    // 부위별 HP 는 컴포넌트가 그린다. 위치만 여기서 정한다(화면 오른쪽 위).
+    if (renderer.DebugDraw())
+        m_parts->DrawHpList(renderer, static_cast<float>(Config::kCanvasWidth) - 150.0f, 40.0f);
 
     renderer.DrawString(
         std::format("ENEMY {}{}{}", EnemyStateName(m_state),

@@ -98,6 +98,25 @@ LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_SYSKEYUP:
         Input::ProcessMessage(msg, wParam, lParam);
         break;   // return 0 이 아니라 break — Alt+F4 등을 Windows 가 처리하도록
+
+    // ---- 마우스 ----
+    //   ★ 키보드와 달리 메시지 종류가 많다. 하나라도 빠뜨리면 그 버튼만
+    //     조용히 안 먹는다 — DirectXTK 문서가 요구하는 목록을 그대로 적는다.
+    case WM_ACTIVATE:
+    case WM_INPUT:
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MOUSEWHEEL:
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONUP:
+    case WM_MOUSEHOVER:
+        Input::ProcessMessage(msg, wParam, lParam);
+        break;
     }
 
     // 내가 처리하지 않은 메시지는 전부 Windows 의 기본 동작에 맡긴다.

@@ -109,6 +109,7 @@
     <ClCompile Include="src\Gameplay\PlayerController.cpp" />
     <ClCompile Include="src\Gameplay\PoiseComponent.cpp" />
     <ClCompile Include="src\Gameplay\StaminaComponent.cpp" />
+    <ClCompile Include="src\Gameplay\WeaponPickup.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
     <ClCompile Include="src\Graphics\Assets.cpp" />
     <ClCompile Include="src\Graphics\BitmapFont.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="src\Gameplay\PlayerController.h" />
     <ClInclude Include="src\Gameplay\PoiseComponent.h" />
     <ClInclude Include="src\Gameplay\StaminaComponent.h" />
+    <ClInclude Include="src\Gameplay\WeaponPickup.h" />
     <ClInclude Include="src\Graphics\Animation.h" />
     <ClInclude Include="src\Graphics\Assets.h" />
     <ClInclude Include="src\Graphics\BitmapFont.h" />

@@ -6,6 +6,7 @@
 #include "Core/Motion.h"
 #include "Core/Scene.h"
 #include "Audio/Audio.h"
+#include "Gameplay/PartsComponent.h"
 #include "Gameplay/PoiseComponent.h"
 #include "Gameplay/StaminaComponent.h"
 #include "Graphics/Camera.h"
@@ -31,6 +32,10 @@ namespace
     constexpr AnimationClip kIdleClip { /*row*/ 0, 4, 10, /*loop*/ true  };   //  6fps
     constexpr AnimationClip kRunClip  { /*row*/ 1, 6,  5, /*loop*/ true  };   // 12fps
     constexpr AnimationClip kRollClip { /*row*/ 3, 6,  4, /*loop*/ false };   // 15fps
+
+    // ★ 다리가 부서졌을 때. tools/gen_player_crawl.ps1 로 만든다.
+    //   적의 기어가기 행을 플레이어 팔레트로 다시 칠한 임시 그림이다.
+    constexpr AnimationClip kCrawlClip{ /*row*/ 7, 4, 10, /*loop*/ true };
 
     // ========================================================================
     //  단검의 무브셋 — 무기 하나 = 공격 여러 개 (기획서 §3.2.1)
@@ -102,10 +107,47 @@ namespace
         /*clip*/     { /*row*/ 5, 6, 4, false },
     };
 
+    // ========================================================================
+    //  ★ 물기 — 팔이 없어도 쓸 수 있는 최후의 수단 (우클릭 / 패드 Y)
+    //
+    //    무기를 쥐지 않으므로 **팔이 다 잘려도** 나간다. 언제든 쓸 수 있다.
+    //
+    //    ★ 높이 48 = 머리다. 그리고 머리는 즉사다(design.md §3.2.2).
+    //      「팔을 다 잃으면 목을 물어뜯는 수밖에 없다」 —
+    //      아주 위험하지만 **즉사를 노린다.** 패배 직전이 가장 큰 보상을
+    //      노리는 순간이 되는 것이 소울류의 리듬이다.
+    //
+    //    THRUST(콤보 2타)와 높이가 같지만 성격이 갈린다:
+    //        BITE   사거리 4 · 데미지 8   — 붙어야 하지만 **언제든**
+    //        THRUST 사거리 12 · 데미지 15 — 1타를 맞춰야 하지만 강하다
+    // ========================================================================
+    constexpr AttackData kBite{
+        /*name*/     "BITE",
+        /*startup*/  8,
+        /*active*/   3,
+        /*recovery*/ 13,            // 합계 24 = 6프레임 × 4틱 (8/4 = 2 -> 프레임 2 가 타격)
+        /*reach*/     4.0f,         // 아주 짧다 — 목을 물려면 붙어야 한다
+        /*width*/    18.0f,
+        /*height*/   18.0f,
+        /*heightFromFoot*/ 48.0f,   // ★ 머리 높이
+        /*damage*/    8,            // 무기보다 나쁘다
+        /*staminaCost*/ 18,         // 최후의 수단이 비싸면 안 된다
+        /*impact*/   10,            // 적(15)을 못 끊는다
+        /*clip*/     { /*row*/ 8, 6, 4, false },
+    };
+
+    // 엎드려서 무는 것과 서서 무는 것은 **높이가 다르다.**
+    //   ★ 이 한 줄이 없으면 기어가는 중에 물기 상자가 공중에 뜬다 —
+    //     자세별 판정 상자에서 이미 두 번 밟은 함정과 같은 종류다.
+    constexpr AttackData kBiteProne = []{
+        AttackData a = kBite;
+        a.heightFromFoot = 18.0f;   // 엎드린 머리(-27..-11)의 한가운데
+        a.clip = { /*row*/ 7, 4, 6, true };   // 전용 그림이 없어 기어가기 자세 유지
+        return a;
+    }();
+
     constexpr RollData kRoll{ /*windup*/ 4, /*invincible*/ 12, /*recovery*/ 10 };
     constexpr HurtData kHurt{ /*ticks*/ 18, /*invuln*/ 24, /*knockback*/ 22.0f };
-
-    constexpr int kMaxHp = 100;
 
     // ★ 죽은 뒤 사망 화면이 뜨기까지의 한 박자.
     //   즉시 덮으면 무엇에 죽었는지 안 보여 플레이어가 배울 수 없다.
@@ -118,7 +160,8 @@ namespace
     constexpr int kArmorCount = static_cast<int>(std::size(kArmors));
 
     constexpr float kSpeedPerTick     = 150.0f / 60.0f;   // 틱당 2.5 픽셀
-    constexpr float kCrouchSpeedScale = 0.45f;            // 조준의 대가
+    constexpr float kCrouchSpeedScale     = 0.45f;        // 조준의 대가
+    constexpr float kProneSpeedScale      = 0.30f;        // 다리 파괴 = 기어간다
 
     constexpr float kOriginX = kCellW * 0.5f;
     constexpr float kOriginY = static_cast<float>(kCellH);
@@ -179,12 +222,69 @@ void PlayerController::Start(SceneContext& ctx)
 {
     m_sprite  = &Owner().Require<SpriteComponent>();
     m_poise   = &Owner().Require<PoiseComponent>();
+    m_parts   = &Owner().Require<PartsComponent>();
     m_stamina = &Owner().Require<StaminaComponent>();
     Respawn(ctx);
 }
 
 
 const ArmorData& PlayerController::Armor() const { return kArmors[m_armorIndex]; }
+
+
+// ----------------------------------------------------------------------------
+//  ★ 무기 팔이 잘리면 공격할 수 없다
+//
+//    §3.10 의 슬롯 구조 그대로다 — **무기는 오른손**, 왼손은 보조(횃불·방패).
+//    오른팔이 잘리면 무기를 떨궜으므로 휘두를 것이 없다.
+//
+//    ★ 이것이 「팔 = 완충재」와 맞물려 진짜 선택을 만든다.
+//      적을 마주 보고 막으면 **앞팔 = 무기팔**을 잃는다.
+//      등을 돌려 막으면 왼팔을 잃고 무기는 지킨다 — 대신 등을 보인다.
+//      규칙 두 개(완충재 · 무기는 오른손)가 곱해져 전술이 나왔다.
+//
+//    ※ 맨손 공격과 왼손으로 옮겨 들기는 8단계(인벤토리)의 몫이다.
+// ----------------------------------------------------------------------------
+bool PlayerController::CanAttack() const
+{
+    // 무기가 없으면 휘두를 것이 없고, 든 손이 잘려도 마찬가지다.
+    switch (m_weaponHand)
+    {
+    case WeaponHand::Right: return !m_parts->IsBroken(Part_RightArm);
+    case WeaponHand::Left:  return !m_parts->IsBroken(Part_LeftArm);
+    default:                return false;
+    }
+}
+
+
+bool PlayerController::ConsumeWeaponDropRequest()
+{
+    if (!m_weaponDropRequested) return false;
+    m_weaponDropRequested = false;
+    return true;
+}
+
+
+bool PlayerController::ConsumePickupRequest()
+{
+    if (!m_pickupRequested) return false;
+    m_pickupRequested = false;
+    return true;
+}
+
+
+void PlayerController::EquipWeapon(WeaponHand hand)
+{
+    m_weaponHand = hand;
+    Log::Info("[play] 무기를 {} 손에 들었다",
+              hand == WeaponHand::Right ? "오른" : "왼");
+}
+
+
+bool PlayerController::CanRoll() const
+{
+    // 다리가 부서지면 구를 수 없다. 회피 수단을 통째로 잃는다.
+    return !m_parts->LegsBroken();
+}
 
 
 void PlayerController::Respawn(SceneContext& ctx)
@@ -194,7 +294,7 @@ void PlayerController::Respawn(SceneContext& ctx)
     tr.y = kStartY;
     tr.facing = 1;
 
-    m_hp          = kMaxHp;
+    m_parts->Reset();
     m_flash       = 0;
     m_invulnTicks = 0;
 
@@ -202,6 +302,7 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_knockDirX = -1.0f; m_knockDirY = 0.0f;
 
     m_currentAttack = nullptr;
+    m_biteRequested = false;
     m_comboStep     = 0;
     m_comboQueued   = false;
     m_hitThisSwing  = false;
@@ -214,7 +315,16 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_poise->Reset();
     m_poise->SetValue(Armor().poise);   // ★ 값의 출처는 방어구다
 
+    m_pickupAvailable     = false;
+    m_pickupRequested     = false;
+    m_weaponDropRequested = false;
+
     // ---- 남는다 ----
+    //   ★ m_weaponHand 도 되돌리지 않는다. 무기를 떨군 채 죽었다면
+    //     **빈손으로 부활**하고, 무기는 떨어진 그 자리에 그대로 있다.
+    //     되돌리면 「죽으면 무기가 손으로 돌아오는」 게임이 되어
+    //     §3.6.1 의 「남는다」가 무의미해진다.
+    //
     //   ★ m_armorIndex 는 **일부러 되돌리지 않는다.** 장비는 죽어도 그대로다 —
     //     design.md §3.6.1 의 「남는다」 칸에 실제로 들어간 첫 항목이다.
     //     되돌리면 「죽을 때마다 장비가 벗겨지는」 게임이 된다.
@@ -240,6 +350,15 @@ void PlayerController::Respawn(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 const AttackData& PlayerController::SelectAttack(SceneContext& ctx, PlayerState prev) const
 {
+    // ⓪ 물기는 **모든 것보다 위**다. 다른 키로 들어왔으므로 해석의 여지가 없다.
+    //   자세만 반영한다 — 엎드리면 무는 높이가 달라진다.
+    if (m_biteRequested)
+        return m_parts->Prone() ? kBiteProne : kBite;
+
+    // ★ 쓰러져 있으면 낮게 휘두르는 것밖에 못 한다.
+    //   자세가 선택지를 지운다 — 「명시적 입력이 이긴다」보다도 위다.
+    if (m_parts->Prone())                return kDaggerCrouch;
+
     if (ctx.input.CrouchHeld())          return kDaggerCrouch;   // ① 명시적 입력
 
     // ② 공격 중이었다 -> 2타
@@ -279,26 +398,32 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     switch (next)
     {
     case PlayerState::Idle:
-        m_sprite->Play(kIdleClip);
+        // ★ 쓰러져 있으면 서 있는 그림을 쓸 수 없다. 자세는 몸이 정한다.
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip);
         break;
 
     case PlayerState::Run:
         // ★ 여기서 m_stepCooldown 을 0 으로 되돌리면 안 된다 —
         //   UpdateMovement 가 이미 발소리를 내고 쿨다운을 채워 놓았고,
         //   되돌리면 1/60초 간격으로 두 번 울린다.
-        m_sprite->Play(kRunClip);
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kRunClip);
         break;
 
     case PlayerState::Attack:
     {
-        m_comboStep   = (prev == PlayerState::Attack) ? 1 : 0;
+        // ★ 물기는 콤보에 들어가지 않는다. 무기 콤보의 일부가 아니기 때문이다.
+        m_comboStep   = (prev == PlayerState::Attack && !m_biteRequested) ? 1 : 0;
         m_comboQueued = false;
 
         // ★ 어느 공격인지 **여기서 고정한다.**
         m_currentAttack = &SelectAttack(ctx, prev);
+        m_biteRequested = false;          // 한 번 쓰면 지운다
         const AttackData& atk = *m_currentAttack;
 
-        m_sprite->Play(atk.clip, true);
+        // ★ 쓰러진 채로는 서서 휘두르는 그림을 쓸 수 없다.
+        //   전용 기어가며 공격 행은 아직 없어서 자세만 유지한다 —
+        //   판정(crouch 상자)은 이미 낮으므로 게임은 성립한다. 그림은 6-c-5.
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : atk.clip, true);
         m_hitThisSwing = false;
 
         // ★ 부족해도 공격은 나간다. 0 미만이면 끝난 뒤 Exhausted 로 간다.
@@ -340,7 +465,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     }
 
     case PlayerState::Exhausted:
-        m_sprite->Play(kIdleClip);
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip);
         ctx.audio.Play("ui_cancel", 0.45f);
         Log::Info("[play] 스태미나 고갈 — 경직 (stam {:.1f})", m_stamina->Current());
         break;
@@ -348,11 +473,11 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     case PlayerState::Hurt:
         // ★ 소리는 여기서 내지 않는다 — 버텼는지 휘청였는지에 따라 다르므로
         //   원인을 아는 TakeHit 가 낸다.
-        m_sprite->Play(kIdleClip, true);
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
         break;
 
     case PlayerState::Dead:
-        m_sprite->Play(kIdleClip, true);
+        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
         ctx.audio.Play("ui_cancel", 0.9f, -0.6f);
         Log::Info("[play] ★★ 플레이어 사망 — {}틱 뒤 사망 화면", kDeathScreenDelay);
         break;
@@ -373,7 +498,12 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX, float move
     else if (moveX > kMoveEpsilon)  tr.facing = +1;
 
     // ★ 웅크리면 느려진다 — 「다리를 노리려면 멈춰서 노려야 한다」가 한 줄로.
-    const float speed = kSpeedPerTick * (m_crouching ? kCrouchSpeedScale : 1.0f);
+    //   ★ 다리가 부서지면 **쓰러져 기어간다**(design.md §3.2.2).
+    //     플레이어에게 가장 무서운 부위 파괴다 — 구르기까지 잃으면
+    //     §3.1 의 「흘려서 산다」가 통째로 사라진다.
+    float speed = kSpeedPerTick;
+    if (m_crouching)            speed *= kCrouchSpeedScale;
+    if (m_parts->Prone())       speed *= kProneSpeedScale;
 
     tr.x = std::clamp(tr.x + moveX * speed, kOriginX,
                       static_cast<float>(Config::kCanvasWidth) - kOriginX);
@@ -500,18 +630,43 @@ bool PlayerController::ConsumeDeathScreenRequest()
 //
 //    ※ 무적 판정은 이 함수에 오기 전에 끝나 있다(PlayScene::TryEnemyHit).
 // ----------------------------------------------------------------------------
-void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
+void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int part,
                                float fromX, float fromY)
 {
     const Transform& tr = Owner().transform;
 
-    m_hp   -= atk.damage;
+    m_parts->Damage(part, atk.damage);
     m_flash = kFlashTicks;
 
-    // ---- 사망이 가장 먼저다. 강인도로 버텨도 HP 는 깎였다 ----
-    if (m_hp <= 0)
+    Log::Info("[play] {} 피격  dmg {}  남은 {}/{}",
+              m_parts->Name(part), atk.damage,
+              std::max(0, m_parts->Hp(part)), m_parts->MaxHp(part));
+
+    // ---- 부위가 부서졌다 ----
+    if (m_parts->IsBroken(part))
     {
-        m_hp = 0;
+        Log::Info("[play] ★ {} 절단!", m_parts->Name(part));
+
+        // ★ 팔이 잘리면 **그 손의** 무기를 떨군다(design.md §3.2.2).
+        //   다른 손이면 아무 일도 없다 — 어느 손인지가 결과를 바꾼다.
+        const bool lostHand =
+               (part == Part_RightArm && m_weaponHand == WeaponHand::Right)
+            || (part == Part_LeftArm  && m_weaponHand == WeaponHand::Left);
+
+        if (lostHand)
+        {
+            m_weaponHand          = WeaponHand::None;
+            m_weaponDropRequested = true;   // 어디에 떨어뜨릴지는 Scene 이 정한다
+            Log::Info("[play]   -> 무기를 떨궜다! 주우러 가야 한다");
+        }
+        else if (part == Part_Legs)
+            Log::Info("[play]   -> 다리 상실 : 이동 대폭 감소 + 구르기 불가");
+    }
+
+    // ---- 사망이 가장 먼저다. 강인도로 버텨도 부위는 깎였다 ----
+    //   머리 또는 몸통이 부서지면 즉사.
+    if (m_parts->Fatal())
+    {
         ctx.camera.Shake(kShakeStrength * 2.5f, kShakeTicks * 3);
         ctx.audio.Play("hit", 1.0f, -0.55f, PanFromCanvasX(tr.x));
         ChangeState(ctx, PlayerState::Dead);
@@ -529,8 +684,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
         //   대신 맞을 때마다 HP 가 확실히 깎인다 — 이것이 버티기의 비용이다.
         ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks);
         ctx.audio.Play("hit", 0.5f, -0.75f, PanFromCanvasX(tr.x));   // 둔탁하게
-        Log::Info("[play] 버텨냄  poise {} >= impact {}   dmg {}  HP {}",
-                  m_poise->Value(), atk.impact, atk.damage, m_hp);
+        Log::Info("[play] 버텨냄  poise {} >= impact {}", m_poise->Value(), atk.impact);
         return;
     }
 
@@ -557,8 +711,8 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
 
     ctx.camera.Shake(kShakeStrength * 1.8f, kShakeTicks * 2);
     ctx.audio.Play("hit", 0.95f, -0.25f, PanFromCanvasX(tr.x));
-    Log::Info("[play] 피격  poise {} < impact {}   dmg {}  HP {}   경직 {}틱 / 무적 {}틱",
-              m_poise->Value(), atk.impact, atk.damage, m_hp, kHurt.ticks, kHurt.invuln);
+    Log::Info("[play] 휘청  poise {} < impact {}   경직 {}틱 / 무적 {}틱",
+              m_poise->Value(), atk.impact, kHurt.ticks, kHurt.invuln);
 
     ChangeState(ctx, PlayerState::Hurt);
 }
@@ -580,6 +734,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
 
     const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
     const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
+    const bool bitePressed   = (consumeEdgeInput && ctx.input.BitePressed());
 
     switch (m_state)
     {
@@ -588,8 +743,28 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         UpdateMovement(ctx, move.x, move.y);
 
         // 구르기를 공격보다 먼저 본다. 둘이 동시에 눌리면 회피가 우선이다.
-        if (rollPressed)        ChangeState(ctx, PlayerState::Roll);
-        else if (attackPressed) ChangeState(ctx, PlayerState::Attack);
+        // ★ 다리가 부서지면 구를 수 없다 — 회피 수단을 통째로 잃는다.
+        if (rollPressed && CanRoll())
+        {
+            ChangeState(ctx, PlayerState::Roll);
+        }
+        else if (bitePressed)
+        {
+            // ★ 물기는 CanAttack() 을 보지 않는다 — 무기가 필요 없기 때문이다.
+            m_biteRequested = true;
+            ChangeState(ctx, PlayerState::Attack, true);
+        }
+        else if (attackPressed && m_pickupAvailable)
+        {
+            // ★ 발밑에 주울 것이 있으면 Space 는 **줍기**가 된다.
+            //   맥락이 같은 입력의 뜻을 바꾸는 것 — 무브셋에서 이미 쓴 방식이다.
+            //   못 줍는 상황(양팔 절단)에서는 이 갈래로 안 들어와 공격이 살아난다.
+            m_pickupRequested = true;
+        }
+        else if (attackPressed && CanAttack())
+        {
+            ChangeState(ctx, PlayerState::Attack);
+        }
         else                    ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
         break;
 
@@ -604,7 +779,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //     2타가 확정되어 「1타를 내보고 이어칠지 판단한다」가 사라진다.
         //   ★ 예약해 두었다가 상태가 끝날 때 꺼낸다 — 지금 전이하면 1타의 후딜을
         //     건너뛴다.
-        if (attackPressed && m_comboStep == 0
+        if (attackPressed && CanAttack() && m_comboStep == 0
             && m_stateTicks >= atk.startup + atk.active)
         {
             m_comboQueued = true;
@@ -619,7 +794,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
             //   되면 스태미나 시스템에 구멍이 생긴다.
             if (m_stamina->Depleted())
                 ChangeState(ctx, PlayerState::Exhausted);
-            else if (m_comboQueued)
+            else if (m_comboQueued && CanAttack())
                 // ★ force = true. Attack -> Attack 이라 「같은 상태면 무시」에 걸린다.
                 ChangeState(ctx, PlayerState::Attack, true);
             else
@@ -747,34 +922,37 @@ void PlayerController::RenderDebug(Renderer& renderer)
 
 void PlayerController::RenderUI(Renderer& renderer)
 {
-    // ---- HP 바 ----
-    //   ※ 6-c-4 에서 부위별 HP 로 바뀌면서 **없어질 예정**이다(design.md §3.2.3).
-    //     몸통 20% 와 팔 20% 는 완전히 다른 상황인데 한 줄로는 구분되지 않는다.
-    constexpr float kBarX = 12.0f;
-    constexpr float kBarW = 150.0f;
-    constexpr float kBarH = 9.0f;
-    const float     barY  = Config::kCanvasHeight - 38.0f;
+    // ---- ★ 몸 그림 (HP 바를 대신한다, design.md §3.2.3) ----
+    //   좌하단. 부위 HP 가 낮을수록 붉어지고, 잘리면 테두리만 남는다.
+    m_parts->DrawBodyDiagram(renderer, 12.0f, Config::kCanvasHeight - 78.0f);
 
-    renderer.DrawFilledRect(
-        AABB::FromXYWH(kBarX - 1.0f, barY - 1.0f, kBarW + 2.0f, kBarH + 2.0f),
-        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.7f));
+    if (renderer.DebugDraw())
+        m_parts->DrawHpList(renderer, 48.0f, Config::kCanvasHeight - 78.0f);
 
-    const float ratio = std::clamp(static_cast<float>(m_hp) / kMaxHp, 0.0f, 1.0f);
-    DirectX::XMVECTOR hpColor = DirectX::XMVectorSet(0.78f, 0.22f, 0.22f, 1.0f);
-    if (ratio <= 0.0f)     hpColor = DirectX::XMVectorSet(0.30f, 0.10f, 0.10f, 1.0f);
-    else if (ratio < 0.3f) hpColor = DirectX::XMVectorSet(1.00f, 0.35f, 0.30f, 1.0f);
-
-    if (ratio > 0.0f)
-        renderer.DrawFilledRect(AABB::FromXYWH(kBarX, barY, kBarW * ratio, kBarH), hpColor);
-
-    renderer.DrawString(std::format("HP {}", m_hp), kBarX + kBarW + 6.0f, barY - 2.0f,
-                        DirectX::Colors::DimGray, 1);
+    // ★ 무기를 잃었다는 것은 **반드시 보여야 한다.**
+    //   「왜 공격이 안 되지」를 플레이어가 추측하게 두면 안 된다.
+    if (m_pickupAvailable)
+    {
+        // 주울 수 있을 때만 뜬다. 항상 떠 있으면 아무도 안 읽는다.
+        renderer.DrawString("SPACE : PICK UP",
+                            12.0f, Config::kCanvasHeight - 92.0f,
+                            DirectX::Colors::Gold, 1);
+    }
+    else if (!CanAttack())
+    {
+        // ★ 「할 수 있는 것」을 같이 알려 준다. 못 하는 것만 말하면 막힌 느낌이 든다.
+        renderer.DrawString("NO WEAPON - RMB TO BITE",
+                            12.0f, Config::kCanvasHeight - 92.0f,
+                            DirectX::Colors::Crimson, 1);
+    }
 
     // ---- 방어구 ----
     //   ★ F2 로 바뀌는 값이므로 **항상** 보여야 한다.
     //     안 보이면 「같은 공격에 왜 이번엔 안 밀렸지?」를 확인할 수 없다.
     renderer.DrawString(
-        std::format("ARMOR {} (poise {})  F2 to swap", Armor().name, Armor().poise),
+        std::format("ARMOR {} (poise {})  WEAPON {}", Armor().name, Armor().poise,
+                    m_weaponHand == WeaponHand::Right ? "R.HAND"
+                  : m_weaponHand == WeaponHand::Left  ? "L.HAND" : "-none-"),
         12.0f, Config::kCanvasHeight - 52.0f, DirectX::Colors::SlateGray, 1);
 
     // ---- 상태 ----

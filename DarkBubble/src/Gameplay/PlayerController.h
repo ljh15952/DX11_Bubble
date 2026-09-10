@@ -17,7 +17,22 @@
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
 
+class PartsComponent;
 class PoiseComponent;
+
+
+// ============================================================================
+//  WeaponHand — 무기를 어느 손에 들고 있는가 (design.md §3.10 의 슬롯 구조)
+//
+//      오른손  무기        ← 기본. 잘리면 떨군다
+//      왼손    보조        ← 횃불 / 방패 / 없음
+//
+//    ★ 오른팔이 잘린 뒤 무기를 주우면 **왼손**에 든다. 그런데 왼손은 보조
+//      슬롯이므로, 그때부터 횃불을 들 수 없다 —
+//      §3.9 A(어둠)가 들어오면 「무기를 되찾은 대가로 어둠 속에서 싸운다」가 된다.
+//      §1.2 의 기회비용이 슬롯 구조만으로 또 성립한다. 새 규칙이 필요 없다.
+// ============================================================================
+enum class WeaponHand { None, Right, Left };
 class SpriteComponent;
 class StaminaComponent;
 
@@ -143,10 +158,34 @@ public:
     // fromX / fromY = **공격자의 위치.** 넉백 방향이 여기서 나온다.
     //   ★ 컨트롤러가 「누가 때렸는지」를 알 필요는 없다. 좌표 하나면 충분하다 —
     //     그래서 적이 몇 종이 되든, 나중에 함정이나 투사체가 생겨도 그대로다.
-    void TakeHit(SceneContext& ctx, const AttackData& atk, float fromX, float fromY);
+    //   part = 맞은 부위. **누가 어디를 때렸는지는 Scene 이 정한다** —
+    //   두 몸 사이의 계산이기 때문이다(TryPlayerHit 와 대칭).
+    void TakeHit(SceneContext& ctx, const AttackData& atk, int part,
+                 float fromX, float fromY);
     void Respawn(SceneContext& ctx);
 
     const ArmorData& Armor() const;
+
+    // ★ 부위 상실이 행동을 막는다. 조건을 흩뿌리지 않고 이름을 붙여 모은다.
+    bool CanAttack() const;   // 무기를 든 손이 살아 있는가
+    bool CanRoll()   const;   // 다리가 살아 있는가
+
+    WeaponHand Hand() const { return m_weaponHand; }
+
+    // ---- Scene 과 주고받는 요청 ----
+    //   ★ 컨트롤러는 **월드에 떨어진 물건을 모른다.** 「떨궈야 한다」까지만
+    //     말하고, 어디에 어떻게 놓을지는 Scene 이 정한다.
+    //     사망 화면을 Scene 이 띄우는 것과 같은 구조다.
+    bool ConsumeWeaponDropRequest();
+    bool ConsumePickupRequest();
+
+    // Scene 이 매 틱 알려 준다 — 「지금 발밑에 주울 것이 있다」.
+    //   ★ 틱 **전에** 알려 줘야 한다. 그래야 컨트롤러가 같은 Space 입력을
+    //     공격이 아니라 줍기로 쓸지 판단할 수 있다.
+    void SetPickupAvailable(bool v) { m_pickupAvailable = v; }
+
+    // 무기를 손에 넣었다. Scene 이 줍기를 처리한 뒤 알려 준다.
+    void EquipWeapon(WeaponHand hand);
 
 private:
     void ChangeState(SceneContext& ctx, PlayerState next, bool force = false);
@@ -163,14 +202,14 @@ private:
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     SpriteComponent*  m_sprite  = nullptr;
     PoiseComponent*   m_poise   = nullptr;
+    PartsComponent*   m_parts   = nullptr;
     StaminaComponent* m_stamina = nullptr;
 
     PlayerState m_state      = PlayerState::Idle;
     int         m_stateTicks = 0;
 
-    // ★ 플레이어는 아직 **단일 HP** 다.
-    //   6-c-4 에서 PartsComponent 로 바뀐다(design.md §3.2.2).
-    int m_hp    = 100;
+    // ★ HP 는 여기 없다 — PartsComponent 가 부위별로 갖는다(design.md §3.2.2).
+    //   「전체 HP」라는 숫자가 의미를 잃었기 때문이다.
     int m_flash = 0;   // 피격 번쩍임 남은 틱
 
     int m_invulnTicks = 0;
@@ -185,10 +224,20 @@ private:
     const AttackData* m_currentAttack = nullptr;
     int  m_comboStep   = 0;      // 0 = 1타, 1 = 2타. 2타에서는 더 안 이어진다
     bool m_comboQueued = false;
+
+    // ★ 물기 요청. 다른 키로 들어오므로 무브셋 선택에서 최우선이다.
+    bool m_biteRequested = false;
     bool m_hitThisSwing = false;
 
     bool m_crouching    = false; // 수식자다. 상태가 아니다
     int  m_stepCooldown = 0;
+
+    // ★ 장비는 **되돌아가지 않는다**(design.md §3.6.1 의 「남는다」 칸).
+    //   죽어도 무기는 떨어진 자리에 남고, 손은 빈 채로 부활한다.
+    WeaponHand m_weaponHand = WeaponHand::Right;
+    bool m_weaponDropRequested = false;
+    bool m_pickupRequested     = false;
+    bool m_pickupAvailable     = false;
 
     int  m_armorIndex = 0;       // F2 로 바뀐다(임시)
     bool m_deathScreenRequested = false;

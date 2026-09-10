@@ -32,7 +32,7 @@ bool Game::Initialize(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
-    m_input.Initialize();
+    m_input.Initialize(m_window.Handle());
     m_assets.Initialize(m_renderer);
     m_audio.Initialize();
 
