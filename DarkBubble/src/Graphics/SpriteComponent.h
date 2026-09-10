@@ -40,7 +40,7 @@ public:
 
     const char* TypeName() const override { return "Sprite"; }
 
-    void Tick(SceneContext& ctx) override;      // 애니메이션을 1틱 진행
+    void Tick(SceneContext& ctx, bool consumeEdgeInput) override;      // 애니메이션을 1틱 진행
     void Render(Renderer& renderer) override;
 
     // ---- 애니메이션 ----

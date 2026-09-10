@@ -23,10 +23,10 @@ void GameObject::Start(SceneContext& ctx)
         c->Start(ctx);
 }
 
-void GameObject::Tick(SceneContext& ctx)
+void GameObject::Tick(SceneContext& ctx, bool consumeEdgeInput)
 {
     for (auto& c : m_components)
-        c->Tick(ctx);
+        c->Tick(ctx, consumeEdgeInput);
 }
 
 void GameObject::Render(Renderer& renderer)

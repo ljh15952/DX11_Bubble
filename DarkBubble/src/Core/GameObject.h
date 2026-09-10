@@ -110,7 +110,7 @@ public:
     //     이 네 함수는 PlayerController 도, EnemyBrain 도, 나중에 만들
     //     BodyComponent 도 굴린다. 컴포넌트가 몇 종이 되든 **여기는 안 늘어난다.**
     void Start(SceneContext& ctx);
-    void Tick(SceneContext& ctx);
+    void Tick(SceneContext& ctx, bool consumeEdgeInput);
     void Render(Renderer& renderer);
     void RenderDebug(Renderer& renderer);   // ★ 모든 Render 가 끝난 뒤에 부른다
     void RenderUI(Renderer& renderer);

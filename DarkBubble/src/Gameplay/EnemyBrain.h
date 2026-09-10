@@ -65,9 +65,10 @@ public:
     const char* TypeName() const override { return "EnemyBrain"; }
 
     void Start(SceneContext& ctx) override;
-    void Tick(SceneContext& ctx) override;
+    void Tick(SceneContext& ctx, bool consumeEdgeInput) override;
     void Render(Renderer& renderer) override;        // 예고 `!` — **게임 요소다**
     void RenderDebug(Renderer& renderer) override;   // 공격 상자 — 디버그다
+    void RenderUI(Renderer& renderer) override;      // 상태 한 줄
 
     // ---- 조회 ----
     EnemyState State()      const { return m_state; }

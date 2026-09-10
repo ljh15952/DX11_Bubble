@@ -47,7 +47,15 @@ public:
 
     // ---- 매 틱 ----
     //   ★ 고정 타임스텝이라 시간 인자가 없다(Scene::Update 와 같은 이유).
-    virtual void Tick(SceneContext&) {}
+    //
+    //   consumeEdgeInput 은 Scene::Update 의 그것과 **같은 것**이다.
+    //     한 프레임에 틱이 0~N 회 돌 수 있는데,
+    //     「지금 눌려 있다」(이동)는 여러 번 처리해도 되지만
+    //     「방금 눌렸다」(공격·구르기)는 **첫 틱에서만** 소비해야 한다.
+    //
+    //   ★ 개념을 두 벌 만들지 않으려고 이름과 의미를 Scene 과 똑같이 맞췄다.
+    //     대부분의 컴포넌트는 이 인자를 무시한다 — 무시해도 되는 것이 요점이다.
+    virtual void Tick(SceneContext&, bool /*consumeEdgeInput*/) {}
 
     // ---- 그리기 ----
     //   Scene 과 같은 두 층. Render 는 카메라를 타고 RenderUI 는 안 탄다.

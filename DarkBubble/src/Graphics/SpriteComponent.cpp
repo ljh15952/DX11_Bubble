@@ -29,7 +29,7 @@ void SpriteComponent::SetTint(DirectX::FXMVECTOR color)
 }
 
 
-void SpriteComponent::Tick(SceneContext&)
+void SpriteComponent::Tick(SceneContext&, bool)
 {
     // ★ 애니메이션 진행을 컴포넌트가 스스로 한다.
     //

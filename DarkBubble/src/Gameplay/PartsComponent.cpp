@@ -5,6 +5,9 @@
 
 #include <DirectXColors.h>
 #include <algorithm>
+#include <format>
+
+#include "Core/Constants.h"
 
 namespace
 {
@@ -56,7 +59,7 @@ void PartsComponent::Reset()
 }
 
 
-void PartsComponent::Tick(SceneContext&)
+void PartsComponent::Tick(SceneContext&, bool)
 {
     if (m_flash > 0)
         --m_flash;
@@ -142,5 +145,24 @@ void PartsComponent::RenderDebug(Renderer& renderer)
         }
 
         renderer.DrawRectOutline(Box(i), DirectX::Colors::Gold, 1.0f);
+    }
+}
+
+
+// ★ 부위별 HP 표시. 자기 데이터를 자기가 그린다 —
+//   전에는 PlayScene 이 hp 배열과 이름 배열을 직접 읽어야 했다.
+void PartsComponent::RenderUI(Renderer& renderer)
+{
+    if (!renderer.DebugDraw())
+        return;
+
+    for (int i = 0; i < Part_Count; ++i)
+    {
+        const bool broken = IsBroken(i);
+        renderer.DrawString(
+            std::format("{:<6}{:>4}/{:<4}{}", Name(i),
+                        std::max(0, Hp(i)), MaxHp(i), broken ? " BROKEN" : ""),
+            Config::kCanvasWidth - 150.0f, 40.0f + i * 14.0f,
+            broken ? DirectX::Colors::DimGray : DirectX::Colors::Gold, 1);
     }
 }

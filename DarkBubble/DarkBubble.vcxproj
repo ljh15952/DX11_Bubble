@@ -106,6 +106,8 @@
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp" />
     <ClCompile Include="src\Gameplay\PartsComponent.cpp" />
+    <ClCompile Include="src\Gameplay\PlayerController.cpp" />
+    <ClCompile Include="src\Gameplay\StaminaComponent.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
     <ClCompile Include="src\Graphics\Assets.cpp" />
     <ClCompile Include="src\Graphics\BitmapFont.cpp" />
@@ -133,6 +135,8 @@
     <ClInclude Include="src\Gameplay\AttackData.h" />
     <ClInclude Include="src\Gameplay\EnemyBrain.h" />
     <ClInclude Include="src\Gameplay\PartsComponent.h" />
+    <ClInclude Include="src\Gameplay\PlayerController.h" />
+    <ClInclude Include="src\Gameplay\StaminaComponent.h" />
     <ClInclude Include="src\Graphics\Animation.h" />
     <ClInclude Include="src\Graphics\Assets.h" />
     <ClInclude Include="src\Graphics\BitmapFont.h" />

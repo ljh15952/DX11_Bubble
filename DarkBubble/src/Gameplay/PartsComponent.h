@@ -51,9 +51,10 @@ class PartsComponent final : public Component
 public:
     const char* TypeName() const override { return "Parts"; }
 
-    void Tick(SceneContext& ctx) override;      // 번쩍임 감소
+    void Tick(SceneContext& ctx, bool consumeEdgeInput) override;      // 번쩍임 감소
     // ★ Render 가 아니라 RenderDebug 다 — 판정 상자는 그림 **위**에 와야 한다.
     void RenderDebug(Renderer& renderer) override;
+    void RenderUI(Renderer& renderer) override;     // 부위별 HP (F1)
 
     // ---- 조회 ----
     int  Hp(int part)       const { return m_hp[part]; }

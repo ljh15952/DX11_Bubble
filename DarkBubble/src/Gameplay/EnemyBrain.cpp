@@ -12,6 +12,8 @@
 #include <DirectXColors.h>
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <string>
 
 namespace
 {
@@ -249,7 +251,7 @@ void EnemyBrain::MoveTowardTarget(float speedPerTick)
 }
 
 
-void EnemyBrain::Tick(SceneContext& ctx)
+void EnemyBrain::Tick(SceneContext& ctx, bool)
 {
     ++m_stateTicks;
 
@@ -372,4 +374,33 @@ void EnemyBrain::RenderDebug(Renderer& renderer)
     renderer.DrawFilledRect(AttackHitbox(),
         DirectX::XMVectorSet(1.0f, 0.55f, 0.10f, 0.35f));
     renderer.DrawRectOutline(AttackHitbox(), DirectX::Colors::Orange, 2.0f);
+}
+
+
+// ★ 적 상태 한 줄. 부위 파괴가 행동을 바꾸는 것을 눈으로 확인하는 표시다.
+void EnemyBrain::RenderUI(Renderer& renderer)
+{
+    if (m_state == EnemyState::Attack)
+    {
+        // 플레이어와 같은 프레임 데이터 표시를 쓴다 — 구조가 같으니 도구도 같다.
+        const AttackData& a = CurrentAttack();
+        const char* phase = (m_stateTicks <  a.startup)            ? "startup"
+                          : (m_stateTicks <  a.startup + a.active) ? "ACTIVE"
+                          :                                          "recovery";
+        renderer.DrawString(
+            std::format("ENEMY {} t{:<3}{}   [{} {} {}]  imp {}",
+                        a.name, m_stateTicks, phase,
+                        a.startup, a.active, a.recovery, a.impact),
+            6.0f, 34.0f,
+            AttackActive() ? DirectX::Colors::Red : DirectX::Colors::Orange, 1);
+        return;
+    }
+
+    renderer.DrawString(
+        std::format("ENEMY {}{}{}", EnemyStateName(m_state),
+                    m_parts->LegsBroken() ? "  (legs broken)" : "",
+                    m_attackCooldown > 0 ? std::format("  cd {}", m_attackCooldown)
+                                         : std::string{}),
+        6.0f, 34.0f,
+        m_parts->LegsBroken() ? DirectX::Colors::Orange : DirectX::Colors::Gold, 1);
 }
