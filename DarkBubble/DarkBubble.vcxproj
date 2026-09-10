@@ -107,6 +107,7 @@
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp" />
     <ClCompile Include="src\Gameplay\PartsComponent.cpp" />
     <ClCompile Include="src\Gameplay\PlayerController.cpp" />
+    <ClCompile Include="src\Gameplay\PoiseComponent.cpp" />
     <ClCompile Include="src\Gameplay\StaminaComponent.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
     <ClCompile Include="src\Graphics\Assets.cpp" />
@@ -126,6 +127,7 @@
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
     <ClInclude Include="src\Core\Log.h" />
+    <ClInclude Include="src\Core\Motion.h" />
     <ClInclude Include="src\Core\Component.h" />
     <ClInclude Include="src\Core\GameObject.h" />
     <ClInclude Include="src\Core\Scene.h" />
@@ -136,6 +138,7 @@
     <ClInclude Include="src\Gameplay\EnemyBrain.h" />
     <ClInclude Include="src\Gameplay\PartsComponent.h" />
     <ClInclude Include="src\Gameplay\PlayerController.h" />
+    <ClInclude Include="src\Gameplay\PoiseComponent.h" />
     <ClInclude Include="src\Gameplay\StaminaComponent.h" />
     <ClInclude Include="src\Graphics\Animation.h" />
     <ClInclude Include="src\Graphics\Assets.h" />

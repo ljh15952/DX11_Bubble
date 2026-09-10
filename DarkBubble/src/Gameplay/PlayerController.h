@@ -17,6 +17,7 @@
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
 
+class PoiseComponent;
 class SpriteComponent;
 class StaminaComponent;
 
@@ -161,6 +162,7 @@ private:
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     SpriteComponent*  m_sprite  = nullptr;
+    PoiseComponent*   m_poise   = nullptr;
     StaminaComponent* m_stamina = nullptr;
 
     PlayerState m_state      = PlayerState::Idle;

@@ -28,6 +28,7 @@ class SpriteComponent;
 class StaminaComponent;
 class PlayerController;
 class PartsComponent;
+class PoiseComponent;
 class EnemyBrain;
 
 class PlayScene final : public Scene
@@ -70,5 +71,6 @@ private:
     //     Scene 이 들고 있으면 「누가 누구를 쓰는가」가 흐려진다.
     PlayerController* m_player     = nullptr;
     PartsComponent*   m_enemyParts = nullptr;
+    PoiseComponent*   m_enemyPoise = nullptr;
     EnemyBrain*       m_enemyBrain = nullptr;
 };

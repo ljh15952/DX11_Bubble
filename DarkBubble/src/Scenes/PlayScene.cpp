@@ -11,6 +11,7 @@
 #include "Gameplay/EnemyBrain.h"
 #include "Gameplay/PartsComponent.h"
 #include "Gameplay/PlayerController.h"
+#include "Gameplay/PoiseComponent.h"
 #include "Gameplay/StaminaComponent.h"
 #include "Graphics/Assets.h"
 #include "Graphics/Camera.h"
@@ -34,6 +35,26 @@ namespace
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
     constexpr int   kFlashTicks    = 9;
+
+    // ============================================================================
+    //  ★ 강인도 — 적 종류마다 다른 값을 갖는다
+    //
+    //    플레이어 공격의 impact 는 light 14 / crouch 14 / running 16 / thrust 18.
+    //    잡몹을 15 로 두면 이렇게 갈린다:
+    //
+    //        LIGHT  14  stam 28   ✗ 못 끊는다
+    //        CROUCH 14  stam 26   ✗
+    //        RUN    16  stam 34   ✓ 끊는다
+    //        THRUST 18  stam 34   ✓ (1타를 맞춰야 나온다)
+    //
+    //    ★ **끊을 수 있는 둘이 정확히 비싼 둘이다.**
+    //      「적을 끊으려면 스태미나를 더 낸다」가 데이터만으로 성립한다.
+    //      13 이면 전부 끊겨 선택이 사라지고, 20 이면 아무것도 못 끊어 죽는다.
+    //
+    //    6-g 에서 이 값이 enemies.json 으로 간다. 보스는 훨씬 높게 둔다.
+    // ============================================================================
+    constexpr int kGruntPoise = 15;
+    constexpr int kClothPoise = 10;   // 플레이어 초기값. 방어구가 곧 덮어쓴다
 
     float RandomPitch(float spread)
     {
@@ -62,10 +83,12 @@ bool PlayScene::Enter(SceneContext& ctx)
     //   Controller / Brain 이 Sprite 보다 먼저여야 이번 틱에 바꾼 클립이
     //   같은 틱에 반영된다.
     m_playerObj.Add<StaminaComponent>();
+    m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_player = &m_playerObj.Add<PlayerController>();
     m_playerObj.Add<SpriteComponent>(playerSheet, kCellW, kCellH);
 
     m_enemyParts = &m_enemyObj.Add<PartsComponent>();
+    m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);
     m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);
     m_enemyObj.Add<SpriteComponent>(enemySheet, kCellW, kCellH);
 
@@ -137,6 +160,22 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
     Log::Info("[play] {} 로 {} 명중  dmg {}  남은 HP {}",
               atk.name, m_enemyParts->Name(part), atk.damage,
               std::max(0, m_enemyParts->Hp(part)));
+
+    // ---- ★ 강인도 판정 : 적도 휘청인다 ----
+    //   「휘청일지」는 두 몸 사이의 계산이므로 여기서 한다 —
+    //   플레이어가 맞을 때(TryEnemyHit -> TakeHit)와 대칭이다.
+    //
+    //   ★ 이것이 예고(`!`)에 두 번째 용도를 준다.
+    //     구르면 흘리고, 강하게 치면 **끊는다.**
+    if (m_enemyPoise->WouldStagger(atk.impact))
+    {
+        const bool wasWindingUp = m_enemyBrain->Telegraph();
+        m_enemyBrain->Stagger(ctx, m_playerObj.transform.x, m_playerObj.transform.y);
+        ctx.camera.Shake(kShakeStrength * 1.6f, kShakeTicks);
+        Log::Info("[play] ★ 적 휘청임  impact {} > poise {}{}",
+                  atk.impact, m_enemyPoise->Value(),
+                  wasWindingUp ? "   — 공격을 끊었다!" : "");
+    }
 
     if (!m_enemyParts->IsBroken(part))
         return;

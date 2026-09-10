@@ -49,6 +49,9 @@
     <ClCompile Include="src\Gameplay\StaminaComponent.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
+    <ClCompile Include="src\Gameplay\PoiseComponent.cpp">
+      <Filter>Gameplay</Filter>
+    </ClCompile>
     <ClCompile Include="src\Gameplay\PlayerController.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
@@ -102,6 +105,9 @@
     <ClInclude Include="src\Core\Log.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\Core\Motion.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\Core\Component.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -130,6 +136,9 @@
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\StaminaComponent.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\PoiseComponent.h">
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\PlayerController.h">

@@ -5,7 +5,9 @@
 #include "Core/Log.h"
 #include "Core/Scene.h"
 #include "Audio/Audio.h"
+#include "Core/Motion.h"
 #include "Gameplay/PartsComponent.h"
+#include "Gameplay/PoiseComponent.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteComponent.h"
 
@@ -81,6 +83,12 @@ namespace
     constexpr float kYTolerance  = 14.0f;
 
     constexpr int kFlashTicks = 9;
+
+    // ---- 경직 ----
+    //   ★ 경직 내성(PoiseComponent 30틱)보다 짧다. 회복되는 그 틱에 다시
+    //     휘청이면 무한 루프가 된다.
+    constexpr int   kHurtTicks     = 16;
+    constexpr float kHurtKnockback = 12.0f;   // 플레이어(22)보다 짧다 — 적이 더 무겁다
 }
 
 
@@ -90,6 +98,7 @@ const char* EnemyStateName(EnemyState s)
     {
     case EnemyState::Chase:  return "CHASE";
     case EnemyState::Attack: return "ATTACK";
+    case EnemyState::Hurt:   return "HURT";
     case EnemyState::Crawl:  return "CRAWL";
     case EnemyState::Dead:   return "DEAD";
     default:                 return "IDLE";
@@ -104,6 +113,7 @@ void EnemyBrain::Start(SceneContext& ctx)
 {
     // Require : 없으면 조립이 잘못된 것이므로 그 자리에서 죽는다.
     m_parts  = &Owner().Require<PartsComponent>();
+    m_poise  = &Owner().Require<PoiseComponent>();
     m_sprite = &Owner().Require<SpriteComponent>();
 
     Reset(ctx);
@@ -184,6 +194,33 @@ void EnemyBrain::Reset(SceneContext& ctx)
 }
 
 
+// ----------------------------------------------------------------------------
+//  Stagger — 휘청인다. 휘두르던 공격이 취소된다.
+// ----------------------------------------------------------------------------
+void EnemyBrain::Stagger(SceneContext& ctx, float fromX, float fromY)
+{
+    if (m_state == EnemyState::Dead)
+        return;
+
+    const Transform& tr = Owner().transform;
+
+    // 넉백 방향 = 공격자 -> 나
+    float dx = tr.x - fromX;
+    float dy = tr.y - fromY;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len > 0.0001f) { dx /= len; dy /= len; }
+    else               { dx = static_cast<float>(tr.facing); dy = 0.0f; }
+    m_knockDirX = dx;
+    m_knockDirY = dy;
+
+    m_poise->OnStaggered();
+
+    // ★ force 가 필요 없다 — Attack 에서 Hurt 로 가는 것이라 상태가 다르다.
+    //   그리고 이 전이 자체가 「공격 취소」다. 취소를 위한 코드가 따로 없다.
+    ChangeState(ctx, EnemyState::Hurt);
+}
+
+
 void EnemyBrain::Kill(SceneContext& ctx)
 {
     ChangeState(ctx, EnemyState::Dead);
@@ -203,6 +240,12 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
     case EnemyState::Idle:  m_sprite->Play(kIdleClip);  break;
     case EnemyState::Chase: m_sprite->Play(kChaseClip); break;
     case EnemyState::Crawl: m_sprite->Play(kCrawlClip); break;
+
+    case EnemyState::Hurt:
+        // 전용 그림이 없으므로 자세를 유지하고 틴트로 구분한다(ApplyTint).
+        m_sprite->Play(m_parts->LegsBroken() ? kCrawlClip : kIdleClip, true);
+        ctx.audio.Play("ui_cancel", 0.5f, -0.4f, PanFromCanvasX(Owner().transform.x));
+        break;
 
     case EnemyState::Attack:
         // ★ 어느 공격인지 여기서 고정한다. 도중에 다리가 부서져도 안 바뀐다.
@@ -295,6 +338,23 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
             else           MoveTowardTarget(kCrawlPerTick);
             break;
 
+        case EnemyState::Hurt:
+            // ★ 입력도 판단도 없다. 밀려나기만 한다 — 플레이어의 Hurt 와 같은 구조.
+            {
+                const float step = DecayingStep(m_stateTicks, kHurtTicks, kHurtKnockback);
+                Transform& tr2 = Owner().transform;
+                tr2.x = std::clamp(tr2.x + m_knockDirX * step, 32.0f,
+                                   static_cast<float>(Config::kCanvasWidth) - 32.0f);
+                tr2.y = std::clamp(tr2.y + m_knockDirY * step, 64.0f,
+                                   static_cast<float>(Config::kCanvasHeight));
+            }
+            if (m_stateTicks >= kHurtTicks)
+            {
+                ChangeState(ctx, m_parts->LegsBroken() ? EnemyState::Crawl
+                                                       : EnemyState::Chase);
+            }
+            break;
+
         case EnemyState::Attack:
             // ★ 이동하지 않는다. 한 번 휘두르면 끝까지 간다.
             //   그래서 플레이어가 **걸어서 빠져나갈 수도** 있다 —
@@ -329,6 +389,8 @@ void EnemyBrain::ApplyTint()
 {
     if (IsDead())
         m_sprite->SetTint(DirectX::XMVectorSet(0.35f, 0.30f, 0.32f, 1.0f));
+    else if (m_state == EnemyState::Hurt)
+        m_sprite->SetTint(DirectX::XMVectorSet(1.00f, 0.90f, 0.45f, 1.0f));   // 휘청 = 노랗게
     else if (m_parts->FlashTicks() > 0)
         m_sprite->SetTint(DirectX::XMVectorSet(1.00f, 0.75f, 0.70f, 1.0f));
     else if (AttackActive())
@@ -400,7 +462,10 @@ void EnemyBrain::RenderUI(Renderer& renderer)
         std::format("ENEMY {}{}{}", EnemyStateName(m_state),
                     m_parts->LegsBroken() ? "  (legs broken)" : "",
                     m_attackCooldown > 0 ? std::format("  cd {}", m_attackCooldown)
-                                         : std::string{}),
+                                         : std::string{})
+            + std::format("  poise {}{}", m_poise->Value(),
+                          m_poise->Immune() ? std::format(" (immune {})", m_poise->ImmuneTicks())
+                                            : std::string{}),
         6.0f, 34.0f,
         m_parts->LegsBroken() ? DirectX::Colors::Orange : DirectX::Colors::Gold, 1);
 }

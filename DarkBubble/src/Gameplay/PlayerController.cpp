@@ -3,8 +3,10 @@
 #include "Core/Constants.h"
 #include "Core/GameObject.h"
 #include "Core/Log.h"
+#include "Core/Motion.h"
 #include "Core/Scene.h"
 #include "Audio/Audio.h"
+#include "Gameplay/PoiseComponent.h"
 #include "Gameplay/StaminaComponent.h"
 #include "Graphics/Camera.h"
 #include "Graphics/Renderer.h"
@@ -176,6 +178,7 @@ const char* PlayerStateName(PlayerState s)
 void PlayerController::Start(SceneContext& ctx)
 {
     m_sprite  = &Owner().Require<SpriteComponent>();
+    m_poise   = &Owner().Require<PoiseComponent>();
     m_stamina = &Owner().Require<StaminaComponent>();
     Respawn(ctx);
 }
@@ -208,6 +211,8 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_deathScreenRequested = false;
 
     m_stamina->Reset();
+    m_poise->Reset();
+    m_poise->SetValue(Armor().poise);   // ★ 값의 출처는 방어구다
 
     // ---- 남는다 ----
     //   ★ m_armorIndex 는 **일부러 되돌리지 않는다.** 장비는 죽어도 그대로다 —
@@ -406,13 +411,11 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX, float move
 // ----------------------------------------------------------------------------
 void PlayerController::SlideDecaying(float dirX, float dirY, float distance, int totalTicks)
 {
-    const int remaining = totalTicks - m_stateTicks + 1;   // total .. 1
-    if (remaining <= 0)
+    // ★ 공식은 Core/Motion.h 로 올렸다 — 적의 넉백이 같은 것을 쓰게 되었다.
+    //   상태를 갖지 않는 계산이라 컴포넌트가 아니라 자유 함수다.
+    const float step = DecayingStep(m_stateTicks, totalTicks, distance);
+    if (step <= 0.0f)
         return;
-
-    // 1 + 2 + ... + total = total * (total+1) / 2
-    const float weightSum = static_cast<float>(totalTicks) * (totalTicks + 1) * 0.5f;
-    const float step      = distance * static_cast<float>(remaining) / weightSum;
 
     Transform& tr = Owner().transform;
     tr.x = std::clamp(tr.x + dirX * step, kOriginX,
@@ -516,7 +519,9 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
     }
 
     // ---- ★ 경직 여부를 강인도가 정한다 ----
-    if (Armor().poise >= atk.impact)
+    //   판정 자체는 PoiseComponent 로 옮겼다 — 적도 같은 규칙을 쓰기 때문이다.
+    //   나중에 게이지 방식으로 바꾸면 이 줄은 그대로 두고 그쪽만 고친다.
+    if (!m_poise->WouldStagger(atk.impact))
     {
         // 버텨냈다 — **상태를 바꾸지 않는다.** 공격 중이었다면 그대로 이어진다.
         // ★ 피격 무적을 주지 않는다. 못 움직이는 구간이 없으므로 스턴락 위험이
@@ -525,7 +530,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
         ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks);
         ctx.audio.Play("hit", 0.5f, -0.75f, PanFromCanvasX(tr.x));   // 둔탁하게
         Log::Info("[play] 버텨냄  poise {} >= impact {}   dmg {}  HP {}",
-                  Armor().poise, atk.impact, atk.damage, m_hp);
+                  m_poise->Value(), atk.impact, atk.damage, m_hp);
         return;
     }
 
@@ -548,11 +553,12 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
     m_knockDirY = dy;
 
     m_invulnTicks = kHurt.invuln;
+    m_poise->OnStaggered();
 
     ctx.camera.Shake(kShakeStrength * 1.8f, kShakeTicks * 2);
     ctx.audio.Play("hit", 0.95f, -0.25f, PanFromCanvasX(tr.x));
     Log::Info("[play] 피격  poise {} < impact {}   dmg {}  HP {}   경직 {}틱 / 무적 {}틱",
-              Armor().poise, atk.impact, atk.damage, m_hp, kHurt.ticks, kHurt.invuln);
+              m_poise->Value(), atk.impact, atk.damage, m_hp, kHurt.ticks, kHurt.invuln);
 
     ChangeState(ctx, PlayerState::Hurt);
 }
@@ -671,6 +677,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     if (consumeEdgeInput && ctx.input.ArmorSwapPressed())
     {
         m_armorIndex = (m_armorIndex + 1) % kArmorCount;
+        m_poise->SetValue(Armor().poise);   // 방어구가 바뀌면 강인도도 바뀐다
         ctx.audio.Play("ui_confirm", 0.5f);
         Log::Info("[play] 갑옷 → {}  (poise {})   swing impact 18 / bite impact 12",
                   Armor().name, Armor().poise);

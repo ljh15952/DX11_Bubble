@@ -27,6 +27,7 @@
 #include "Gameplay/AttackData.h"
 
 class PartsComponent;
+class PoiseComponent;
 class SpriteComponent;
 
 // ============================================================================
@@ -48,6 +49,12 @@ enum class EnemyState
     Idle,
     Chase,
     Attack,
+
+    // ★ 강인도가 뚫려 휘청인 상태. 휘두르던 공격이 **취소된다.**
+    //   그래서 적의 예고(`!`)가 두 가지 용도를 갖게 된다 —
+    //   구르면 흘리는 신호이자, 강하게 치면 끊는 기회다.
+    Hurt,
+
     Crawl,
     Dead,
 };
@@ -86,6 +93,11 @@ public:
     void MarkHitThisSwing()   { m_hitThisSwing = true; }
 
     // ---- 변경 ----
+    //   ★ 휘청이게 한다. 강인도 판정은 **PlayScene 이** 이미 끝냈다 —
+    //     「휘청일지」는 두 몸 사이의 계산이고, 여기는 그 결과만 받는다.
+    //     fromX / fromY = 공격자의 위치. 넉백 방향이 여기서 나온다.
+    void Stagger(SceneContext& ctx, float fromX, float fromY);
+
     void Kill(SceneContext& ctx);    // 몸통·머리가 부서졌을 때 PlayScene 이 부른다
     void Reset(SceneContext& ctx);   // 부활(§3.6.1)
 
@@ -100,6 +112,7 @@ private:
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     PartsComponent*  m_parts  = nullptr;
+    PoiseComponent*  m_poise  = nullptr;
     SpriteComponent* m_sprite = nullptr;
 
     EnemyState m_state      = EnemyState::Idle;
@@ -108,4 +121,8 @@ private:
     int  m_attackCooldown = 0;
     bool m_attackIsBite   = false;   // ★ 공격 시작 시점에 고정된다
     bool m_hitThisSwing   = false;
+
+    // 넉백 방향. 휘청인 시점에 고정된다.
+    float m_knockDirX = 0.0f;
+    float m_knockDirY = 0.0f;
 };

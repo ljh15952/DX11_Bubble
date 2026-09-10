@@ -3,7 +3,7 @@
 > 이 문서는 대화 세션이 바뀔 때 맥락을 잃지 않기 위한 것이다.
 > 새 세션에서 **가장 먼저 이 파일과 `docs/design.md` 를 읽으면** 바로 이어갈 수 있다.
 >
-> 최종 갱신: 2026-09-10 / 커밋 `3a06919` (컴포넌트화) 이후
+> 최종 갱신: 2026-09-10 / 커밋 `af4d752` (플레이어 컴포넌트화) 이후
 
 ---
 
@@ -82,6 +82,9 @@ DarkBubble/src/
 ├── Gameplay/             ★ 게임 고유 컴포넌트 (엔진이 아니다)
 │   ├── AttackData.h      공격 정의. **플레이어와 적이 공유**
 │   ├── PartsComponent    부위별 HP · 자세별 상자 · 부위 선택
+│   ├── PoiseComponent    강인도. ★ 플레이어와 적이 공유
+│   ├── StaminaComponent  스태미나 (고갈 래치까지 여기 있다)
+│   ├── PlayerController  플레이어 상태 머신 · 무브셋 · 피격
 │   └── EnemyBrain        적 상태 머신 · 추격 · 공격
 ├── Core/
 │   ├── Constants.h       캔버스 640x360, 창 x2, 틱 1/60, 프레임 상한 0.25초
@@ -90,6 +93,7 @@ DarkBubble/src/
 │   ├── Scene.h           Scene 인터페이스 + SceneContext
 │   ├── SceneManager.h/.cpp  스택 + 지연 전환 + Pop 시 아래에 Resume 통지
 │   ├── AABB.h            충돌 판정
+│   ├── Motion.h          감속 이동 공식. ★ 상태가 없어서 컴포넌트가 아니라 자유 함수
 │   ├── Transform.h       위치 · 방향. ★ 컴포넌트가 아니라 GameObject 내장
 │   ├── Component.h       컴포넌트의 뿌리. Start / Tick / Render / RenderDebug
 │   ├── GameObject.h/.cpp 컴포넌트 컨테이너. Add / Get / Require
@@ -185,7 +189,9 @@ C++ 파일과 같은 함정이다.
 | 5-e-3 | 적 공격(swing / bite) + 예고 + 플레이어 HP + **강인도(poise)** + 피격 경직 + 넉백 + 무적 회피 + 머리 파괴 = 즉사 + 적 공격 애니메이션 2행 |
 | 점검 | 전체 소스(34파일)를 훑어 버그 7건 수정. `/W4` 로 올림. 에셋의 디버그 번호 제거. 위 §8 에 함정 6개 추가 |
 | 5-e-4 | 사망 → DeathScene(페이드) → 부활. **적도 되살아난다.** `Scene::Resume` 훅 추가 |
-| 6-c-1·2 | **컴포넌트 시스템**(Transform/Component/GameObject/SpriteComponent) + 적을 GameObject 로. PlayScene 1687→1378줄 |
+| 6-c-1·2 | **컴포넌트 시스템**(Transform/Component/GameObject/SpriteComponent) + 적을 GameObject 로 |
+| 6-c-3 | 플레이어를 컴포넌트로(PlayerController/StaminaComponent). **PlayScene 1687→252줄** |
+| 6-c-3b | **적 강인도**(PoiseComponent) + `EnemyState::Hurt`. 강한 공격으로 적의 공격을 **끊을 수 있다** |
 | 6-a·b | **무브셋** light / crouch / running / thrust(콤보 2타). `AttackData` 에 이름·클립 추가. 웅크리기는 상태가 아니라 수식자. 무브셋 전용 스프라이트 3행 |
 
 ### 다음
@@ -281,6 +287,7 @@ ArmorData / PartBox / AnimationClip)이 전부 JSON 으로 빠진다.
 | 부위 파괴 | **핵심 시스템. 적과 플레이어 둘 다.** 부위 5개(머리/왼팔/오른팔/몸통/다리). 머리·몸통=즉사, 팔=무기 낙하 + **몸통의 완충재**, 다리=이동 불가(플레이어는 구르기 상실). **절단 있음** (design.md §3.2.2) |
 | 다리 | 좌/우로 나누지 않고 **하나** |
 | 부위 선택 | **겹침 면적이 가장 큰 부위**에 데미지. 단 중단 공격은 팔이 살아 있으면 팔이 먼저 받는다 |
+| 강인도 | **적도 가진다.** 잡몹 15. 강한 공격(impact 16/18)으로 적의 공격을 끊을 수 있다 (design.md §3.1.1) |
 | HP 표시 | **HP 바 없음.** 좌하단 몸 그림에서 부위가 붉어진다 (design.md §3.2.3) |
 | 주인공 | **1명** (마을 유일 생존자인 아이). 스타팅 캐릭터 복수안은 폐기 |
 | 지문 슬롯 | **2개** (기회비용을 만들기 위해) |
