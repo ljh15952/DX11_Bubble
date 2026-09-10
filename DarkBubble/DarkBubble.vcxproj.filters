@@ -16,6 +16,9 @@
     <Filter Include="Scenes">
       <UniqueIdentifier>{6b1c0a10-1e01-4a11-9c01-000000000004}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Gameplay">
+      <UniqueIdentifier>{aa11bb22-cc33-4dd4-8ee5-ff6677889900}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
@@ -28,11 +31,23 @@
     <ClCompile Include="src\Core\Log.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="src\Core\GameObject.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Graphics\SpriteComponent.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
     <ClCompile Include="src\Core\SceneManager.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Core\Window.cpp">
       <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Gameplay\EnemyBrain.cpp">
+      <Filter>Gameplay</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Gameplay\PartsComponent.cpp">
+      <Filter>Gameplay</Filter>
     </ClCompile>
     <ClCompile Include="src\Graphics\Animation.cpp">
       <Filter>Graphics</Filter>
@@ -81,6 +96,18 @@
     <ClInclude Include="src\Core\Log.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\Core\Component.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Core\GameObject.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Core\Transform.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Graphics\SpriteComponent.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
     <ClInclude Include="src\Core\Scene.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -89,6 +116,15 @@
     </ClInclude>
     <ClInclude Include="src\Core\Window.h">
       <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\AttackData.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\EnemyBrain.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\PartsComponent.h">
+      <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Graphics\Animation.h">
       <Filter>Graphics</Filter>

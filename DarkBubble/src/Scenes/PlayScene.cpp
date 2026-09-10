@@ -1,4 +1,8 @@
 ﻿#include "Scenes/PlayScene.h"
+#include "Core/GameObject.h"
+#include "Gameplay/EnemyBrain.h"
+#include "Gameplay/PartsComponent.h"
+#include "Graphics/SpriteComponent.h"
 #include "Scenes/DeathScene.h"
 #include "Scenes/PauseScene.h"
 
@@ -202,186 +206,11 @@ namespace
     //   ★ 회복 지연이 없으면 공격하는 동안에도 회복되어 스태미나가 의미를 잃는다.
     //     지연(36틱)이 공격 길이(24틱)보다 길어서 연속 공격 중에는 전혀 안 찬다.
 
-    // ---- 히트박스 생성 : 플레이어와 적이 **공유한다** ----
-    //   발밑 원점 + facing + AttackData 만으로 만들어진다.
-    //   때리는 쪽이 누구인지 이 함수는 모른다 — 그래서 양쪽에서 쓸 수 있다.
-    //
-    //   ★ facing 이 -1 이면 outer < inner 가 되어 사각형이 뒤집힌다.
-    //     AABB 는 left <= right 를 전제하고 Intersects 가 그 전제에 의존하므로,
-    //     정규화하지 않으면 왼쪽을 볼 때 공격이 절대 맞지 않는다.
-    //     한 곳에 모아 두면 이 함정을 두 번 밟지 않는다.
-    AABB MakeAttackBox(float x, float y, int facing, const AttackData& a)
-    {
-        const float inner = x     + facing * a.reach;
-        const float outer = inner + facing * a.width;
-
-        const float left  = (inner < outer) ? inner : outer;
-        const float right = (inner < outer) ? outer : inner;
-
-        const float centerY = y - a.heightFromFoot;
-        return { left, centerY - a.height * 0.5f, right, centerY + a.height * 0.5f };
-    }
-
     float RandomPitch(float spread)
     {
         static std::mt19937 rng{ 12345 };
         std::uniform_real_distribution<float> dist(-spread, spread);
         return dist(rng);
-    }
-
-    float PanFromX(float x)
-    {
-        return std::clamp(x / static_cast<float>(Config::kCanvasWidth) * 2.0f - 1.0f,
-                          -1.0f, 1.0f);
-    }
-
-    // ---- 적 ----
-    //   같은 그림(0행)을 속도만 바꿔 idle / chase 로 쓴다.
-    //   AnimationPlayer::Play 가 ticksPerFrame 까지 비교하도록 고쳐서
-    //   전환이 실제로 반영된다.
-    constexpr AnimationClip kEnemyIdleClip  { /*row*/ 0, /*frames*/ 4, /*ticks*/ 14, /*loop*/ true };
-    constexpr AnimationClip kEnemyChaseClip { /*row*/ 0, /*frames*/ 4, /*ticks*/  6, /*loop*/ true };
-    constexpr AnimationClip kEnemyCrawlClip { /*row*/ 1, /*frames*/ 4, /*ticks*/ 10, /*loop*/ true };
-
-    // ---- 적 공격 클립 ----
-    //   ★ 애니메이션을 프레임 데이터에 맞추는 두 조건.
-    //
-    //     ① frameCount × ticksPerFrame == startup + active + recovery
-    //        애니메이션이 상태보다 먼저 끝나거나 도중에 잘리지 않는다
-    //
-    //     ② startup / ticksPerFrame == 타격 프레임의 인덱스  (정수여야 한다)
-    //        팔이 뻗는 그림이 **판정이 켜지는 바로 그 틱에** 시작한다
-    //
-    //   ②를 정수로 만들려고 프레임 데이터를 2~3틱 조정했다.
-    //   데이터가 진실이라는 원칙은 유지되지만, 「보기와 판정이 어긋나는」 것보다
-    //   데이터를 반올림하는 편이 싸다. 어긋나면 플레이어가 학습할 수 없다.
-    //
-    //     swing  5 × 12 = 60 = 24 + 4 + 32     24 / 12 = 2  → 프레임 2 가 타격
-    //     bite   6 ×  9 = 54 = 18 + 3 + 33     18 /  9 = 2  → 프레임 2 가 타격
-    //
-    //   ★ loop = false. 마지막 프레임에서 멈춘다.
-    //     다만 상태를 빠져나가는 판정은 Finished() 가 아니라 프레임 데이터가 한다.
-    constexpr AnimationClip kEnemySwingClip { /*row*/ 2, /*frames*/ 5, /*ticks*/ 12, /*loop*/ false };
-    constexpr AnimationClip kEnemyBiteClip  { /*row*/ 3, /*frames*/ 6, /*ticks*/  9, /*loop*/ false };
-
-    // ---- 부위 이름과 HP : 자세와 무관 ----
-    constexpr const char* kPartName[Part_Count]  = { "HEAD", "TORSO", "LEGS" };
-    constexpr int         kPartMaxHp[Part_Count] = {     20,     100,     40 };
-
-    // ---- 서 있는 자세의 상자 ----
-    //   스프라이트(발끝 y=62) 기준.
-    //     머리 y  9..27  →  발밑 기준 -55..-37
-    //     몸통 y 27..46  →              -37..-18
-    //     다리 y 46..62  →              -18..  0
-    //   좌우 대칭이라 뒤집어도 같다.
-    constexpr PartBox kBoxStand[Part_Count] = {
-        { -10.0f, -55.0f,  10.0f, -37.0f },   // HEAD
-        { -11.0f, -37.0f,  11.0f, -18.0f },   // TORSO
-        { -10.0f, -18.0f,  10.0f,   0.0f },   // LEGS
-    };
-
-    // ---- 엎드린 자세의 상자 ----
-    //   crawl 스프라이트 기준. 몸을 낮추고 머리가 앞으로 나온다.
-    //     몸통 y 48..61, x 22..44  →  x -10..+12, y -16..-3
-    //     머리 y 37..53, x 36..52  →  x  +4..+20, y -27..-11
-    //   ★ 좌우 비대칭이다. facing 이 -1 이면 상자도 뒤집어야 한다.
-    constexpr PartBox kBoxCrawl[Part_Count] = {
-        {   4.0f, -27.0f,  20.0f, -11.0f },   // HEAD  — 앞으로 나온다
-        { -10.0f, -16.0f,  12.0f,  -3.0f },   // TORSO — 낮게 엎드린다
-        { -10.0f, -14.0f,   0.0f,  -3.0f },   // LEGS  — 이미 부서져 있어 실제로는 안 쓰인다
-    };
-
-    // ---- 적 공격 (플레이어의 kDaggerLight 와 같은 구조체다) ----
-    //
-    //   ★ startup 24틱(0.4초) 은 **일부러 길다.** 예고를 보고 반응할 시간이다.
-    //     플레이어 구르기의 무적은 [t+4, t+16) 이고 판정은 [24, 28) 이므로
-    //         t+4 <= 24  그리고  t+16 >= 28   →   t12 ~ t20
-    //     즉 9틱(0.15초)의 회피 창이 생긴다. 이 숫자 하나가 난이도다.
-    //     (창의 폭 = invincible 12 − active 4 + 1 = 9. 이 식은 항상 성립한다)
-    //
-    //   ★ 24 는 애니메이션 때문에 정해진 숫자다 — 5프레임 × 12틱 시트에서
-    //     24 / 12 = 2 라 팔이 뻗는 프레임이 판정과 같은 틱에 시작한다.
-    constexpr AttackData kEnemySwing{
-        /*name*/     "SWING",
-        /*startup*/  24,
-        /*active*/    4,
-        /*recovery*/ 32,            // 합계 60틱 = 1초. recovery 가 반격의 창이다
-        /*reach*/     8.0f,
-        /*width*/    26.0f,
-        /*height*/   26.0f,
-        /*heightFromFoot*/ 30.0f,
-        /*damage*/   18,
-        /*staminaCost*/ 0,          // 적은 스태미나를 쓰지 않는다
-        /*impact*/   18,
-        // ※ clip 은 쓰지 않는다. 적은 자세(서기/엎드리기)에 따라 행이 달라져서
-        //   kEnemySwingClip / kEnemyBiteClip 을 따로 들고 있다.
-        //   ★ 공유 구조체에 안 쓰는 칸이 남는 것은 값이 싸다 —
-        //     구조를 두 벌 만드는 것보다 훨씬 싸다.
-    };
-
-    // 물어뜯기 — 다리가 부서져 기어다닐 때.
-    //   ★ 「다리 파괴 = 무해」로 만들지 않기 위한 데이터다.
-    //     더 빠르고(startup 18) 더 낮지만, 사거리가 짧고 후딜이 길다.
-    //     기획서 3.2 는 「다리 = 이동 불가」이지 「무해」가 아니다.
-    constexpr AttackData kEnemyBite{
-        /*name*/     "BITE",
-        /*startup*/  18,            // 낮은 자세에서 갑자기 — 예고가 짧다 (18 / 9 = 2)
-        /*active*/    3,
-        /*recovery*/ 33,            // 기어서 재정비하므로 후딜이 길다. 합계 54틱
-        /*reach*/     4.0f,
-        /*width*/    20.0f,
-        /*height*/   16.0f,
-        /*heightFromFoot*/ 12.0f,   // 낮게 — 발밑을 노린다
-        /*damage*/   10,
-        /*staminaCost*/ 0,
-        /*impact*/   12,
-    };
-
-    // 공격이 끝난 뒤 다음 공격까지. 없으면 사거리 안에서 무한 공격이 된다.
-    constexpr int kEnemyAttackCooldown = 40;   // 0.67 초
-
-    // ---- 적 행동 ----
-    constexpr float kEnemySightRange  = 220.0f;   // 이 거리 안이면 추격 시작
-    constexpr float kEnemyWalkPerSec  = 60.0f;    // 플레이어(150)보다 훨씬 느리다
-    constexpr float kEnemyCrawlPerSec = 18.0f;    // 다리가 부서지면 이 속도
-    constexpr float kEnemyWalkPerTick  = kEnemyWalkPerSec  / 60.0f;
-    constexpr float kEnemyCrawlPerTick = kEnemyCrawlPerSec / 60.0f;
-
-    // ---- 공격 위치 ----
-    //   ★ 가로(사거리)와 세로(허용폭)를 따로 둔다. 히트박스가 가로로 뻗으므로
-    //     원형 거리로 판정하면 위아래로 떨어진 플레이어를 영원히 헛친다.
-    //
-    //   ★ 그리고 이 값들이 「멈추는 위치」와 「공격하는 위치」 양쪽에 쓰인다.
-    //     따로 두면 「멈췄는데 닿지 않는」 적이 생긴다 —
-    //     5-e-2 의 kEnemyStopDist(28) 를 그대로 두고 물어뜯기 사거리(20)를
-    //     넣었다면, 기어오는 적이 28 에서 멈춰 영원히 못 물었을 것이다.
-    constexpr float kEnemySwingRange = 34.0f;
-    constexpr float kEnemyBiteRange  = 20.0f;
-
-    //   세로 허용폭. reach(8) 보다 플레이어 hurtbox 반폭(10) 이 크므로
-    //   가로로 완전히 겹쳐도(dx=0) 상자는 닿는다. 세로만 맞춰 주면 된다.
-    constexpr float kEnemyAttackYTolerance = 14.0f;
-
-    const char* EnemyStateName(EnemyState s)
-    {
-        switch (s)
-        {
-        case EnemyState::Chase:  return "CHASE";
-        case EnemyState::Attack: return "ATTACK";
-        case EnemyState::Crawl:  return "CRAWL";
-        case EnemyState::Dead:   return "DEAD";
-        default:                 return "IDLE";
-        }
-    }
-
-    // 두 사각형이 겹치는 면적. 안 겹치면 0.
-    float OverlapArea(const AABB& a, const AABB& b)
-    {
-        const float w = std::min(a.right,  b.right)  - std::max(a.left, b.left);
-        const float h = std::min(a.bottom, b.bottom) - std::max(a.top,  b.top);
-        if (w <= 0.0f || h <= 0.0f)
-            return 0.0f;
-        return w * h;
     }
 
     const char* StateName(PlayerState s)
@@ -417,18 +246,36 @@ namespace
 
 bool PlayScene::Enter(SceneContext& ctx)
 {
-    m_sheet = ctx.assets.Texture(L"assets/textures/player.png");
-    if (!m_sheet)
+    auto playerSheet = ctx.assets.Texture(L"assets/textures/player.png");
+    auto enemySheet  = ctx.assets.Texture(L"assets/textures/enemy.png");
+    if (!playerSheet || !enemySheet)
         return false;
 
-    m_enemySheet = ctx.assets.Texture(L"assets/textures/enemy.png");
-    if (!m_enemySheet)
-        return false;
+    // ========================================================================
+    //  ★ 조립 — 이 몇 줄이 「합성」의 전부다
+    //
+    //    상속 계층을 짜지 않는다. 필요한 능력을 붙일 뿐이다.
+    //      플레이어 = [Sprite]
+    //      적       = [Parts] [EnemyBrain] [Sprite]
+    //
+    //    ★ 붙인 순서 = 실행 순서다. 그래서 이 코드가 곧 실행 순서표이고
+    //      따로 외울 것이 없다.
+    //      Brain 이 Sprite 보다 먼저여야 이번 틱에 바꾼 클립이 같은 틱에 반영된다.
+    // ========================================================================
+    m_playerSprite = &m_playerObj.Add<SpriteComponent>(playerSheet, kCellW, kCellH);
+
+    m_enemyParts = &m_enemyObj.Add<PartsComponent>();
+    m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);
+    m_enemyObj.Add<SpriteComponent>(enemySheet, kCellW, kCellH);
+
+    // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
+    m_playerObj.Start(ctx);
+    m_enemyObj.Start(ctx);
 
     // ★ 초기화를 Respawn 에 맡긴다. 초기화와 부활은 같은 일이다.
     //   여기서 따로 초기화하면 나중에 필드를 추가할 때 한쪽만 고치게 되고,
     //   「두 번째 판부터 뭔가 이상하다」는 재현하기 어려운 버그가 된다.
-    Respawn();
+    Respawn(ctx);
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Shift = roll   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
@@ -445,7 +292,7 @@ bool PlayScene::Enter(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 //  Respawn — 자세한 설명은 헤더의 선언부 주석 참조
 // ----------------------------------------------------------------------------
-void PlayScene::Respawn()
+void PlayScene::Respawn(SceneContext& ctx)
 {
     // ---- 되돌아간다 : 플레이어 ----
     //   구조체를 통째로 기본값으로 되돌린다. 필드를 하나씩 적으면
@@ -464,12 +311,15 @@ void PlayScene::Respawn()
     m_stateBeforeHurt       = PlayerState::Idle;
     m_deathScreenRequested  = false;
 
+    PlayerTr().x = 120.0f;
+    PlayerTr().y = 260.0f;
+    PlayerTr().facing = 1;
+
     // ---- 되돌아간다 : 적 ----
     //   ★ 적이 되살아나는 것은 확정된 설계다(design.md §3.6.1).
-    //     이 두 줄이 「죽음에 대가가 있다」의 전부다.
-    m_enemy = Enemy{};
-    for (int i = 0; i < Part_Count; ++i)
-        m_enemy.hp[i] = kPartMaxHp[i];
+    //     ★ 이제 **한 줄**이다 — 무엇을 되돌릴지는 적 자신이 안다.
+    //       PlayScene 이 적의 부위 배열도 쿨다운도 알 필요가 없어졌다.
+    m_enemyBrain->Reset(ctx);
 
     // ---- 남는다 ----
     //   ★ m_armorIndex (장착 방어구) 는 **일부러 되돌리지 않는다.**
@@ -488,11 +338,9 @@ void PlayScene::Respawn()
     //   그래서 상태를 직접 놓고 애니메이션은 forceRestart 로 다시 건다.
     m_state      = PlayerState::Idle;
     m_stateTicks = 0;
-    m_playerAnim.Play(kIdleClip, true);
-
-    m_enemy.state      = EnemyState::Idle;
-    m_enemy.stateTicks = 0;
-    m_enemyAnim.Play(kEnemyIdleClip, true);
+    m_playerSprite->Play(kIdleClip, true);
+    m_playerSprite->ClearTint();
+    m_playerSprite->SetScale(1.0f, 1.0f);
 }
 
 
@@ -512,7 +360,7 @@ void PlayScene::Resume(SceneContext& ctx)
     if (m_state != PlayerState::Dead || !m_deathScreenRequested)
         return;
 
-    Respawn();
+    Respawn(ctx);
     ctx.audio.Play("ui_confirm", 0.7f, -0.35f);
     Log::Info("[play] 부활 — 적도 되살아났다");
 }
@@ -592,11 +440,11 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
     switch (next)
     {
     case PlayerState::Idle:
-        m_playerAnim.Play(kIdleClip);
+        m_playerSprite->Play(kIdleClip);
         break;
 
     case PlayerState::Run:
-        m_playerAnim.Play(kRunClip);
+        m_playerSprite->Play(kRunClip);
 
         // ★ 여기서 m_stepCooldown 을 0 으로 되돌리면 안 된다.
         //
@@ -627,7 +475,7 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
 
         // forceRestart = true : 같은 클립이라도 처음부터 다시 재생한다.
         // ★ 클립이 공격마다 다르므로 여기서 함께 갈린다.
-        m_playerAnim.Play(atk.clip, true);
+        m_playerSprite->Play(atk.clip, true);
 
         // 이번 휘두르기의 "이미 맞춘 대상" 기록을 비운다.
         m_hitThisSwing = false;
@@ -644,7 +492,7 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
         const float pitch = (atk.heightFromFoot > 40.0f) ? 0.22f      // 찌르기 = 높게
                           : (atk.heightFromFoot < 20.0f) ? -0.25f     // 웅크리기 = 낮게
                           : 0.0f;
-        ctx.audio.Play("swing", 0.55f, pitch + RandomPitch(0.10f), PanFromX(m_player.x));
+        ctx.audio.Play("swing", 0.55f, pitch + RandomPitch(0.10f), PanFromCanvasX(PlayerTr().x));
 
         Log::Info("[play] {} 발동  [{} {} {}]  높이 {:.0f}  stam -{}",
                   atk.name, atk.startup, atk.active, atk.recovery,
@@ -654,7 +502,7 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
 
     case PlayerState::Roll:
     {
-        m_playerAnim.Play(kRollClip, true);
+        m_playerSprite->Play(kRollClip, true);
 
         // ★ 방향을 여기서 고정한다.
         //   입력이 있으면 그 방향, 없으면 바라보는 방향으로 굴러간다.
@@ -667,20 +515,20 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
         }
         else
         {
-            m_player.rollDirX = static_cast<float>(m_player.facing);
+            m_player.rollDirX = static_cast<float>(PlayerTr().facing);
             m_player.rollDirY = 0.0f;
         }
 
         m_stamina.current -= static_cast<float>(kRoll.staminaCost);
         m_stamina.delay    = kStaminaRegenDelay;
 
-        ctx.audio.Play("swing", 0.4f, -0.35f, PanFromX(m_player.x));   // 낮은 피치 = 구르는 소리
+        ctx.audio.Play("swing", 0.4f, -0.35f, PanFromCanvasX(PlayerTr().x));   // 낮은 피치 = 구르는 소리
         break;
     }
 
     case PlayerState::Exhausted:
         // 지친 전용 애니메이션이 아직 없으므로 idle 을 쓰고 색으로 구분한다.
-        m_playerAnim.Play(kIdleClip);
+        m_playerSprite->Play(kIdleClip);
         ctx.audio.Play("ui_cancel", 0.45f);
         Log::Info("[play] 스태미나 고갈 — 경직 (stam {:.1f})", m_stamina.current);
         break;
@@ -690,11 +538,11 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
         // ★ 소리는 여기서 내지 않는다 — 버텼는지 휘청였는지에 따라 다르므로
         //   HitPlayer 가 낸다. 「들어올 때 한 번」의 예외가 아니라,
         //   원인을 아는 쪽이 내는 것이 맞다.
-        m_playerAnim.Play(kIdleClip, true);
+        m_playerSprite->Play(kIdleClip, true);
         break;
 
     case PlayerState::Dead:
-        m_playerAnim.Play(kIdleClip, true);
+        m_playerSprite->Play(kIdleClip, true);
         ctx.audio.Play("ui_cancel", 0.9f, -0.6f);
         Log::Info("[play] ★★ 플레이어 사망 — {}틱 뒤 사망 화면", kDeathScreenDelay);
         break;
@@ -710,19 +558,19 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
 void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
 {
     // 바라보는 방향은 좌우 입력이 있을 때만 갱신한다.
-    if (moveX < -kMoveEpsilon)      m_player.facing = -1;
-    else if (moveX > kMoveEpsilon)  m_player.facing = +1;
+    if (moveX < -kMoveEpsilon)      PlayerTr().facing = -1;
+    else if (moveX > kMoveEpsilon)  PlayerTr().facing = +1;
 
     // ★ 웅크리면 느려진다. 조준의 대가다 —
     //   「다리를 노리려면 멈춰서 노려야 한다」가 이동 속도 한 줄로 만들어진다.
     const float speed = kPlayerSpeedPerTick * (m_crouching ? kCrouchSpeedScale : 1.0f);
 
-    m_player.x += moveX * speed;
-    m_player.y += moveY * speed;
+    PlayerTr().x += moveX * speed;
+    PlayerTr().y += moveY * speed;
 
-    m_player.x = std::clamp(m_player.x, kOriginX,
+    PlayerTr().x = std::clamp(PlayerTr().x, kOriginX,
                             static_cast<float>(Config::kCanvasWidth) - kOriginX);
-    m_player.y = std::clamp(m_player.y, kOriginY,
+    PlayerTr().y = std::clamp(PlayerTr().y, kOriginY,
                             static_cast<float>(Config::kCanvasHeight));
 
     // 발소리 — 틱을 세어 일정 간격마다
@@ -736,7 +584,7 @@ void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
             m_stepCooldown = m_crouching
                 ? static_cast<int>(kStepIntervalTicks / kCrouchSpeedScale)
                 : kStepIntervalTicks;
-            ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromX(m_player.x));
+            ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromCanvasX(PlayerTr().x));
         }
     }
     else
@@ -774,12 +622,12 @@ void PlayScene::SlideDecaying(float dirX, float dirY, float distance, int totalT
     const float weightSum = static_cast<float>(totalTicks) * (totalTicks + 1) * 0.5f;
     const float step      = distance * static_cast<float>(remaining) / weightSum;
 
-    m_player.x += dirX * step;
-    m_player.y += dirY * step;
+    PlayerTr().x += dirX * step;
+    PlayerTr().y += dirY * step;
 
-    m_player.x = std::clamp(m_player.x, kOriginX,
+    PlayerTr().x = std::clamp(PlayerTr().x, kOriginX,
                             static_cast<float>(Config::kCanvasWidth) - kOriginX);
-    m_player.y = std::clamp(m_player.y, kOriginY,
+    PlayerTr().y = std::clamp(PlayerTr().y, kOriginY,
                             static_cast<float>(Config::kCanvasHeight));
 }
 
@@ -826,7 +674,13 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //     빠뜨리면 프레임이 0 에서 멈추고, loop=false 클립의 Finished() 가
     //     영원히 false 가 되어 Attack 상태에서 빠져나오지 못한다.
     ++m_stateTicks;
-    m_playerAnim.Tick();
+
+    // ★ 애니메이션 진행이 여기서 사라졌다 — SpriteComponent 가 스스로 굴린다.
+    //   전에는 m_playerAnim.Tick() 을 여기서 불러야 했고, 실제로 리팩터링에서
+    //   그 한 줄을 옮기지 않아 애니메이션이 멈추는 버그를 냈다(handoff §8).
+    //   컴포넌트가 자기 시간을 스스로 굴리면 그 종류의 누락이 불가능해진다.
+    m_playerObj.Tick(ctx);
+
     UpdateStamina();
 
     if (m_player.flash > 0)
@@ -888,25 +742,26 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         //   active 구간에서만, 그리고 이번 휘두르기에 아직 안 맞췄을 때만.
         if (AttackActive() && !m_hitThisSwing && !EnemyDead())
         {
-            const int part = PickHitPart(AttackHitbox());
+            const int part = m_enemyParts->PickHit(AttackHitbox());
             if (part >= 0)
             {
                 m_hitThisSwing = true;   // 3틱 동안 3번 맞는 것을 막는다
-                m_enemy.flash  = kFlashTicks;
+                m_enemyParts->Flash(kFlashTicks);
 
-                m_enemy.hp[part] -= atk.damage;
+                m_enemyParts->Damage(part, atk.damage);
 
                 // ★ 소리와 흔들림은 "맞는 순간" 에 낸다. 휘두르는 순간이 아니다.
                 ctx.camera.Shake(kShakeStrength, kShakeTicks);
-                ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f), PanFromX(m_enemy.x));
+                ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f),
+                               PanFromCanvasX(m_enemyObj.transform.x));
 
                 Log::Info("[play] {} 로 {} 명중  t{}  dmg {}  남은 HP {}",
-                          atk.name, kPartName[part], m_stateTicks,
-                          atk.damage, std::max(0, m_enemy.hp[part]));
+                          atk.name, m_enemyParts->Name(part), m_stateTicks,
+                          atk.damage, std::max(0, m_enemyParts->Hp(part)));
 
-                if (m_enemy.hp[part] <= 0)
+                if (m_enemyParts->IsBroken(part))
                 {
-                    Log::Info("[play] ★ {} 파괴!", kPartName[part]);
+                    Log::Info("[play] ★ {} 파괴!", m_enemyParts->Name(part));
 
                     // ★ 몸통과 머리는 격파. **다리는 부서져도 죽지 않는다**
                     //   — 기획서의 「다리만 베었는데 격파는 비현실적」이 여기서 해결된다.
@@ -922,8 +777,8 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
                     //     「부위를 노리면 빨리 죽는다」가 데이터에서 나왔다.
                     if (part == Part_Torso || part == Part_Head)
                     {
-                        ChangeEnemyState(ctx, EnemyState::Dead);
-                        Log::Info("[play] ★★ 적 격파 ({} 파괴)", kPartName[part]);
+                        m_enemyBrain->Kill(ctx);
+                        Log::Info("[play] ★★ 적 격파 ({} 파괴)", m_enemyParts->Name(part));
                     }
                 }
             }
@@ -1006,9 +861,16 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     // ---- 적 ----
     //   ★ 플레이어 갱신 뒤에 부른다. 적이 이번 틱의 플레이어 위치를 보고 움직인다.
-    //     그리고 적 공격의 피격 판정도 이 안에서 일어난다 —
-    //     즉 이번 틱에 구른 결과(무적)가 이번 틱의 적 공격에 반영된다.
-    UpdateEnemy(ctx);
+    m_enemyObj.Tick(ctx);
+
+    // ---- 적 -> 플레이어 피격 판정 ----
+    //
+    //   ★ 판정을 EnemyBrain 안에 두지 않았다.
+    //     그러면 적이 플레이어의 존재를 알아야 하고, 「플레이어 -> 적」 방향과
+    //     모양이 달라진다. 양쪽을 다 보고 있는 것은 이 Scene 하나뿐이므로,
+    //     **두 몸 사이의 판정은 Scene 이 한다.** 위쪽 플레이어 공격 판정과
+    //     같은 모양인 것을 보라 — 대칭이 유지된다.
+    TryEnemyHit(ctx);
 
     // ---- 상태와 무관한 엣지 입력 ----
     if (consumeEdgeInput)
@@ -1041,10 +903,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 AABB PlayScene::SpriteBounds() const
 {
     return {
-        m_player.x - kOriginX,
-        m_player.y - kOriginY,
-        m_player.x - kOriginX + kCellW,
-        m_player.y
+        PlayerTr().x - kOriginX,
+        PlayerTr().y - kOriginY,
+        PlayerTr().x - kOriginX + kCellW,
+        PlayerTr().y
     };
 }
 
@@ -1052,10 +914,10 @@ AABB PlayScene::SpriteBounds() const
 AABB PlayScene::PlayerHurtbox() const
 {
     return {
-        m_player.x - kHitHalfWidth,
-        m_player.y - kHitFootGap - kHitHeight,
-        m_player.x + kHitHalfWidth,
-        m_player.y - kHitFootGap
+        PlayerTr().x - kHitHalfWidth,
+        PlayerTr().y - kHitFootGap - kHitHeight,
+        PlayerTr().x + kHitHalfWidth,
+        PlayerTr().y - kHitFootGap
     };
 }
 
@@ -1111,7 +973,7 @@ void PlayScene::HitPlayer(SceneContext& ctx, const AttackData& atk)
     {
         m_player.hp = 0;
         ctx.camera.Shake(kShakeStrength * 2.5f, kShakeTicks * 3);
-        ctx.audio.Play("hit", 1.0f, -0.55f, PanFromX(m_player.x));
+        ctx.audio.Play("hit", 1.0f, -0.55f, PanFromCanvasX(PlayerTr().x));
         ChangeState(ctx, PlayerState::Dead);
         return;
     }
@@ -1127,7 +989,7 @@ void PlayScene::HitPlayer(SceneContext& ctx, const AttackData& atk)
         //   무적은 그 위험을 막기 위한 장치이기 때문이다.
         //   대신 맞을 때마다 HP 가 확실히 깎인다 — 이것이 버티기의 비용이다.
         ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks);
-        ctx.audio.Play("hit", 0.5f, -0.75f, PanFromX(m_player.x));   // 둔탁하게
+        ctx.audio.Play("hit", 0.5f, -0.75f, PanFromCanvasX(PlayerTr().x));   // 둔탁하게
         Log::Info("[play] 버텨냄  poise {} >= impact {}   dmg {}  HP {}",
                   Armor().poise, atk.impact, atk.damage, m_player.hp);
         return;
@@ -1135,8 +997,8 @@ void PlayScene::HitPlayer(SceneContext& ctx, const AttackData& atk)
 
     // ---- 휘청였다 ----
     //   넉백 방향 = 적 → 플레이어. 정규화한다.
-    float dx = m_player.x - m_enemy.x;
-    float dy = m_player.y - m_enemy.y;
+    float dx = PlayerTr().x - m_enemyObj.transform.x;
+    float dy = PlayerTr().y - m_enemyObj.transform.y;
     const float len = std::sqrt(dx * dx + dy * dy);
     if (len > 0.0001f)
     {
@@ -1146,7 +1008,7 @@ void PlayScene::HitPlayer(SceneContext& ctx, const AttackData& atk)
     else
     {
         // 완전히 겹쳐 있으면 방향이 없다. 적이 보는 쪽으로 밀어낸다.
-        dx = static_cast<float>(m_enemy.facing);
+        dx = static_cast<float>(m_enemyObj.transform.facing);
         dy = 0.0f;
     }
     m_player.knockDirX = dx;
@@ -1157,7 +1019,7 @@ void PlayScene::HitPlayer(SceneContext& ctx, const AttackData& atk)
     m_invulnTicks     = kHurt.invuln;
 
     ctx.camera.Shake(kShakeStrength * 1.8f, kShakeTicks * 2);
-    ctx.audio.Play("hit", 0.95f, -0.25f, PanFromX(m_player.x));
+    ctx.audio.Play("hit", 0.95f, -0.25f, PanFromCanvasX(PlayerTr().x));
     Log::Info("[play] 피격  poise {} < impact {}   dmg {}  HP {}   경직 {}틱 / 무적 {}틱",
               Armor().poise, atk.impact, atk.damage, m_player.hp,
               kHurt.ticks, kHurt.invuln);
@@ -1181,383 +1043,58 @@ AABB PlayScene::AttackHitbox() const
 {
     // ★ 상자를 만드는 계산을 MakeAttackBox 로 뺐다 — 적과 **같은 함수**를 쓴다.
     //   좌우 반전 정규화(AABB 뒤집힘) 함정이 한 곳에만 존재하게 된다.
-    return MakeAttackBox(m_player.x, m_player.y, m_player.facing, CurrentAttack());
+    return MakeAttackBox(PlayerTr().x, PlayerTr().y, PlayerTr().facing, CurrentAttack());
+}
+
+
+// ★ 적의 상태 머신 · 추격 · 공격 · 부위 판정 · 디버그 표시는 전부
+//   Gameplay/EnemyBrain 과 Gameplay/PartsComponent 로 옮겼다.
+//   PlayScene 에 남은 것은 **조립과 두 몸 사이의 판정**뿐이다.
+
+
+// EnemyBrain 이 공개한 것만 물어본다. 내부(상태 enum · 쿨다운)는 모른다.
+bool PlayScene::EnemyDead() const
+{
+    return m_enemyBrain->IsDead();
 }
 
 
 // ----------------------------------------------------------------------------
-//  적 상태 머신 — 플레이어와 같은 구조
+//  TryEnemyHit — 적의 공격이 플레이어에게 닿았는가
+//
+//    ★★ 5-d 의 무적 프레임이 의미를 갖는 곳. 컴포넌트로 옮겨도 그대로다.
 // ----------------------------------------------------------------------------
-void PlayScene::ChangeEnemyState(SceneContext& ctx, EnemyState next)
+void PlayScene::TryEnemyHit(SceneContext& ctx)
 {
-    if (m_enemy.state == next)
-        return;
+    if (!m_enemyBrain->AttackActive())     return;
+    if (m_enemyBrain->HitThisSwing())      return;   // active 4틱 = 데미지 4번을 막는다
+    if (PlayerDead())                      return;
 
-    m_enemy.state      = next;
-    m_enemy.stateTicks = 0;
-
-    // Enter : 상태에 들어갈 때 한 번만
-    switch (next)
-    {
-    case EnemyState::Idle:  m_enemyAnim.Play(kEnemyIdleClip);  break;
-    case EnemyState::Chase: m_enemyAnim.Play(kEnemyChaseClip); break;
-    case EnemyState::Crawl: m_enemyAnim.Play(kEnemyCrawlClip); break;
-
-    case EnemyState::Attack:
-        // ★ 어느 공격인지 여기서 고정한다. 도중에 다리가 부서져도 안 바뀐다.
-        m_enemy.attackIsBite = EnemyLegsBroken();
-
-        // 이번 휘두르기의 「이미 맞췄나」 표시를 비운다.
-        // 플레이어 쪽 ChangeState(Attack) 의 m_hitThisSwing 과 같은 줄이다.
-        m_enemy.hitThisSwing = false;
-
-        // ★ 공격 모션. forceRestart = true 다 —
-        //   같은 공격을 연달아 낼 때 클립이 처음부터 다시 재생되어야 한다.
-        //   플레이어 쪽 Play(atk.clip, true) 와 같은 이유.
-        m_enemyAnim.Play(m_enemy.attackIsBite ? kEnemyBiteClip : kEnemySwingClip, true);
-
-        // ★ 이 소리는 **청각 예고**다. 화면을 안 보고 있어도 반응할 수 있게 해 준다.
-        //   시각 예고(팔을 젖히는 모션)와 이중으로 둔다.
-        ctx.audio.Play("swing", 0.4f, -0.55f, PanFromX(m_enemy.x));
-        break;
-
-    case EnemyState::Dead:  break;   // 마지막 프레임에서 멈춘다
-    }
-
-    Log::Info("[enemy] -> {}", EnemyStateName(next));
-}
-
-
-// ----------------------------------------------------------------------------
-//  적 공격 — 플레이어의 AttackActive / AttackHitbox 와 완전히 대칭이다
-// ----------------------------------------------------------------------------
-const AttackData& PlayScene::EnemyAttack() const
-{
-    // ★ 자세가 어느 공격인지를 정한다.
-    //   기획서 3.2.1 의 「입력 맥락이 어느 공격인지 결정한다」와 같은 발상 —
-    //   플레이어는 입력 맥락으로, 적은 자세로 무브셋을 고른다.
-    return m_enemy.attackIsBite ? kEnemyBite : kEnemySwing;
-}
-
-
-float PlayScene::EnemyAttackRange() const
-{
-    // 이쪽은 latch 가 아니라 현재 자세를 본다 —
-    // 「지금 다가갈까 공격할까」를 판단하는 값이므로 최신이어야 한다.
-    return EnemyLegsBroken() ? kEnemyBiteRange : kEnemySwingRange;
-}
-
-
-bool PlayScene::EnemyInAttackPosition() const
-{
-    const float dx = std::abs(m_player.x - m_enemy.x);
-    const float dy = std::abs(m_player.y - m_enemy.y);
-
-    // ★ 세로를 따로 보는 것이 요점이다. 자세한 이유는 헤더의 그림 참조.
-    return dx <= EnemyAttackRange()
-        && dy <= kEnemyAttackYTolerance;
-}
-
-
-bool PlayScene::EnemyAttackActive() const
-{
-    if (m_enemy.state != EnemyState::Attack)
-        return false;
-
-    const AttackData& a = EnemyAttack();
-    return m_enemy.stateTicks >= a.startup
-        && m_enemy.stateTicks <  a.startup + a.active;
-}
-
-
-bool PlayScene::EnemyTelegraph() const
-{
-    return m_enemy.state == EnemyState::Attack
-        && m_enemy.stateTicks < EnemyAttack().startup;
-}
-
-
-AABB PlayScene::EnemyAttackHitbox() const
-{
-    return MakeAttackBox(m_enemy.x, m_enemy.y, m_enemy.facing, EnemyAttack());
-}
-
-
-// ----------------------------------------------------------------------------
-//  TryEnemyAttack — ★★ 5-d 의 무적 프레임이 드디어 의미를 갖는 곳
-// ----------------------------------------------------------------------------
-void PlayScene::TryEnemyAttack(SceneContext& ctx)
-{
-    if (!EnemyAttackActive())
-        return;
-
-    // active 가 4틱이면 이것 없이는 한 번 휘두를 때 데미지가 4번 들어간다.
-    if (m_enemy.hitThisSwing || PlayerDead())
-        return;
-
-    if (!Intersects(EnemyAttackHitbox(), PlayerHurtbox()))
+    if (!Intersects(m_enemyBrain->AttackHitbox(), PlayerHurtbox()))
         return;
 
     // ★ 무적 처리 방식 (b) — 「무적인 틱은 없었던 일」.
-    //
-    //   휘두르기를 **소진시키지 않는다**(hitThisSwing 을 세우지 않는다).
-    //   그래서 무적이 풀린 다음 틱에 active 가 남아 있으면 그때 맞는다.
-    //   「무적 프레임」이 문자 그대로 동작한다.
-    //
-    //   무적으로 흘린 것을 소진 처리하는 것은 별개 규칙이고,
-    //   그건 나중에 **패링(parry)** 을 만들 때 쓸 개념이다. 지금 섞지 않는다.
-    //
-    //   invincible 12틱 > active 4틱 이므로, 타이밍만 맞으면 완전 회피가 된다.
+    //   휘두르기를 **소진시키지 않는다.** 그래서 무적이 풀린 다음 틱에
+    //   active 가 남아 있으면 그때 맞는다. 「무적 프레임」이 문자 그대로 동작한다.
+    //   (무적으로 흘린 것을 소진 처리하는 것은 별개 규칙 = 나중의 패링이다)
     if (Invincible())
     {
         Log::Info("[play] ★ 회피 — {} 무적으로 흘렸다 (적 t{})",
-                  RollInvincible() ? "구르기" : "피격", m_enemy.stateTicks);
+                  RollInvincible() ? "구르기" : "피격", m_enemyBrain->StateTicks());
         return;
     }
 
-    m_enemy.hitThisSwing = true;
-    HitPlayer(ctx, EnemyAttack());
-}
-
-
-void PlayScene::MoveEnemyTowardPlayer(float speedPerTick)
-{
-    const float dx = m_player.x - m_enemy.x;
-    const float dy = m_player.y - m_enemy.y;
-    const float dist = std::sqrt(dx * dx + dy * dy);
-
-    // 바라보는 방향은 거리와 무관하게 갱신한다
-    if (dx < -1.0f)     m_enemy.facing = -1;
-    else if (dx > 1.0f) m_enemy.facing = +1;
-
-    // ★ 공격 위치에 도달하면 멈춘다.
-    //   「멈추는 조건」과 「공격하는 조건」이 **같은 함수**다 —
-    //   따로 두면 「멈췄는데 닿지 않는」 적이 생긴다.
-    if (EnemyInAttackPosition() || dist <= 0.0001f)
-        return;
-
-    m_enemy.x += dx / dist * speedPerTick;
-    m_enemy.y += dy / dist * speedPerTick;
-
-    m_enemy.x = std::clamp(m_enemy.x, kOriginX,
-                           static_cast<float>(Config::kCanvasWidth) - kOriginX);
-    m_enemy.y = std::clamp(m_enemy.y, kOriginY,
-                           static_cast<float>(Config::kCanvasHeight));
-}
-
-
-void PlayScene::UpdateEnemy(SceneContext& ctx)
-{
-    ++m_enemy.stateTicks;
-    m_enemyAnim.Tick();
-    if (m_enemy.flash > 0)
-        --m_enemy.flash;
-
-    // 쿨다운도 시간이다. 상태와 무관하게 흐른다.
-    if (m_enemy.attackCooldown > 0)
-        --m_enemy.attackCooldown;
-
-    if (m_enemy.state == EnemyState::Dead)
-        return;
-
-    const float dx = m_player.x - m_enemy.x;
-    const float dy = m_player.y - m_enemy.y;
-    const float dist = std::sqrt(dx * dx + dy * dy);
-
-    // 공격 위치 + 쿨다운 끝 + 플레이어 생존. Chase 와 Crawl 이 공유하는 조건.
-    const bool canAttack = EnemyInAttackPosition()
-                        && (m_enemy.attackCooldown <= 0)
-                        && !PlayerDead();
-
-    switch (m_enemy.state)
-    {
-    case EnemyState::Idle:
-        if (dist <= kEnemySightRange)
-            ChangeEnemyState(ctx, EnemyLegsBroken() ? EnemyState::Crawl
-                                                    : EnemyState::Chase);
-        break;
-
-    case EnemyState::Chase:
-        // ★ 부위 파괴가 행동을 바꾸는 지점.
-        //   다리가 부서지면 죽지 않고 기어 다닌다.
-        if (EnemyLegsBroken())
-        {
-            ChangeEnemyState(ctx, EnemyState::Crawl);
-            break;
-        }
-
-        if (canAttack)
-            ChangeEnemyState(ctx, EnemyState::Attack);
-        else
-            MoveEnemyTowardPlayer(kEnemyWalkPerTick);
-        break;
-
-    case EnemyState::Crawl:
-        // 기어가는 중에는 다시 일어나지 않는다. 다리는 회복되지 않는다.
-        //
-        // ★ 하지만 **무해하지는 않다.** 사거리에 들어오면 물어뜯는다.
-        //   「다리를 부수면 완전 무력화」로 만들면 항상 다리부터 노리는 것이
-        //   정답이 되어, 기획서 3.2 의 전술적 선택이 사라진다.
-        if (canAttack)
-            ChangeEnemyState(ctx, EnemyState::Attack);
-        else
-            MoveEnemyTowardPlayer(kEnemyCrawlPerTick);
-        break;
-
-    case EnemyState::Attack:
-        // ★ 이동하지 않는다. 플레이어의 Attack 과 같다 —
-        //   한 번 휘두르면 끝까지 간다. 그래서 플레이어가 **걸어서 빠져나갈 수도**
-        //   있다. 회피 수단이 구르기 하나만인 게임이 되지 않는다.
-        TryEnemyAttack(ctx);
-
-        // 상태 길이는 프레임 데이터가 정한다. 애니메이션 Finished() 를 보지 않는다.
-        if (m_enemy.stateTicks >= EnemyAttack().TotalTicks())
-        {
-            m_enemy.attackCooldown = kEnemyAttackCooldown;
-            ChangeEnemyState(ctx, EnemyLegsBroken() ? EnemyState::Crawl
-                                                    : EnemyState::Chase);
-        }
-        break;
-
-    default:
-        break;
-    }
-}
-
-
-AABB PlayScene::EnemyPartBox(int part) const
-{
-    // ★ 자세를 **상태가 아니라 몸으로 판정한다.**
-    //
-    //   5-e-2 에서는 `state == Crawl` 로 골랐다. 그때는 엎드린 적이 가질 수 있는
-    //   상태가 Crawl 뿐이었으니 맞는 코드였다.
-    //   그런데 5-e-3 에서 Attack 이 생기자 **엎드린 적이 Attack 상태**가 될 수
-    //   있게 되었고, 그 순간 상자가 서 있는 위치로 튀어 공중에 떴다.
-    //   물어뜯는 0.9초 내내 판정과 그림이 어긋나고, 예고 `!` 도 허공에 떴다.
-    //
-    //   자세는 **행동이 아니라 몸의 상태**다. 다리가 부서졌으면 무엇을 하든
-    //   엎드려 있다. 그래서 EnemyLegsBroken() 으로 판정한다.
-    //   상태를 하나 더 추가해도 이 코드는 다시 안 고친다.
-    //
-    //   ※ handoff.md §8 의 「자세별 판정 상자」 함정을, 상태를 늘리면서
-    //     같은 자리에서 다시 밟은 것이다. 조건을 「상태 목록」으로 쓰면
-    //     상태가 늘어날 때마다 빠뜨린다. 「몸의 성질」로 쓰면 안 그렇다.
-    const PartBox& b = EnemyLegsBroken()
-        ? kBoxCrawl[part]
-        : kBoxStand[part];
-
-    // ★ 좌우 비대칭 자세를 위해 facing 에 따라 x 를 뒤집는다.
-    //   [left, right] 를 0 기준으로 뒤집으면 [-right, -left] 가 된다.
-    //   서 있는 자세는 대칭이라 이 연산이 아무 영향을 주지 않는다 — 한 갈래로 처리된다.
-    float left  = b.left;
-    float right = b.right;
-    if (m_enemy.facing < 0)
-    {
-        left  = -b.right;
-        right = -b.left;
-    }
-
-    return {
-        m_enemy.x + left,
-        m_enemy.y + b.top,
-        m_enemy.x + right,
-        m_enemy.y + b.bottom
-    };
-}
-
-
-int PlayScene::PickHitPart(const AABB& attack) const
-{
-    int   best     = -1;
-    float bestArea = 0.0f;
-
-    for (int i = 0; i < Part_Count; ++i)
-    {
-        // ★ 이미 부서진 부위는 건너뛴다.
-        //   다리를 부순 뒤에는 같은 높이로 휘둘러도 다른 부위에 닿는다.
-        if (m_enemy.hp[i] <= 0)
-            continue;
-
-        const float area = OverlapArea(attack, EnemyPartBox(i));
-        if (area > bestArea)
-        {
-            bestArea = area;
-            best     = i;
-        }
-    }
-    return best;
-}
-
-
-void PlayScene::DrawEnemyDebug(Renderer& renderer) const
-{
-    for (int i = 0; i < Part_Count; ++i)
-    {
-        const bool broken = (m_enemy.hp[i] <= 0);
-
-        // 부서진 부위는 어둡게, 살아 있는 부위는 노랗게
-        renderer.DrawRectOutline(EnemyPartBox(i),
-            broken ? DirectX::Colors::DimGray : DirectX::Colors::Gold, 1.0f);
-
-        // 부서진 부위는 대각선 대신 반투명 판으로 덮어 표시한다
-        if (broken)
-        {
-            renderer.DrawFilledRect(EnemyPartBox(i),
-                DirectX::XMVectorSet(0.1f, 0.1f, 0.1f, 0.45f));
-        }
-    }
+    m_enemyBrain->MarkHitThisSwing();
+    HitPlayer(ctx, m_enemyBrain->CurrentAttack());
 }
 
 
 void PlayScene::Render(Renderer& renderer)
 {
-    // ---- 적 ----
-    DirectX::XMVECTOR enemyTint = DirectX::Colors::White;
-    if (EnemyDead())                  enemyTint = DirectX::XMVectorSet(0.35f, 0.30f, 0.32f, 1.0f);
-    else if (m_enemy.flash > 0)       enemyTint = DirectX::XMVectorSet(1.00f, 0.75f, 0.70f, 1.0f);
-    else if (EnemyAttackActive())     enemyTint = DirectX::XMVectorSet(1.00f, 0.45f, 0.35f, 1.0f);
-    else if (EnemyTelegraph())        enemyTint = DirectX::XMVectorSet(1.00f, 0.78f, 0.60f, 1.0f);
-
-    // 시트는 오른쪽을 보고 그려져 있으므로 facing 이 -1 일 때 뒤집는다
-    const DirectX::SpriteEffects enemyFx = (m_enemy.facing < 0)
-        ? DirectX::SpriteEffects_FlipHorizontally
-        : DirectX::SpriteEffects_None;
-
-    const RECT enemySrc = m_enemyAnim.SourceRect(kCellW, kCellH);
-    renderer.Sprites().Draw(
-        m_enemySheet.Get(),
-        DirectX::XMFLOAT2(std::round(m_enemy.x), std::round(m_enemy.y)),
-        &enemySrc, enemyTint,
-        0.0f,
-        DirectX::XMFLOAT2(kOriginX, kOriginY),
-        1.0f,
-        enemyFx);
-
-    // ---- ★ 공격 예고 (telegraph) ----
-    //   startup 구간에만 머리 위에 뜬다.
-    //
-    //   적의 startup 이 24틱이든 60틱이든, **플레이어가 그 시작을 볼 수 없으면
-    //   회피는 운이다.** 격투게임과 소울류가 예외 없이 예고를 주는 이유다.
-    //
-    //   ★ 예고가 두 겹이고, 그게 그대로 기획서의 설계다.
-    //
-    //     ① 애니메이션 (팔을 뒤로 젖힌다)  — 누구에게나 보인다. **읽는 기술이 필요하다**
-    //     ② 이 `!` 표시                    — 기획서 1.1 의 「初心者の指輪」
-    //
-    //     ①만 있으면 초보자는 반응하지 못하고, ②만 있으면 숙련의 여지가 없다.
-    //     지금은 ②를 항상 보이게 두고, 나중에 이 if 를 지문 장착 여부로 감싸면
-    //     「초보자 반지를 빼면 모션만으로 읽어야 한다」가 성립한다.
-    //     기획서 1.1 의 「지문은 능력이 아니라 인식을 바꾼다」가 이 한 줄이다.
-    //
-    //   월드 레이어에 그리므로 카메라·흔들림을 같이 타고 적에 붙어 따라온다.
-    if (EnemyTelegraph())
-    {
-        const AABB head = EnemyPartBox(Part_Head);
-        renderer.DrawString("!",
-            std::round((head.left + head.right) * 0.5f - 8.0f),   // 8x14 폰트 x2 = 폭 16
-            std::round(head.top - 30.0f),
-            DirectX::Colors::Red, 2);
-    }
+    // ★ 적을 그리는 코드가 사라졌다.
+    //   스프라이트도, 틴트도, 예고 `!` 도, 부위 상자도 전부 컴포넌트가 자기 것을
+    //   자기가 그린다. PlayScene 은 「그려라」 한 줄만 말한다.
+    m_enemyObj.Render(renderer);
 
     // ---- 플레이어 ----
     DirectX::XMVECTOR tint = DirectX::Colors::White;
@@ -1576,15 +1113,8 @@ void PlayScene::Render(Renderer& renderer)
         //   액션게임이 오래 써 온 관례를 그대로 따른다.
         tint = DirectX::XMVectorSet(1.00f, 1.00f, 1.00f, 0.45f);
 
-    const DirectX::SpriteEffects fx = (m_player.facing < 0)
-        ? DirectX::SpriteEffects_FlipHorizontally
-        : DirectX::SpriteEffects_None;
-
-    // ★ 그릴 때는 정수 좌표로. 소수 위치에 그리면 시트의 옆 칸을 물어온다.
-    const DirectX::XMFLOAT2 drawPos{
-        std::round(m_player.x),
-        std::round(m_player.y)
-    };
+    // ※ 좌우 반전과 정수 좌표 반올림은 SpriteComponent 가 한다.
+    //   전에는 그 규칙이 플레이어용·적용으로 두 벌 복사되어 있었다.
 
     // ★ 웅크린 자세를 세로로 눌러서 표현한다.
     //
@@ -1605,15 +1135,24 @@ void PlayScene::Render(Renderer& renderer)
         ? DirectX::XMFLOAT2(1.0f, 0.78f)
         : DirectX::XMFLOAT2(1.0f, 1.0f);
 
-    const RECT src = m_playerAnim.SourceRect(kCellW, kCellH);
-    renderer.Sprites().Draw(
-        m_sheet.Get(), drawPos, &src, tint,
-        0.0f,
-        DirectX::XMFLOAT2(kOriginX, kOriginY),
-        scale,
-        fx);
+    // ★ 표현만 넘기고 그리기는 컴포넌트에 맡긴다.
+    m_playerSprite->SetTint(tint);
+    m_playerSprite->SetScale(scale.x, scale.y);
+    m_playerObj.Render(renderer);
 
-    // ---- 디버그 표시 (F1) ----
+    // ========================================================================
+    //  ★ 디버그는 **모든 그림이 끝난 뒤에** 그린다
+    //
+    //    붙인 순서가 곧 실행 순서라서, Parts 를 먼저 붙이면 판정 상자를
+    //    스프라이트가 덮어 「히트박스가 뒤에 있는」 상태가 된다.
+    //    실제로 그렇게 만들었다가 화면에서 상자가 안 보였다.
+    //
+    //    틱 순서(Brain -> Sprite)와 그리기 순서(Sprite -> 디버그)의 요구가
+    //    다르므로 **패스를 나눈다.** 그러면 붙인 순서와 무관해진다.
+    // ========================================================================
+    m_enemyObj.RenderDebug(renderer);
+    m_playerObj.RenderDebug(renderer);
+
     if (renderer.DebugDraw())
     {
         renderer.DrawRectOutline(SpriteBounds(), DirectX::Colors::SlateGray);
@@ -1626,18 +1165,8 @@ void PlayScene::Render(Renderer& renderer)
         else if (m_invulnTicks > 0) hurtColor = DirectX::Colors::Yellow;       // ② 피격
         renderer.DrawRectOutline(PlayerHurtbox(), hurtColor, 2.0f);
 
-        DrawEnemyDebug(renderer);
-
-        // ★ 적 공격 히트박스 — active 구간에서만 나타난다.
-        //   , 로 멈추고 . 로 밟으면 swing 은 t26 에 나타나 t29 까지 있다.
-        //   그동안 플레이어 hurtbox 가 파란색(구르기 무적)이면 흘러간다.
-        if (EnemyAttackActive())
-        {
-            renderer.DrawFilledRect(EnemyAttackHitbox(),
-                DirectX::XMVectorSet(1.0f, 0.55f, 0.10f, 0.35f));
-            renderer.DrawRectOutline(EnemyAttackHitbox(),
-                DirectX::Colors::Orange, 2.0f);
-        }
+        // ※ 적의 부위 상자와 공격 히트박스는 PartsComponent / EnemyBrain 이
+        //   자기 Render 에서 그린다. 여기서 적의 내부를 알 필요가 없다.
 
         // ★ 공격 히트박스 — active 구간에서만 나타난다.
         //   , 로 멈추고 . 로 밟으면 t8 에 나타나 t10 까지 있는 것을 볼 수 있다.
@@ -1650,10 +1179,10 @@ void PlayScene::Render(Renderer& renderer)
 
         // 원점(발밑)을 십자로
         renderer.DrawFilledRect(
-            { m_player.x - 5.0f, m_player.y - 1.0f, m_player.x + 5.0f, m_player.y + 1.0f },
+            { PlayerTr().x - 5.0f, PlayerTr().y - 1.0f, PlayerTr().x + 5.0f, PlayerTr().y + 1.0f },
             DirectX::Colors::Magenta);
         renderer.DrawFilledRect(
-            { m_player.x - 1.0f, m_player.y - 5.0f, m_player.x + 1.0f, m_player.y + 5.0f },
+            { PlayerTr().x - 1.0f, PlayerTr().y - 5.0f, PlayerTr().x + 1.0f, PlayerTr().y + 5.0f },
             DirectX::Colors::Magenta);
     }
 }
@@ -1812,10 +1341,10 @@ void PlayScene::RenderUI(Renderer& renderer)
         // 부위별 HP. 아래에서 위 순서로 쌓아 올린다.
         for (int i = 0; i < Part_Count; ++i)
         {
-            const bool broken = (m_enemy.hp[i] <= 0);
+            const bool broken = m_enemyParts->IsBroken(i);
             renderer.DrawString(
-                std::format("{:<6}{:>4}/{:<4}{}", kPartName[i],
-                            std::max(0, m_enemy.hp[i]), kPartMaxHp[i],
+                std::format("{:<6}{:>4}/{:<4}{}", m_enemyParts->Name(i),
+                            std::max(0, m_enemyParts->Hp(i)), m_enemyParts->MaxHp(i),
                             broken ? " BROKEN" : ""),
                 Config::kCanvasWidth - 150.0f,
                 40.0f + i * 14.0f,
@@ -1824,29 +1353,32 @@ void PlayScene::RenderUI(Renderer& renderer)
     }
 
     // 적 상태 — 부위 파괴가 행동을 바꾸는 것을 눈으로 확인하는 표시
-    if (m_enemy.state == EnemyState::Attack)
+    if (m_enemyBrain->State() == EnemyState::Attack)
     {
         // ★ 적 공격도 플레이어와 같은 프레임 데이터 표시를 쓴다.
         //   AttackPhase() 를 그대로 재사용한다 — 구조가 같으니 도구도 같다.
-        const AttackData& a = EnemyAttack();
+        const AttackData& a = m_enemyBrain->CurrentAttack();
         renderer.DrawString(
             std::format("ENEMY {} t{:<3}{}   [{} {} {}]  imp {}",
                         a.name,
-                        m_enemy.stateTicks, AttackPhase(m_enemy.stateTicks, a),
+                        m_enemyBrain->StateTicks(),
+                        AttackPhase(m_enemyBrain->StateTicks(), a),
                         a.startup, a.active, a.recovery, a.impact),
             6.0f, 34.0f,
-            EnemyAttackActive() ? DirectX::Colors::Red : DirectX::Colors::Orange, 1);
+            m_enemyBrain->AttackActive() ? DirectX::Colors::Red
+                                         : DirectX::Colors::Orange, 1);
     }
     else
     {
         renderer.DrawString(
-            std::format("ENEMY {}{}{}", EnemyStateName(m_enemy.state),
-                        EnemyLegsBroken() ? "  (legs broken)" : "",
-                        m_enemy.attackCooldown > 0
-                            ? std::format("  cd {}", m_enemy.attackCooldown)
+            std::format("ENEMY {}{}{}", EnemyStateName(m_enemyBrain->State()),
+                        m_enemyParts->LegsBroken() ? "  (legs broken)" : "",
+                        m_enemyBrain->Cooldown() > 0
+                            ? std::format("  cd {}", m_enemyBrain->Cooldown())
                             : std::string{}),
             6.0f, 34.0f,
-            EnemyLegsBroken() ? DirectX::Colors::Orange : DirectX::Colors::Gold, 1);
+            m_enemyParts->LegsBroken() ? DirectX::Colors::Orange
+                                       : DirectX::Colors::Gold, 1);
     }
 
     if (EnemyDead())

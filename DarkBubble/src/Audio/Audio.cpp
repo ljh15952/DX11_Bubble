@@ -1,7 +1,15 @@
 ﻿#include "Audio/Audio.h"
+#include "Core/Constants.h"
 #include "Core/Log.h"
 
 #include <algorithm>
+
+
+float PanFromCanvasX(float x)
+{
+    return std::clamp(x / static_cast<float>(Config::kCanvasWidth) * 2.0f - 1.0f,
+                      -1.0f, 1.0f);
+}
 
 
 bool Audio::Initialize()
