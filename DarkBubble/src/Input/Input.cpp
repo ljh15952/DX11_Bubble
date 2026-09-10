@@ -87,6 +87,15 @@ Input::MoveIntent Input::Move() const
 }
 
 
+bool Input::CrouchHeld() const
+{
+    // 좌우 Ctrl 을 모두 받는다. 어느 손으로 잡든 되게 하는 편이 낫다.
+    return m_kb.LeftControl
+        || m_kb.RightControl
+        || (m_pad.IsConnected() && m_pad.IsLeftShoulderPressed());
+}
+
+
 // ---- 디버그 / 엔진 키 ----
 //   Game 이 틱 밖에서 프레임당 1회 읽으므로 누적할 필요가 없다.
 //   , . / 는 키보드에서 나란히 있고 게임플레이에 쓰이지 않는다.

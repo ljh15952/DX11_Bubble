@@ -38,19 +38,100 @@ namespace
     //     상태를 되돌리는 신호가 된다.
     constexpr AnimationClip kIdleClip   { /*row*/ 0, /*frames*/ 4, /*ticks*/ 10, /*loop*/ true  };  //  6fps
     constexpr AnimationClip kRunClip    { /*row*/ 1, /*frames*/ 6, /*ticks*/  5, /*loop*/ true  };  // 12fps
-    constexpr AnimationClip kAttackClip { /*row*/ 2, /*frames*/ 6, /*ticks*/  4, /*loop*/ false };  // 15fps
+    //   ※ 공격 클립은 이제 AttackData 안에 있다 — 공격마다 길이가 다르기 때문이다.
     constexpr AnimationClip kRollClip   { /*row*/ 3, /*frames*/ 6, /*ticks*/  4, /*loop*/ false };  // 15fps
     //   구르기는 24틱, 상태는 26틱 — 마지막 프레임(일어남)이 2틱 더 유지된다.
     //   상태 길이는 프레임 데이터가 정하고 애니메이션이 거기에 맞춘다는 원칙 그대로다.
 
-    // ---- 무기 프레임 데이터 ----
-    //   ★ 6단계에서 이 값들이 weapons.json 으로 빠진다.
-    //     지금은 애니메이션(6프레임 × 4틱 = 24틱)과 총합을 일부러 맞춰 뒀다.
+    // ============================================================================
+    //  단검의 무브셋 — 무기 하나 = 공격 여러 개
+    //
+    //    ★ 기획서 3.2.1 이 요구한 것이 이 표다.
+    //      「무기마다 모션이 다르고, 모션에 따라 닿는 부위가 다르다」
+    //
+    //      heightFromFoot 하나가 부위를 정한다(겹침 면적이 큰 쪽에 맞으므로).
+    //      적의 부위 상자는 발밑 기준으로 머리 -55..-37 / 몸통 -37..-18 / 다리 -18..0 이다.
+    //
+    //        공격      높이   닿는 부위   비고
+    //        light      34     몸통       기본
+    //        crouch     10     다리       Ctrl. 느리고 약한 대신 **조준할 수 있다**
+    //        running    34     몸통       달리다 치면. 길게 뻗지만 비싸다
+    //        combo2     48     머리       1타를 맞춘 뒤에만. 머리는 즉사다
+    //
+    //    ★ 「머리를 노리려면 콤보를 성공시켜야 한다」가 데이터만으로 성립한다.
+    //      새 규칙을 한 줄도 안 썼는데 리스크/보상이 생긴다.
+    //
+    //    ★ 스태미나 경제(기획서 3.1):
+    //      light(28) + combo2(34) = 62. 100 에서 62를 쓰면 38 이 남는데
+    //      구르기가 30 이므로 **콤보 뒤에는 한 번밖에 못 구른다.**
+    //      「욕심내서 2타를 넣을까, 남겨서 구를까」가 매 순간의 질문이 된다.
+    //
+    //    ★ clip 은 frames × ticks == TotalTicks 가 되도록 맞춰 두었다.
+    //      안 맞으면 모션이 잘리거나 남는다.
+    //      (startup / ticksPerFrame 을 정수로 맞추는 것은 **적 공격**에서 더 중요하다 —
+    //       그쪽은 플레이어가 예고를 읽어야 하므로 그림과 판정이 어긋나면 안 된다)
+    //
+    //    ★ 6-c 에서 이 네 덩어리가 그대로 weapons.json 이 된다.
+    // ============================================================================
     constexpr AttackData kDaggerLight{
+        /*name*/     "LIGHT",
         /*startup*/  8,
         /*active*/   3,
-        /*recovery*/ 13,     // 합계 24 틱 = 0.4 초
+        /*recovery*/ 13,            // 합계 24 = 6프레임 × 4틱
     };
+
+    constexpr AttackData kDaggerCrouch{
+        /*name*/     "CROUCH",
+        /*startup*/  10,
+        /*active*/   3,
+        /*recovery*/ 17,            // 합계 30 = 6프레임 × 5틱. light 보다 느리다
+        /*reach*/    10.0f,
+        /*width*/    26.0f,
+        /*height*/   16.0f,         // 낮고 얇다
+        /*heightFromFoot*/ 10.0f,   // ★ 다리 상자(-18..0) 한가운데
+        /*damage*/   10,            // 약하다 — 조준의 대가
+        /*staminaCost*/ 26,
+        /*impact*/   14,
+        /*clip*/     { /*row*/ 4, 6, 5, false },   // ★ 전용 행 — 웅크려 낮게
+    };
+
+    constexpr AttackData kDaggerRunning{
+        /*name*/     "RUN",
+        /*startup*/  8,
+        /*active*/   4,
+        /*recovery*/ 12,            // 합계 24 = 6프레임 × 4틱
+        /*reach*/    18.0f,         // 멀리서 닿는다
+        /*width*/    34.0f,
+        /*height*/   24.0f,
+        /*heightFromFoot*/ 34.0f,   // 몸통
+        /*damage*/   14,
+        /*staminaCost*/ 34,         // 비싸다. 달리다 치면 스태미나가 빨리 마른다
+        /*impact*/   16,
+        /*clip*/     { /*row*/ 6, 6, 4, false },   // ★ 전용 행 — 크게 앞으로
+    };
+
+    constexpr AttackData kDaggerCombo2{
+        /*name*/     "THRUST",
+        /*startup*/  8,
+        /*active*/   3,
+        /*recovery*/ 13,            // 합계 24 = 6프레임 × 4틱
+        /*reach*/    12.0f,
+        /*width*/    26.0f,
+        /*height*/   22.0f,
+        /*heightFromFoot*/ 48.0f,   // ★ 머리 상자(-55..-37) 한가운데
+        /*damage*/   15,
+        /*staminaCost*/ 34,
+        /*impact*/   18,
+        /*clip*/     { /*row*/ 5, 6, 4, false },   // ★ 전용 행 — 머리 높이로 찌른다
+    };
+
+    // 콤보를 예약할 수 있는 구간 = active 가 끝난 뒤부터 상태가 끝날 때까지.
+    // ★ 「1타가 실제로 나간 뒤에만 다음을 예약할 수 있다」는 격투게임의 관례다.
+    //   startup 중에 예약을 받으면 공격키 연타만으로 2타가 확정되어
+    //   「1타를 맞추고 이어친다」는 판단이 사라진다.
+
+    // 웅크리면 느려진다. 조준의 대가이자 「멈춰서 노린다」는 감각을 만든다.
+    constexpr float kCrouchSpeedScale = 0.45f;
 
     // ---- 구르기 프레임 데이터 ----
     constexpr RollData kRoll{
@@ -221,6 +302,7 @@ namespace
     //   ★ 24 는 애니메이션 때문에 정해진 숫자다 — 5프레임 × 12틱 시트에서
     //     24 / 12 = 2 라 팔이 뻗는 프레임이 판정과 같은 틱에 시작한다.
     constexpr AttackData kEnemySwing{
+        /*name*/     "SWING",
         /*startup*/  24,
         /*active*/    4,
         /*recovery*/ 32,            // 합계 60틱 = 1초. recovery 가 반격의 창이다
@@ -231,6 +313,10 @@ namespace
         /*damage*/   18,
         /*staminaCost*/ 0,          // 적은 스태미나를 쓰지 않는다
         /*impact*/   18,
+        // ※ clip 은 쓰지 않는다. 적은 자세(서기/엎드리기)에 따라 행이 달라져서
+        //   kEnemySwingClip / kEnemyBiteClip 을 따로 들고 있다.
+        //   ★ 공유 구조체에 안 쓰는 칸이 남는 것은 값이 싸다 —
+        //     구조를 두 벌 만드는 것보다 훨씬 싸다.
     };
 
     // 물어뜯기 — 다리가 부서져 기어다닐 때.
@@ -238,6 +324,7 @@ namespace
     //     더 빠르고(startup 18) 더 낮지만, 사거리가 짧고 후딜이 길다.
     //     기획서 3.2 는 「다리 = 이동 불가」이지 「무해」가 아니다.
     constexpr AttackData kEnemyBite{
+        /*name*/     "BITE",
         /*startup*/  18,            // 낮은 자세에서 갑자기 — 예고가 짧다 (18 / 9 = 2)
         /*active*/    3,
         /*recovery*/ 33,            // 기어서 재정비하므로 후딜이 길다. 합계 54틱
@@ -369,6 +456,10 @@ void PlayScene::Respawn()
 
     m_invulnTicks           = 0;
     m_hitThisSwing          = false;
+    m_currentAttack         = nullptr;
+    m_comboStep             = 0;
+    m_comboQueued           = false;
+    m_crouching             = false;
     m_stepCooldown          = 0;
     m_stateBeforeHurt       = PlayerState::Idle;
     m_deathScreenRequested  = false;
@@ -428,15 +519,72 @@ void PlayScene::Resume(SceneContext& ctx)
 
 
 // ----------------------------------------------------------------------------
+//  SelectAttack — ★ 무브셋의 전부가 이 함수다
+//
+//    「어느 공격이 나가는가」를 입력 맥락이 정한다. 기획서 3.2.1 의 표 그대로다.
+//
+//    ★ 순서에 규칙이 있다: **명시적 입력이 암묵적 맥락을 이긴다.**
+//      플레이어가 Ctrl 을 누르고 있다면 그건 「다리를 노리겠다」는 의사표시이고,
+//      「방금 달리고 있었다」보다 강하다. 사람이 방금 한 행동보다
+//      지금 누르고 있는 것이 더 최신 의도이기 때문이다.
+//
+//      그다음은 암묵적 맥락끼리 **구체적인 것부터** 본다.
+//
+//    ★ 이 함수 하나가 6-c 에서 JSON 의 조건절이 된다.
+//      지금 코드로 적어 두는 이유는, 무엇을 조건으로 삼을지 알아야
+//      그릇을 만들 수 있기 때문이다.
+// ----------------------------------------------------------------------------
+const AttackData& PlayScene::SelectAttack(SceneContext& ctx, PlayerState prev) const
+{
+    // ① 웅크린 채 공격 — 명시적 조준. 다른 무엇보다 우선한다
+    if (ctx.input.CrouchHeld())
+        return kDaggerCrouch;
+
+    // ② 공격 중이었다 -> 2타
+    //
+    //   ★ 여기에 `&& m_comboStep == 0` 을 넣었다가 콤보가 아예 안 나왔다.
+    //     ChangeState 가 **이 함수를 부르기 직전에** m_comboStep 을 1 로 올리므로,
+    //     2타에 들어오는 바로 그 순간 조건이 거짓이 되어 1타가 다시 나갔다.
+    //     빌드도 통과하고 게임도 안 죽는, 「그냥 안 되는」 종류의 버그다.
+    //
+    //   무한 연타 방지는 여기가 아니라 **예약하는 쪽**에 있다 —
+    //   Update 의 콤보 예약이 m_comboStep == 0 일 때만 받는다.
+    //   막을 곳이 한 곳이면 충분하고, 두 곳에 두면 이렇게 서로를 방해한다.
+    if (prev == PlayerState::Attack)
+        return kDaggerCombo2;
+
+    // ③ 달리고 있었다 -> 돌진
+    if (prev == PlayerState::Run)
+        return kDaggerRunning;
+
+    // ④ 기본
+    return kDaggerLight;
+}
+
+
+const AttackData& PlayScene::CurrentAttack() const
+{
+    // 아직 한 번도 공격하지 않았으면 기본값. 판정은 Attack 상태에서만 도므로
+    // 실제로는 쓰이지 않지만, 널 참조를 만들지 않기 위해 둔다.
+    return m_currentAttack ? *m_currentAttack : kDaggerLight;
+}
+
+
+// ----------------------------------------------------------------------------
 //  ChangeState — 상태 머신의 "Enter"
 //
 //    들어가는 순간 한 번만 해야 하는 일을 모아 둔다.
 //    이게 없으면 매 틱 Play() 를 부르게 되어 애니메이션이 프레임 0 에서 멈춘다.
 // ----------------------------------------------------------------------------
-void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
+void PlayScene::ChangeState(SceneContext& ctx, PlayerState next, bool force)
 {
-    if (m_state == next)
+    if (m_state == next && !force)
         return;
+
+    // ★ 들어오기 직전의 상태를 먼저 붙잡는다.
+    //   m_state 를 덮은 뒤에는 알 수 없고, 무브셋 선택이 이것을 필요로 한다
+    //   (「달리고 있었나」 「공격 중이었나」).
+    const PlayerState prev = m_state;
 
     m_state      = next;
     m_stateTicks = 0;
@@ -464,9 +612,22 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
         break;
 
     case PlayerState::Attack:
+    {
+        // ★ 콤보 단계를 먼저 정한다. SelectAttack 이 이 값을 본다.
+        //   Attack 에서 Attack 으로 들어왔다면 2타다.
+        m_comboStep   = (prev == PlayerState::Attack) ? 1 : 0;
+        m_comboQueued = false;
+
+        // ★ 어느 공격인지를 **여기서 고정한다.** 매 틱 다시 고르면
+        //   휘두르는 도중에 Ctrl 을 떼는 순간 프레임 데이터가 갈려
+        //   active 구간을 건너뛰거나 두 번 지나간다.
+        //   5-e-3 의 attackIsBite, 5-d 의 구르기 방향과 완전히 같은 이유다.
+        m_currentAttack = &SelectAttack(ctx, prev);
+        const AttackData& atk = *m_currentAttack;
+
         // forceRestart = true : 같은 클립이라도 처음부터 다시 재생한다.
-        // 연속 공격을 넣을 때 필요해진다.
-        m_playerAnim.Play(kAttackClip, true);
+        // ★ 클립이 공격마다 다르므로 여기서 함께 갈린다.
+        m_playerAnim.Play(atk.clip, true);
 
         // 이번 휘두르기의 "이미 맞춘 대상" 기록을 비운다.
         m_hitThisSwing = false;
@@ -474,13 +635,22 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
         // ★ 스태미나를 여기서 소모한다.
         //   부족해도 공격은 나간다. 0 미만이 되면 공격이 끝난 뒤 Exhausted 로 간다.
         //   「부족하면 안 나감」이 아니라 「나가고 대가를 치름」이 이 게임의 규칙이다.
-        m_stamina.current -= static_cast<float>(kDaggerLight.staminaCost);
+        m_stamina.current -= static_cast<float>(atk.staminaCost);
         m_stamina.delay    = kStaminaRegenDelay;
 
         // 휘두르는 소리. ★ 맞는 소리(hit)는 실제로 겹칠 때만 낸다.
         //   둘을 나눠야 헛치기와 명중이 소리로 구분된다.
-        ctx.audio.Play("swing", 0.55f, RandomPitch(0.12f), PanFromX(m_player.x));
+        //   공격마다 피치를 살짝 달리해 무엇이 나갔는지 소리로도 구분되게 한다.
+        const float pitch = (atk.heightFromFoot > 40.0f) ? 0.22f      // 찌르기 = 높게
+                          : (atk.heightFromFoot < 20.0f) ? -0.25f     // 웅크리기 = 낮게
+                          : 0.0f;
+        ctx.audio.Play("swing", 0.55f, pitch + RandomPitch(0.10f), PanFromX(m_player.x));
+
+        Log::Info("[play] {} 발동  [{} {} {}]  높이 {:.0f}  stam -{}",
+                  atk.name, atk.startup, atk.active, atk.recovery,
+                  atk.heightFromFoot, atk.staminaCost);
         break;
+    }
 
     case PlayerState::Roll:
     {
@@ -543,8 +713,12 @@ void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
     if (moveX < -kMoveEpsilon)      m_player.facing = -1;
     else if (moveX > kMoveEpsilon)  m_player.facing = +1;
 
-    m_player.x += moveX * kPlayerSpeedPerTick;
-    m_player.y += moveY * kPlayerSpeedPerTick;
+    // ★ 웅크리면 느려진다. 조준의 대가다 —
+    //   「다리를 노리려면 멈춰서 노려야 한다」가 이동 속도 한 줄로 만들어진다.
+    const float speed = kPlayerSpeedPerTick * (m_crouching ? kCrouchSpeedScale : 1.0f);
+
+    m_player.x += moveX * speed;
+    m_player.y += moveY * speed;
 
     m_player.x = std::clamp(m_player.x, kOriginX,
                             static_cast<float>(Config::kCanvasWidth) - kOriginX);
@@ -557,7 +731,11 @@ void PlayScene::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
     {
         if (--m_stepCooldown <= 0)
         {
-            m_stepCooldown = kStepIntervalTicks;
+            // 웅크려 걸으면 발소리도 그만큼 뜸해야 한다. 안 그러면
+            // 「천천히 걷는데 발소리는 뛰는 속도」가 되어 어색하다.
+            m_stepCooldown = m_crouching
+                ? static_cast<int>(kStepIntervalTicks / kCrouchSpeedScale)
+                : kStepIntervalTicks;
             ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromX(m_player.x));
         }
     }
@@ -661,6 +839,12 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     const Input::MoveIntent move = ctx.input.Move();
     const bool moving = (std::abs(move.x) > kMoveEpsilon || std::abs(move.y) > kMoveEpsilon);
+
+    // ★ 입력을 여기서 갈무리해 둔다. Render 는 Renderer 만 받으므로
+    //   그리는 시점에 입력을 물어볼 수 없다(의도된 설계다).
+    //   F1 플래그를 Renderer 로 옮긴 것과 같은 종류의 제약이고,
+    //   이쪽은 「틱에서 읽어 멤버에 남긴다」로 해결한다.
+    m_crouching = ctx.input.CrouchHeld();
     const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
     const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
 
@@ -681,8 +865,24 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         break;
 
     case PlayerState::Attack:
+    {
         // ★ 이동 입력을 처리하지 않는다 = 공격 중에는 못 움직인다.
         //   방향 전환도 막힌다. 소울류의 "한 번 휘두르면 끝까지 간다" 감각.
+        const AttackData& atk = CurrentAttack();
+
+        // ---- 콤보 예약 ----
+        //   ★ active 가 끝난 뒤부터만 받는다.
+        //     startup 중에도 받으면 공격키 연타만으로 2타가 확정되어
+        //     「1타를 내보고 이어칠지 판단한다」가 사라진다.
+        //     격투게임이 이 구간을 두는 이유가 그것이다.
+        //
+        //   ★ 예약해 두었다가 상태가 끝날 때 꺼내 쓴다.
+        //     지금 즉시 전이하면 1타의 후딜을 건너뛰어 버린다.
+        if (attackPressed && m_comboStep == 0
+            && m_stateTicks >= atk.startup + atk.active)
+        {
+            m_comboQueued = true;
+        }
 
         // ---- 공격 판정 ----
         //   active 구간에서만, 그리고 이번 휘두르기에 아직 안 맞췄을 때만.
@@ -694,15 +894,15 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
                 m_hitThisSwing = true;   // 3틱 동안 3번 맞는 것을 막는다
                 m_enemy.flash  = kFlashTicks;
 
-                m_enemy.hp[part] -= kDaggerLight.damage;
+                m_enemy.hp[part] -= atk.damage;
 
                 // ★ 소리와 흔들림은 "맞는 순간" 에 낸다. 휘두르는 순간이 아니다.
                 ctx.camera.Shake(kShakeStrength, kShakeTicks);
                 ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f), PanFromX(m_enemy.x));
 
-                Log::Info("[play] {} 명중  t{}  dmg {}  남은 HP {}",
-                          kPartName[part], m_stateTicks,
-                          kDaggerLight.damage, std::max(0, m_enemy.hp[part]));
+                Log::Info("[play] {} 로 {} 명중  t{}  dmg {}  남은 HP {}",
+                          atk.name, kPartName[part], m_stateTicks,
+                          atk.damage, std::max(0, m_enemy.hp[part]));
 
                 if (m_enemy.hp[part] <= 0)
                 {
@@ -732,16 +932,22 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         // ★ 상태의 길이는 애니메이션이 아니라 프레임 데이터가 정한다.
         //   Finished() 로 판정하면 프레임 데이터 숫자를 바꿔도 타이밍이 안 바뀐다.
         //   데이터가 진실이고, 애니메이션은 거기에 맞춘다.
-        if (m_stateTicks >= kDaggerLight.TotalTicks())
+        if (m_stateTicks >= atk.TotalTicks())
         {
             // ★ 공격이 끝난 시점에 스태미나가 0 미만이면 경직에 들어간다.
             //   공격 자체는 정상적으로 나갔다 — 대가를 뒤에 치르는 것이다.
+            //   ★ 고갈이 콤보보다 우선한다. 「2타를 예약해 두면 고갈을 피한다」가
+            //     되면 스태미나 시스템에 구멍이 생긴다.
             if (m_stamina.current < 0.0f)
                 ChangeState(ctx, PlayerState::Exhausted);
+            else if (m_comboQueued)
+                // ★ force = true. Attack -> Attack 이라 「같은 상태면 무시」에 걸린다.
+                ChangeState(ctx, PlayerState::Attack, true);
             else
                 ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
         }
         break;
+    }
 
     case PlayerState::Roll:
         // ★ 이동 입력을 처리하지 않는다. 시작할 때 고정한 방향으로만 간다.
@@ -965,7 +1171,7 @@ bool PlayScene::AttackActive() const
     if (m_state != PlayerState::Attack)
         return false;
 
-    const AttackData& a = kDaggerLight;
+    const AttackData& a = CurrentAttack();
     return m_stateTicks >= a.startup
         && m_stateTicks <  a.startup + a.active;
 }
@@ -975,7 +1181,7 @@ AABB PlayScene::AttackHitbox() const
 {
     // ★ 상자를 만드는 계산을 MakeAttackBox 로 뺐다 — 적과 **같은 함수**를 쓴다.
     //   좌우 반전 정규화(AABB 뒤집힘) 함정이 한 곳에만 존재하게 된다.
-    return MakeAttackBox(m_player.x, m_player.y, m_player.facing, kDaggerLight);
+    return MakeAttackBox(m_player.x, m_player.y, m_player.facing, CurrentAttack());
 }
 
 
@@ -1007,7 +1213,7 @@ void PlayScene::ChangeEnemyState(SceneContext& ctx, EnemyState next)
 
         // ★ 공격 모션. forceRestart = true 다 —
         //   같은 공격을 연달아 낼 때 클립이 처음부터 다시 재생되어야 한다.
-        //   플레이어 쪽 Play(kAttackClip, true) 와 같은 이유.
+        //   플레이어 쪽 Play(atk.clip, true) 와 같은 이유.
         m_enemyAnim.Play(m_enemy.attackIsBite ? kEnemyBiteClip : kEnemySwingClip, true);
 
         // ★ 이 소리는 **청각 예고**다. 화면을 안 보고 있어도 반응할 수 있게 해 준다.
@@ -1380,12 +1586,31 @@ void PlayScene::Render(Renderer& renderer)
         std::round(m_player.y)
     };
 
+    // ★ 웅크린 자세를 세로로 눌러서 표현한다.
+    //
+    //   ★★ 원점을 발밑에 둔 결정이 여기서 값을 한다.
+    //     세로로 눌러도 **발이 그 자리에 남는다.** 원점이 좌상단이었다면
+    //     눌린 만큼 발이 공중에 뜨고, 그것을 보정하는 코드를 따로 써야 했다.
+    //     (5-e-3 의 공격 히트박스 계산이 짧았던 것도 같은 이유였다)
+    //
+    //   ★ 공격 중에는 끈다. CROUCH 공격은 전용 행(row 4)에 **눌린 자세가 이미
+    //     구워져 있어서** 여기서 또 누르면 두 번 눌린다.
+    //     그리고 구워진 쪽이 픽셀이 깨끗하다 — 어느 줄을 뺄지 생성 스크립트가
+    //     골랐으므로 런타임 비정수 축소처럼 지글거리지 않는다.
+    //
+    //   ※ 웅크린 채 **걷고 서 있는** 자세는 아직 전용 그림이 없어서 이 눌림을 쓴다.
+    //     전용 행이 생기면 이 코드는 통째로 사라진다.
+    const bool squash = m_crouching && (m_state != PlayerState::Attack);
+    const DirectX::XMFLOAT2 scale = squash
+        ? DirectX::XMFLOAT2(1.0f, 0.78f)
+        : DirectX::XMFLOAT2(1.0f, 1.0f);
+
     const RECT src = m_playerAnim.SourceRect(kCellW, kCellH);
     renderer.Sprites().Draw(
         m_sheet.Get(), drawPos, &src, tint,
         0.0f,
         DirectX::XMFLOAT2(kOriginX, kOriginY),
-        1.0f,
+        scale,
         fx);
 
     // ---- 디버그 표시 (F1) ----
@@ -1525,11 +1750,15 @@ void PlayScene::RenderUI(Renderer& renderer)
     //   「공격이 몇 틱짜리인가」를 직접 확인할 수 있다.
     if (m_state == PlayerState::Attack)
     {
-        const AttackData& a = kDaggerLight;
+        // ★ 어느 공격이 나갔는지 · 다음이 예약됐는지가 보여야
+        //   무브셋이 실제로 갈리는 것을 눈으로 확인할 수 있다.
+        const AttackData& a = CurrentAttack();
         renderer.DrawString(
-            std::format("STATE ATTACK  t{:<3}{}   [{} {} {}]",
+            std::format("{}{}  t{:<3}{}   [{} {} {}]  h{:.0f}{}",
+                        a.name, (m_comboStep > 0) ? "-2" : "",
                         m_stateTicks, AttackPhase(m_stateTicks, a),
-                        a.startup, a.active, a.recovery),
+                        a.startup, a.active, a.recovery, a.heightFromFoot,
+                        m_comboQueued ? "  >> NEXT" : ""),
             6.0f, 6.0f,
             AttackActive() ? DirectX::Colors::Red : DirectX::Colors::Orange, 1);
     }
@@ -1555,7 +1784,8 @@ void PlayScene::RenderUI(Renderer& renderer)
     else
     {
         renderer.DrawString(
-            std::format("STATE {}  t{}{}", StateName(m_state), m_stateTicks,
+            std::format("STATE {}{}  t{}{}", StateName(m_state),
+                        m_crouching ? " (CROUCH)" : "", m_stateTicks,
                         (m_invulnTicks > 0)
                             ? std::format("   invuln {}", m_invulnTicks)
                             : std::string{}),
@@ -1601,7 +1831,7 @@ void PlayScene::RenderUI(Renderer& renderer)
         const AttackData& a = EnemyAttack();
         renderer.DrawString(
             std::format("ENEMY {} t{:<3}{}   [{} {} {}]  imp {}",
-                        m_enemy.attackIsBite ? "BITE " : "SWING",
+                        a.name,
                         m_enemy.stateTicks, AttackPhase(m_enemy.stateTicks, a),
                         a.startup, a.active, a.recovery, a.impact),
             6.0f, 34.0f,

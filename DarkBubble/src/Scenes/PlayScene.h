@@ -83,6 +83,9 @@ enum class PlayerState
 // ============================================================================
 struct AttackData
 {
+    // 화면·로그에 찍는 이름. ★ ASCII 만 — BitmapFont 가 ASCII 전용이다.
+    const char* name = "LIGHT";
+
     // ---- 프레임 데이터 (틱) ----
     int startup  = 8;    // 판정이 나오기까지
     int active   = 3;    // 판정이 존재하는 구간
@@ -101,6 +104,16 @@ struct AttackData
     //   damage 와 일부러 다른 숫자로 둔다. 합치면
     //   「약하지만 크게 휘청이게 하는 공격」(방패 밀치기 같은 것)을 못 만든다.
     int impact      = 14;
+
+    // ★ 공격이 **자기 그림 속도를 직접 들고 다닌다.**
+    //
+    //   지금까지는 클립이 밖에 하나 있었다(kAttackClip). 공격이 하나뿐이었으니까.
+    //   무브셋이 되면 공격마다 길이가 달라서, 밖에 두면
+    //   「이 공격은 몇 틱짜리인데 그림은 24틱」이 되어 모션이 잘리거나 남는다.
+    //
+    //   ★ frameCount × ticksPerFrame == TotalTicks() 가 되도록 짝을 맞춘다.
+    //     아래 데이터가 전부 그렇게 되어 있다.
+    AnimationClip clip{ /*row*/ 2, /*frames*/ 6, /*ticks*/ 4, /*loop*/ false };
 
     int TotalTicks() const { return startup + active + recovery; }
 };
@@ -316,11 +329,32 @@ private:
     // ============================================================================
     void Respawn();
 
+    // ============================================================================
+    //  무브셋 — 「어느 공격이 나가는가」를 입력 맥락이 정한다
+    //
+    //    ★ 상태는 **여전히 안 늘어난다.** PlayerState::Attack 하나 그대로다.
+    //      바뀌는 것은 「어느 AttackData 를 쓰는가」뿐이다.
+    //
+    //      이 구조는 5-e-3 에서 적이 이미 증명했다 —
+    //      m_enemy.attackIsBite 로 swing / bite 를 골랐던 그것과 같다.
+    //      플레이어는 자세 대신 **입력 맥락**으로 고른다는 것만 다르다.
+    // ============================================================================
+
+    // 공격에 들어가는 순간 딱 한 번 불린다. prev = 들어오기 직전의 상태.
+    const AttackData& SelectAttack(SceneContext& ctx, PlayerState prev) const;
+
+    // 지금 나가고 있는 공격. 판정·히트박스·표시가 전부 이것을 본다.
+    const AttackData& CurrentAttack() const;
+
     // 상태를 바꾼다. 같은 상태로의 전이는 무시한다.
+    //
+    // ★ force 가 필요해진 이유: 콤보는 Attack -> Attack 이다.
+    //   「같은 상태면 무시」가 원래는 애니메이션이 프레임 0 에서 멈추는 것을
+    //   막는 장치였는데, 콤보는 그 판정에 정확히 걸린다.
     // ★ 여기가 "Enter" 다 — 애니메이션 시작, 소리, 흔들림처럼
     //   들어가는 순간 한 번만 해야 하는 일을 여기서 한다.
     //   매 틱 하면 애니메이션이 프레임 0 에서 멈춘다.
-    void ChangeState(SceneContext& ctx, PlayerState next);
+    void ChangeState(SceneContext& ctx, PlayerState next, bool force = false);
 
     // 이동 처리. Idle / Run 상태에서만 불린다.
     void UpdateMovement(SceneContext& ctx, float moveX, float moveY);
@@ -539,6 +573,22 @@ private:
     // ---- 피격 무적 ----
     //   ② 쪽 무적. 남은 틱. 경직과 한 세트로만 주어진다.
     int m_invulnTicks = 0;
+
+    // ---- 무브셋 상태 ----
+    //   ★ 공격에 들어가는 순간 고정된다. 매 틱 다시 고르면 안 된다 —
+    //     휘두르는 도중에 Ctrl 을 떼는 순간 프레임 데이터가 통째로 갈려
+    //     active 구간을 건너뛰거나 두 번 지나간다.
+    //     5-e-3 의 attackIsBite 와 완전히 같은 이유다.
+    const AttackData* m_currentAttack = nullptr;
+
+    // 콤보. 0 = 1타, 1 = 2타. 2타에서는 더 이어지지 않는다.
+    int  m_comboStep   = 0;
+    bool m_comboQueued = false;
+
+    // ★ 지금 웅크리고 있나. **입력을 틱에서 갈무리해 둔다.**
+    //   Render 는 Renderer 만 받으므로(의도된 설계) 거기서 입력을 읽을 수 없다.
+    //   F1 플래그를 Renderer 로 옮긴 것과 같은 종류의 제약이다.
+    bool m_crouching = false;
 
     // DeathScene 을 이미 요청했는가.
     // ★ 한 프레임에 틱이 여러 번 돌 수 있는데 Scene 전환은 프레임 끝에 한 번만
