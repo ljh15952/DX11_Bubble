@@ -1,4 +1,5 @@
 ﻿#include "Scenes/PlayScene.h"
+#include "Scenes/DeathScene.h"
 #include "Scenes/PauseScene.h"
 
 #include "Core/Constants.h"
@@ -68,6 +69,11 @@ namespace
 
     // ---- 플레이어 HP ----
     constexpr int kPlayerMaxHp = 100;
+
+    // ★ 죽은 뒤 사망 화면이 뜨기까지의 한 박자.
+    //   즉시 덮으면 **무엇에 죽었는지가 보이지 않아** 플레이어가 배울 수 없다.
+    //   적이 마지막으로 휘두른 그림이 남아 있어야 「아, 저 공격이었구나」가 된다.
+    constexpr int kDeathScreenDelay = 45;   // 0.75 초
 
     // ---- 갑옷 (임시. F2 로 갈아입어 강인도의 효과를 비교한다) ----
     //   적 공격의 impact 는 swing 18 / bite 12 다.
@@ -332,14 +338,10 @@ bool PlayScene::Enter(SceneContext& ctx)
     if (!m_enemySheet)
         return false;
 
-    m_playerAnim.Play(kIdleClip);
-    m_enemyAnim.Play(kEnemyIdleClip);
-
-    // 부위 HP 초기화
-    for (int i = 0; i < Part_Count; ++i)
-        m_enemy.hp[i] = kPartMaxHp[i];
-
-    m_player.hp = kPlayerMaxHp;
+    // ★ 초기화를 Respawn 에 맡긴다. 초기화와 부활은 같은 일이다.
+    //   여기서 따로 초기화하면 나중에 필드를 추가할 때 한쪽만 고치게 되고,
+    //   「두 번째 판부터 뭔가 이상하다」는 재현하기 어려운 버그가 된다.
+    Respawn();
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Shift = roll   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
@@ -350,6 +352,78 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] TIP: F2 로 PLATE(poise 24) 를 입으면 경직 없이 버텨낸다");
     Log::Info("[play]      — 대신 HP 로 지불한다");
     return true;
+}
+
+
+// ----------------------------------------------------------------------------
+//  Respawn — 자세한 설명은 헤더의 선언부 주석 참조
+// ----------------------------------------------------------------------------
+void PlayScene::Respawn()
+{
+    // ---- 되돌아간다 : 플레이어 ----
+    //   구조체를 통째로 기본값으로 되돌린다. 필드를 하나씩 적으면
+    //   나중에 추가한 필드를 빠뜨린다 — 그것이 이 함수에서 가장 흔한 버그다.
+    m_player  = Player{};
+    m_stamina = Stamina{};
+    m_player.hp = kPlayerMaxHp;
+
+    m_invulnTicks           = 0;
+    m_hitThisSwing          = false;
+    m_stepCooldown          = 0;
+    m_stateBeforeHurt       = PlayerState::Idle;
+    m_deathScreenRequested  = false;
+
+    // ---- 되돌아간다 : 적 ----
+    //   ★ 적이 되살아나는 것은 확정된 설계다(design.md §3.6.1).
+    //     이 두 줄이 「죽음에 대가가 있다」의 전부다.
+    m_enemy = Enemy{};
+    for (int i = 0; i < Part_Count; ++i)
+        m_enemy.hp[i] = kPartMaxHp[i];
+
+    // ---- 남는다 ----
+    //   ★ m_armorIndex (장착 방어구) 는 **일부러 되돌리지 않는다.**
+    //     장비는 죽어도 그대로다 — 이 표의 오른쪽 칸에 실제로 들어간 첫 항목이다.
+    //     F2 로 PLATE 를 입고 죽어 보면 부활 뒤에도 PLATE 인 것을 확인할 수 있다.
+    //     (이걸 되돌리면 「죽을 때마다 장비가 벗겨지는」 게임이 된다)
+    //
+    //   7단계에서 열어둔 문·얻은 아이템·기도 포인트가 여기 함께 온다.
+    //   위의 두 묶음과 이 자리를 나눠 둔 것 자체가 설계다.
+
+    // ★ ChangeState / ChangeEnemyState 를 쓰지 않는다.
+    //   둘 다 「같은 상태로의 전이는 무시」한다(의도된 최적화다 — 그게 없으면
+    //   매 틱 Play() 가 불려 애니메이션이 프레임 0 에서 멈춘다).
+    //   그런데 리셋은 「이미 Idle 인데 Idle 로 만들어야」 하므로 정확히 그
+    //   최적화에 걸려 아무 일도 일어나지 않는다.
+    //   그래서 상태를 직접 놓고 애니메이션은 forceRestart 로 다시 건다.
+    m_state      = PlayerState::Idle;
+    m_stateTicks = 0;
+    m_playerAnim.Play(kIdleClip, true);
+
+    m_enemy.state      = EnemyState::Idle;
+    m_enemy.stateTicks = 0;
+    m_enemyAnim.Play(kEnemyIdleClip, true);
+}
+
+
+// ----------------------------------------------------------------------------
+//  Resume — 위에 있던 Scene 이 닫혔다
+// ----------------------------------------------------------------------------
+void PlayScene::Resume(SceneContext& ctx)
+{
+    // ★ PauseScene 이 닫힌 경우와 DeathScene 이 닫힌 경우를 **상태로 구분한다.**
+    //   덕분에 DeathScene 은 PlayScene 을 알 필요가 없고, 둘 사이에 포인터가 없다.
+    //
+    //   ★ 조건이 둘인 이유:
+    //     죽고 나서 사망 화면이 뜨기까지 45틱의 사이가 있는데, 그동안 Esc 를 누르면
+    //     PauseScene 이 올라간다. 그것이 닫힐 때도 여기가 불린다 —
+    //     상태만 보면 **사망 화면을 건너뛰고 곧바로 부활**해 버린다.
+    //     「사망 화면까지 올라갔었나」를 같이 봐야 두 경우가 갈린다.
+    if (m_state != PlayerState::Dead || !m_deathScreenRequested)
+        return;
+
+    Respawn();
+    ctx.audio.Play("ui_confirm", 0.7f, -0.35f);
+    Log::Info("[play] 부활 — 적도 되살아났다");
 }
 
 
@@ -452,7 +526,7 @@ void PlayScene::ChangeState(SceneContext& ctx, PlayerState next)
     case PlayerState::Dead:
         m_playerAnim.Play(kIdleClip, true);
         ctx.audio.Play("ui_cancel", 0.9f, -0.6f);
-        Log::Info("[play] ★★ 플레이어 사망 — 5-e-4 에서 DeathScene 으로 간다");
+        Log::Info("[play] ★★ 플레이어 사망 — {}틱 뒤 사망 화면", kDeathScreenDelay);
         break;
     }
 }
@@ -714,7 +788,13 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         break;
 
     case PlayerState::Dead:
-        // 아무것도 하지 않는다. ★ 5-e-4 에서 DeathScene 전환이 여기 들어온다.
+        // ★ 한 박자 두고 사망 화면을 올린다. 즉시 덮으면 무엇에 죽었는지 안 보인다.
+        //   부활은 여기서 하지 않는다 — DeathScene 이 닫힐 때 Resume 이 한다.
+        if (!m_deathScreenRequested && m_stateTicks >= kDeathScreenDelay)
+        {
+            m_deathScreenRequested = true;
+            ctx.scenes.Push(std::make_unique<DeathScene>());
+        }
         break;
     }
 
@@ -1543,13 +1623,6 @@ void PlayScene::RenderUI(Renderer& renderer)
         renderer.DrawStringCentered("ENEMY DOWN", Config::kCanvasWidth * 0.5f, 60.0f,
                                     DirectX::Colors::Gold, 2);
 
-    // ★ 임시 표시. 기획서 3.6 은 「`You died` 대신 부활하면서 멋진 대사」이므로
-    //   5-e-4 에서 DeathScene + 대사 테이블로 교체된다.
-    if (PlayerDead())
-    {
-        renderer.DrawStringCentered("YOU DIED",
-                                    Config::kCanvasWidth  * 0.5f,
-                                    Config::kCanvasHeight * 0.5f - 20.0f,
-                                    DirectX::Colors::Crimson, 3);
-    }
+    // ※ "YOU DIED" 는 여기서 그리지 않는다. DeathScene 이 맡는다 —
+    //   페이드와 자동 부활이 붙으면서 「사망 화면」이 하나의 Scene 이 되었다.
 }

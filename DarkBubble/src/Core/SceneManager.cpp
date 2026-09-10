@@ -120,6 +120,13 @@ void SceneManager::ApplyPending(SceneContext& ctx)
 
     case Op::Pop:
         PopNow();
+
+        // ★ 여기서만 Resume 을 부른다.
+        //   Replace / Clear 도 PopNow 를 돌리지만, 그때 드러나는 Scene 은
+        //   곧 자기도 사라지므로 「다시 맨 위가 되었다」가 아니다.
+        //   PopNow 안에 넣지 않고 이 갈래에 둔 이유가 그것이다.
+        if (!m_stack.empty())
+            m_stack.back()->Resume(ctx);
         break;
 
     case Op::Clear:

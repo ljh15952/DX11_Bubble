@@ -109,6 +109,7 @@
     <ClCompile Include="src\Graphics\Camera.cpp" />
     <ClCompile Include="src\Graphics\Renderer.cpp" />
     <ClCompile Include="src\Input\Input.cpp" />
+    <ClCompile Include="src\Scenes\DeathScene.cpp" />
     <ClCompile Include="src\Scenes\PauseScene.cpp" />
     <ClCompile Include="src\Scenes\PlayScene.cpp" />
     <ClCompile Include="src\Scenes\TitleScene.cpp" />
@@ -128,6 +129,7 @@
     <ClInclude Include="src\Graphics\Camera.h" />
     <ClInclude Include="src\Graphics\Renderer.h" />
     <ClInclude Include="src\Input\Input.h" />
+    <ClInclude Include="src\Scenes\DeathScene.h" />
     <ClInclude Include="src\Scenes\PauseScene.h" />
     <ClInclude Include="src\Scenes\PlayScene.h" />
     <ClInclude Include="src\Scenes\TitleScene.h" />
