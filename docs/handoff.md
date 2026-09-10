@@ -3,7 +3,7 @@
 > 이 문서는 대화 세션이 바뀔 때 맥락을 잃지 않기 위한 것이다.
 > 새 세션에서 **가장 먼저 이 파일과 `docs/design.md` 를 읽으면** 바로 이어갈 수 있다.
 >
-> 최종 갱신: 2026-09-10 / 커밋 `e5f731b` (6-a·b 무브셋) + 방향 전환 · 엔진 경계 · 인벤토리 계획
+> 최종 갱신: 2026-09-10 / 커밋 `3a06919` (컴포넌트화) 이후
 
 ---
 
@@ -79,6 +79,10 @@ $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere
 ```
 DarkBubble/src/
 ├── main.cpp              엔트리포인트 + 디버그 콘솔(AllocConsole)
+├── Gameplay/             ★ 게임 고유 컴포넌트 (엔진이 아니다)
+│   ├── AttackData.h      공격 정의. **플레이어와 적이 공유**
+│   ├── PartsComponent    부위별 HP · 자세별 상자 · 부위 선택
+│   └── EnemyBrain        적 상태 머신 · 추격 · 공격
 ├── Core/
 │   ├── Constants.h       캔버스 640x360, 창 x2, 틱 1/60, 프레임 상한 0.25초
 │   ├── Window.h/.cpp     Win32 창. WndProc 을 GWLP_USERDATA 로 멤버 함수에 연결
@@ -86,6 +90,9 @@ DarkBubble/src/
 │   ├── Scene.h           Scene 인터페이스 + SceneContext
 │   ├── SceneManager.h/.cpp  스택 + 지연 전환 + Pop 시 아래에 Resume 통지
 │   ├── AABB.h            충돌 판정
+│   ├── Transform.h       위치 · 방향. ★ 컴포넌트가 아니라 GameObject 내장
+│   ├── Component.h       컴포넌트의 뿌리. Start / Tick / Render / RenderDebug
+│   ├── GameObject.h/.cpp 컴포넌트 컨테이너. Add / Get / Require
 │   └── Log.h/.cpp        콘솔 + VS 출력 창 동시 출력, 틱 번호 포함
 ├── Graphics/
 │   ├── Renderer.h/.cpp   D3D11, 2패스 캔버스, SpriteBatch, 도형, 텍스트
@@ -93,6 +100,7 @@ DarkBubble/src/
 │   ├── Animation.h/.cpp  AnimationClip(데이터) + AnimationPlayer(재생 상태)
 │   ├── BitmapFont.h/.cpp 폰트 시트에서 글리프를 잘라 그린다 (ASCII 전용)
 │   └── Assets.h/.cpp     경로 키 텍스처 캐시
+│   └── SpriteComponent   ★ 첫 엔진 컴포넌트. 그리기 규칙이 한 곳에만 있다
 ├── Audio/
 │   └── Audio.h/.cpp      DirectXTK Audio. 이름 키 캐시, 장치 분실 복구
 ├── Input/
@@ -177,13 +185,17 @@ C++ 파일과 같은 함정이다.
 | 5-e-3 | 적 공격(swing / bite) + 예고 + 플레이어 HP + **강인도(poise)** + 피격 경직 + 넉백 + 무적 회피 + 머리 파괴 = 즉사 + 적 공격 애니메이션 2행 |
 | 점검 | 전체 소스(34파일)를 훑어 버그 7건 수정. `/W4` 로 올림. 에셋의 디버그 번호 제거. 위 §8 에 함정 6개 추가 |
 | 5-e-4 | 사망 → DeathScene(페이드) → 부활. **적도 되살아난다.** `Scene::Resume` 훅 추가 |
+| 6-c-1·2 | **컴포넌트 시스템**(Transform/Component/GameObject/SpriteComponent) + 적을 GameObject 로. PlayScene 1687→1378줄 |
 | 6-a·b | **무브셋** light / crouch / running / thrust(콤보 2타). `AttackData` 에 이름·클립 추가. 웅크리기는 상태가 아니라 수식자. 무브셋 전용 스프라이트 3행 |
 
 ### 다음
 
 | # | 내용 |
 |---|---|
-| **6-c** | **★ 플랫포머 전환 — 중력 · 지면 · 점프(상태) · 점프 공격** ← 여기서 이어간다 |
+| **6-c-3** | **플레이어를 컴포넌트로** (PlayerController / Stamina / Health) ← 여기서 이어간다 |
+| 6-c-4 | `PartsComponent` 를 플레이어에 붙인다 + 부위 5개로 확장 + 좌하단 몸 UI |
+| 6-c-5 | **절단** — 스프라이트 레이어 분리(§8.1 하이브리드) |
+| 6-c-6 | ★ 플랫포머 전환 — 중력 · 지면 · 점프(상태) · 점프 공격 |
 | 6-d | 발판(플랫폼) 배치 + 적의 1차원 추격 (낭떠러지 판정) |
 | 6-e | **넓은 맵 + 카메라 추적** (Camera 클래스가 이미 있다 — 추적만 얹으면 된다) |
 | 6-f | **시야(FOV)** — B: 적의 부채꼴 시야 → A: 플레이어의 어둠(蛍の指輪의 전제, 3패스) |
@@ -266,9 +278,10 @@ ArmorData / PartBox / AnimationClip)이 전부 JSON 으로 빠진다.
 | 내부 해상도 | **640x360 을 x2 확대.** 좌표·속도·히트박스는 전부 640x360 기준 |
 | 전투 | **완전 스태미나제**(다크소울식) |
 | 스태미나 고갈 | **방식 B** — 부족해도 행동이 나가고, 0 미만이면 경직 |
-| 부위 파괴 | **핵심 시스템.** 몸통=격파, 다리=이동 불가, 머리=시야 상실 |
+| 부위 파괴 | **핵심 시스템. 적과 플레이어 둘 다.** 부위 5개(머리/왼팔/오른팔/몸통/다리). 머리·몸통=즉사, 팔=무기 낙하 + **몸통의 완충재**, 다리=이동 불가(플레이어는 구르기 상실). **절단 있음** (design.md §3.2.2) |
 | 다리 | 좌/우로 나누지 않고 **하나** |
-| 부위 선택 | **겹침 면적이 가장 큰 부위**에 데미지 |
+| 부위 선택 | **겹침 면적이 가장 큰 부위**에 데미지. 단 중단 공격은 팔이 살아 있으면 팔이 먼저 받는다 |
+| HP 표시 | **HP 바 없음.** 좌하단 몸 그림에서 부위가 붉어진다 (design.md §3.2.3) |
 | 주인공 | **1명** (마을 유일 생존자인 아이). 스타팅 캐릭터 복수안은 폐기 |
 | 지문 슬롯 | **2개** (기회비용을 만들기 위해) |
 | 장비 | **강해지는 것이 아니라 「무엇을 포기하는가」.** 무거운 갑옷은 경직을 막지만 HP 로 지불한다 (design.md §3.10) |
