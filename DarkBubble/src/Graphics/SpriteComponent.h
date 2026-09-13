@@ -19,6 +19,23 @@
 //    **위치와 방향은 소유하지 않는다** — 그건 Transform 의 것이고,
 //    여기서는 Owner().transform 을 읽기만 한다.
 //    이 경계가 「무엇이 무엇을 아는가」를 명확하게 유지한다.
+//
+//  ---- ★ 레이어 : 시트 여러 장을 한 몸처럼 그린다 ----
+//    부위 절단(design.md §8.1)을 위해 들어왔다. 팔을 별도 시트로 겹쳐 두고
+//    잘리면 그 장만 안 그린다.
+//
+//    ★ 왜 SpriteComponent 를 여러 개 붙이지 않는가:
+//      「붙인 순서 = 그리는 순서」라서 컴포넌트 3개로도 레이어는 된다.
+//      그런데 그러면 Play() · SetTint() · SetScale() 을 **3번씩** 불러야 한다.
+//      이 프로젝트는 이미 「호출 한 줄을 안 옮겨 애니메이션이 멈추는」 버그를
+//      냈다(handoff §8). 호출을 N배로 늘리는 설계는 그 버그를 N배로 늘린다.
+//
+//      레이어를 안에 두면 호출은 **한 번**이고, 위치·칸·틴트·반전이
+//      한 곳에서 나오므로 팔이 몸과 어긋나는 것이 구조적으로 불가능해진다.
+//
+//    ★ 「아래 레이어」는 만들지 않았다. 필요하지 않았기 때문이다 —
+//      뒷팔은 몸통 **바깥**에만 그려져 몸 픽셀을 덮지 않으므로 위에 그려도
+//      결과가 같다. 쓰지 않을 기능은 만들지 않는다.
 // ============================================================================
 #pragma once
 
@@ -27,6 +44,8 @@
 
 #include <DirectXMath.h>
 #include <DirectXColors.h>
+
+#include <vector>
 
 #include "Core/Component.h"
 #include "Graphics/Animation.h"
@@ -51,6 +70,13 @@ public:
     bool Finished() const { return m_anim.Finished(); }
     int  Frame()    const { return m_anim.Frame(); }
 
+    // ---- 레이어 ----
+    //   ★ 본 시트와 **칸 구성이 같아야 한다.** 같은 SourceRect 를 그대로 쓴다.
+    //     그래서 팔 시트는 몸 시트를 읽어 칸마다 맞춰 생성한다(tools/gen_player_arms.ps1).
+    //   돌려주는 값이 레이어 번호다. -1 은 「레이어 없음」으로 쓰라고 비워 둔다.
+    int  AddLayer(Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sheet, bool visible = true);
+    void SetLayerVisible(int layer, bool visible);
+
     // ---- 표현 ----
     void SetOrigin(float x, float y) { m_originX = x; m_originY = y; }
     void SetTint(DirectX::FXMVECTOR color);
@@ -59,7 +85,15 @@ public:
     void SetVisible(bool v)          { m_visible = v; }
 
 private:
+    // 겹쳐 그리는 한 장. 표시 여부만 따로 갖고, 나머지는 전부 본체와 공유한다.
+    struct Layer
+    {
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sheet;
+        bool visible = true;
+    };
+
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sheet;
+    std::vector<Layer> m_layers;
     AnimationPlayer m_anim;
 
     int m_cellW = 0;

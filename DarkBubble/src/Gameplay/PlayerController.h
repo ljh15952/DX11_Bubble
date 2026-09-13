@@ -187,11 +187,23 @@ public:
     // 무기를 손에 넣었다. Scene 이 줍기를 처리한 뒤 알려 준다.
     void EquipWeapon(WeaponHand hand);
 
+    // ---- ★ 팔 레이어 (design.md §8.1) ----
+    //   팔을 별도 시트로 겹쳐 두고, 잘리면 그 장을 숨기고 상처 장을 켠다.
+    //
+    //   ★ 왜 Scene 이 번호를 넘겨 주는가:
+    //     컨트롤러는 **에셋을 모른다.** 텍스처를 어디서 읽고 어떤 순서로 겹칠지는
+    //     조립하는 쪽(Scene)의 일이다. 사망 화면·무기 떨구기와 같은 경계다.
+    //     번호가 -1 이면 레이어가 없는 조립이고, 그래도 동작한다.
+    void SetArmLayers(int armFront, int armBack, int stumpFront, int stumpBack);
+
 private:
     void ChangeState(SceneContext& ctx, PlayerState next, bool force = false);
     const AttackData& SelectAttack(SceneContext& ctx, PlayerState prev) const;
 
     void UpdateMovement(SceneContext& ctx, float moveX, float moveY);
+
+    // 잘린 팔을 그림에 반영한다. 틴트·눌림과 같은 「표현」이라 Render 에서 부른다.
+    void UpdateArmLayers();
 
     // ★ 남은 틱에 비례해 감속하며 미끄러진다. 총 이동량이 distance 가 되도록 정규화.
     //   구르기와 넉백이 공유한다 — 일정 속도로 움직이면 둘 다 어색하다.
@@ -241,4 +253,10 @@ private:
 
     int  m_armorIndex = 0;       // F2 로 바뀐다(임시)
     bool m_deathScreenRequested = false;
+
+    // 팔 레이어 번호. -1 = 안 붙었다.
+    int m_layerArmFront   = -1;
+    int m_layerArmBack    = -1;
+    int m_layerStumpFront = -1;
+    int m_layerStumpBack  = -1;
 };

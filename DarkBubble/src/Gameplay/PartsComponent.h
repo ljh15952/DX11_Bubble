@@ -69,7 +69,10 @@ struct PartsProfile
     int maxHp[Part_Count]{};
 
     // 다리가 부서지면 엎드리는가.
-    //   적은 기어다니고(true), 플레이어는 절뚝일 뿐 엎드리지 않는다(false).
+    //   ★ 플레이어와 적 **둘 다 true** 다. 처음에는 「플레이어는 절뚝일 뿐」으로
+    //     두었는데, 다리를 잃고도 서 있으면 상실이 상실로 안 읽혔다.
+    //     그래도 설정으로 남겨 둔다 — 날아다니는 적처럼 다리와 이동이
+    //     무관한 것이 생기면 여기서 false 가 된다.
     bool proneWhenLegsBroken = false;
 };
 

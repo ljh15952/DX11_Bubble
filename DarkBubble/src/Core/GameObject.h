@@ -2,10 +2,12 @@
 //  GameObject.h
 //    컴포넌트를 담는 그릇. **합성**이 여기서 일어난다.
 //
-//      플레이어 = GameObject + [Sprite] [Stamina] [Health] [PlayerController]
-//      적       = GameObject + [Sprite] [Parts]   [EnemyBrain]
+//      플레이어 = GameObject + [Stamina] [Poise] [Parts] [PlayerController] [Sprite]
+//      적       = GameObject + [Parts]   [Poise] [EnemyBrain] [Sprite]
+//      떨어진 무기 = GameObject + [WeaponPickup]
 //
-//    「부위 파괴가 있는 플레이어」가 필요하면 Parts 를 붙이면 끝이다.
+//    ★ 세 번째가 요점이다. 「월드에 있는 것」이 한 종류라서, 무기를 떨구는
+//      기능을 넣을 때 새 계층이 필요하지 않았다. 상자·함정·투사체도 같다.
 //
 //  ---- 실행 순서 = 붙인 순서 ----
 //    Add 한 순서대로 Tick / Render 가 불린다.

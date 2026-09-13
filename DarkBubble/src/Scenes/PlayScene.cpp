@@ -102,6 +102,18 @@ bool PlayScene::Enter(SceneContext& ctx)
     if (!playerSheet || !enemySheet)
         return false;
 
+    // ★ 팔은 몸과 **다른 시트**다 (design.md §8.1).
+    //   몸 시트에는 팔이 아예 그려져 있지 않아서, 잘린 팔을 「지울」 수가 없다.
+    //   그래서 팔을 겹쳐 그리고 잘리면 그 장을 안 그린다.
+    //   네 장 모두 player.png 를 읽어 칸마다 맞춰 생성한 것이다
+    //   (tools/gen_player_arms.ps1).
+    auto armFrontSheet   = ctx.assets.Texture(L"assets/textures/player_arm_front.png");
+    auto armBackSheet    = ctx.assets.Texture(L"assets/textures/player_arm_back.png");
+    auto stumpFrontSheet = ctx.assets.Texture(L"assets/textures/player_stump_front.png");
+    auto stumpBackSheet  = ctx.assets.Texture(L"assets/textures/player_stump_back.png");
+    if (!armFrontSheet || !armBackSheet || !stumpFrontSheet || !stumpBackSheet)
+        return false;
+
     // ★ 상속 계층을 짜지 않는다. 필요한 능력을 붙일 뿐이다.
     //
     //   붙인 순서 = 실행 순서다:
@@ -113,7 +125,17 @@ bool PlayScene::Enter(SceneContext& ctx)
     m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_playerParts = &m_playerObj.Add<PartsComponent>(kPlayerParts);
     m_player = &m_playerObj.Add<PlayerController>();
-    m_playerObj.Add<SpriteComponent>(playerSheet, kCellW, kCellH);
+
+    // 레이어를 더한 순서가 곧 위로 올라가는 순서다.
+    //   ★ 뒷팔을 몸보다 「아래」에 넣을 필요가 없다 — 뒷팔은 몸통 **바깥**에만
+    //     그려져 몸 픽셀을 덮지 않으므로 위에 그려도 결과가 같다.
+    //     쓰지 않을 기능(아래 레이어)을 엔진에 만들지 않은 이유다.
+    SpriteComponent& playerSprite = m_playerObj.Add<SpriteComponent>(playerSheet, kCellW, kCellH);
+    m_player->SetArmLayers(
+        playerSprite.AddLayer(armFrontSheet),
+        playerSprite.AddLayer(armBackSheet),
+        playerSprite.AddLayer(stumpFrontSheet, false),   // 상처는 잘린 뒤에만
+        playerSprite.AddLayer(stumpBackSheet,  false));
 
     m_enemyParts = &m_enemyObj.Add<PartsComponent>(kGruntParts);
     m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);

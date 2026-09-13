@@ -287,6 +287,47 @@ bool PlayerController::CanRoll() const
 }
 
 
+void PlayerController::SetArmLayers(int armFront, int armBack,
+                                    int stumpFront, int stumpBack)
+{
+    m_layerArmFront   = armFront;
+    m_layerArmBack    = armBack;
+    m_layerStumpFront = stumpFront;
+    m_layerStumpBack  = stumpBack;
+}
+
+
+// ----------------------------------------------------------------------------
+//  UpdateArmLayers — 잘린 팔을 그림에 반영한다
+//
+//    ★ 「앞팔 / 뒷팔」은 시트의 성질이고 「왼팔 / 오른팔」은 몸의 성질이다.
+//      시트는 오른쪽을 보고 그려져 왼쪽을 볼 때 뒤집히므로,
+//      앞팔 시트는 **항상 바라보는 쪽의 팔**로 화면에 나타난다.
+//      그 대응을 정하는 것이 facing 이다.
+//
+//    ★★ 이 대응은 PartsComponent::PickHit 의 그것과 **같은 규칙**이어야 한다.
+//      여기서 규칙을 새로 쓰면 「그림은 왼팔이 없는데 판정은 오른팔이 막는」
+//      상태가 되고, 그건 화면만 보고는 절대 못 찾는 버그가 된다.
+// ----------------------------------------------------------------------------
+void PlayerController::UpdateArmLayers()
+{
+    const Transform& tr = Owner().transform;
+
+    const int frontArm = (tr.facing > 0) ? Part_RightArm : Part_LeftArm;
+    const int backArm  = (tr.facing > 0) ? Part_LeftArm  : Part_RightArm;
+
+    const bool frontLost = m_parts->IsBroken(frontArm);
+    const bool backLost  = m_parts->IsBroken(backArm);
+
+    // ★ 팔과 상처가 정확히 반대다. 조건을 두 번 쓰지 않고 한 값에서 뽑는다 —
+    //   따로 쓰면 「팔도 없고 상처도 없는」 상태가 생길 수 있다.
+    m_sprite->SetLayerVisible(m_layerArmFront,   !frontLost);
+    m_sprite->SetLayerVisible(m_layerStumpFront,  frontLost);
+    m_sprite->SetLayerVisible(m_layerArmBack,    !backLost);
+    m_sprite->SetLayerVisible(m_layerStumpBack,   backLost);
+}
+
+
 void PlayerController::Respawn(SceneContext& ctx)
 {
     Transform& tr = Owner().transform;
@@ -884,6 +925,10 @@ void PlayerController::Render(Renderer&)
     //   공격 중에는 끈다. CROUCH 공격은 전용 행에 눌린 자세가 이미 구워져 있다.
     const bool squash = m_crouching && (m_state != PlayerState::Attack);
     m_sprite->SetScale(1.0f, squash ? 0.78f : 1.0f);
+
+    // ★ 틴트·눌림과 같은 「표현 넘기기」다. 매 틱이 아니라 매 프레임 한 번이면
+    //   충분하다 — 잘린 팔은 상태에서 **파생**되는 것이라 따로 기억할 게 없다.
+    UpdateArmLayers();
 }
 
 
