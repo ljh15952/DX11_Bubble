@@ -260,7 +260,7 @@ void EnemyBrain::Stagger(SceneContext& ctx, float fromX, float /*fromY*/)
 
     // ★ 살짝 뜬다. 위에서 내려찍혔을 때 반응이 보이도록 —
     //   점프 공격(§3.8.2)의 타격감이 여기서 나온다.
-    m_body->AddLift(kHurtLift);
+    m_body->Lift(kHurtLift);
 
     m_poise->OnStaggered();
 

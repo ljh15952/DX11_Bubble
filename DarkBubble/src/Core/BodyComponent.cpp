@@ -27,10 +27,12 @@ void BodyComponent::Jump(float speed)
 }
 
 
-void BodyComponent::AddLift(float speed)
+void BodyComponent::Lift(float speed)
 {
-    m_velocityY -= speed;
-    m_grounded   = false;
+    // ★ `-=` 가 아니라 `=` 다. 이유는 헤더 주석 참조 —
+    //   더하면 올라가는 중에 맞았을 때 상승 속도에 얹혀 크게 날아오른다.
+    m_velocityY = -speed;
+    m_grounded  = false;
 }
 
 

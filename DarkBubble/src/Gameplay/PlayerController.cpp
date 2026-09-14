@@ -869,7 +869,10 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
 
     // ★ 살짝 뜬다. 착지까지 약 11틱이라 경직(18틱)이 끝나기 **전에** 발이 닿는다 —
     //   그래서 「경직은 풀렸는데 아직 공중」이라는 어정쩡한 순간이 생기지 않는다.
-    m_body->AddLift(kHurtLift);
+    //
+    //   ★★ 수직 속도를 **덮어쓴다.** 점프로 올라가는 중에 맞으면 상승이 끊기고
+    //     작게 튄 뒤 떨어진다. 더하면 그 반대가 되어 더 높이 날아오른다.
+    m_body->Lift(kHurtLift);
 
     m_invulnTicks = kHurt.invuln;
     m_poise->OnStaggered();
