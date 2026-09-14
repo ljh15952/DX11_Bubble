@@ -254,7 +254,9 @@ private:
     //   매 틱 다시 고르면 휘두르는 도중에 Ctrl 을 떼는 순간 프레임 데이터가 갈려
     //   active 구간을 건너뛰거나 두 번 지나간다.
     const AttackData* m_currentAttack = nullptr;
-    int  m_comboStep   = 0;      // 0 = 1타, 1 = 2타. 2타에서는 더 안 이어진다
+    // ★ m_comboStep 을 지웠다. 「몇 타째인가」를 세는 대신 「직전에 무엇을
+    //   냈는가」(m_currentAttack)를 묻는다 — 이어지는 것은 기본 공격뿐이므로
+    //   셀 것이 없다. 상태를 옳은 곳에 두면 필드가 사라진다.
     bool m_comboQueued = false;
 
     // ★ 물기 요청. 다른 키로 들어오므로 무브셋 선택에서 최우선이다.

@@ -144,13 +144,27 @@ const AttackData& EnemyBrain::CurrentAttack() const
 
 bool EnemyBrain::WouldBite() const
 {
-    // ★ 물기를 쓰는 이유는 둘인데, 뿌리는 하나다 — **자세 때문에 휘두를 수 없다.**
+    // ---- 어쩔 수 없이 무는 경우 ----
     //     ① 내가 엎드려 있다   : 팔을 휘두를 자세가 안 된다
     //     ② 상대가 엎드려 있다 : 휘둘러 봐야 몸 위로 지나간다(kSwing 주석)
     //
     //   ②가 없으면 엎드린 플레이어가 **무적**이 된다. 흘리는 것과 안 맞는 것은
     //   다르다 — 엎드리기는 휘두르기를 피하는 대신 **물기에 목을 내주는** 거래다.
-    return m_parts->Prone() || m_targetProne;
+    if (m_parts->Prone() || m_targetProne)
+        return true;
+
+    // ---- ★ 그 밖에는 번갈아 낸다 ----
+    //
+    //   이것이 없으면 잡몹은 **영원히 휘두르기만** 한다. 그러면 중단(26~36)
+    //   밖에 안 나오므로 플레이어의 다리(0~18)를 아무도 못 건드리고,
+    //   **다리 파괴도 엎드리기도 도달할 수 없는 기능**이 된다.
+    //   실제로 그랬다 — 「엎드려야 물고, 물려야 엎드리는」 순환이었다.
+    //
+    //   번갈아 두면 두 공격이 서로 다른 대처를 요구한다:
+    //       SWING  예고 24틱 · 중단 · 18뎀  -> 구르거나 **엎드려** 흘린다
+    //       BITE   예고 18틱 · 하단 · 10뎀  -> 엎드리면 못 피한다. 구른다
+    //   예고 길이도 그림도 다르므로 **보고 구분할 수 있다.**
+    return m_biteTurn;
 }
 
 
@@ -213,6 +227,7 @@ void EnemyBrain::Reset(SceneContext& ctx)
 
     m_attackCooldown = 0;
     m_attackIsBite   = false;
+    m_biteTurn       = false;   // ★ 첫 공격은 휘두르기. 예고가 길어 배우기 쉽다
     m_hitThisSwing   = false;
 
     // ★ ChangeState 를 쓰지 않는다 — 「같은 상태로의 전이는 무시」에 걸린다.
@@ -283,6 +298,10 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
     case EnemyState::Attack:
         // ★ 어느 공격인지 여기서 고정한다. 도중에 다리가 부서져도 안 바뀐다.
         m_attackIsBite = WouldBite();
+
+        // ★ 다음 차례를 여기서 뒤집는다. 「직전에 무엇을 냈는가」만 기억하면
+        //   번갈아가 성립한다 — 별도의 카운터가 필요 없다.
+        m_biteTurn = !m_attackIsBite;
         m_hitThisSwing = false;
 
         // forceRestart : 같은 공격을 연달아 낼 때 처음부터 다시 재생되어야 한다.

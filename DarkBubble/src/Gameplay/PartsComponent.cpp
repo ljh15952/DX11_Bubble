@@ -108,6 +108,13 @@ void PartsComponent::Damage(int part, int amount)
 }
 
 
+void PartsComponent::Restore(int part)
+{
+    if (Exists(part))
+        m_hp[part] = m_profile.maxHp[part];
+}
+
+
 AABB PartsComponent::Box(int part) const
 {
     const Transform& tr = Owner().transform;

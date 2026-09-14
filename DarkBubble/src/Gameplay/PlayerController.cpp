@@ -402,7 +402,6 @@ void PlayerController::Respawn(SceneContext& ctx)
 
     m_currentAttack = nullptr;
     m_biteRequested = false;
-    m_comboStep     = 0;
     m_comboQueued   = false;
     m_hitThisSwing  = false;
     m_crouching     = false;
@@ -465,10 +464,14 @@ const AttackData& PlayerController::SelectAttack(SceneContext& ctx, PlayerState 
     if (ctx.input.CrouchHeld())          return kDaggerCrouch;   // ① 명시적 입력
 
     // ② 공격 중이었다 -> 2타
-    //   ★ 여기에 `&& m_comboStep == 0` 을 넣었다가 콤보가 아예 안 나왔다.
-    //     ChangeState 가 이 함수를 부르기 직전에 m_comboStep 을 1 로 올리기 때문이다.
-    //     무한 연타 방지는 **예약하는 쪽**에 있다. 막을 곳은 한 곳이면 충분하다.
-    if (prev == PlayerState::Attack)     return kDaggerCombo2;
+    //   ★ 무한 연타 방지는 **예약하는 쪽** 한 곳에만 있다.
+    //     전에 여기에도 조건을 하나 더 걸었다가 콤보가 아예 안 나왔다 —
+    //     막을 곳은 한 곳이면 충분하다.
+    // ★ **기본 공격 뒤에만** 2타가 나온다. DASH·CROUCH·JUMP 뒤에는 안 나온다.
+    //   ※ SelectAttack 은 m_currentAttack 이 갱신되기 **전에** 불리므로,
+    //     여기서 보는 것은 아직 **직전 공격**이다.
+    if (prev == PlayerState::Attack && m_currentAttack == &kDaggerLight)
+        return kDaggerCombo2;
 
     // ③ ★ 구르기 직후 -> 대시. 「달리는 중」이 아니라 **구르기 뒤**다.
     //   달리는 중으로 두었더니 이동이 거의 항상이라 평타가 안 나왔다.
@@ -532,7 +535,6 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     case PlayerState::Attack:
     {
         // ★ 물기는 콤보에 들어가지 않는다. 무기 콤보의 일부가 아니기 때문이다.
-        m_comboStep = (prev == PlayerState::Attack && !m_biteRequested) ? 1 : 0;
 
         // ★ 어느 공격인지 **여기서 고정한다.**
         m_currentAttack = &SelectAttack(ctx, prev);
@@ -952,7 +954,13 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //     2타가 확정되어 「1타를 내보고 이어칠지 판단한다」가 사라진다.
         //   ★ 예약해 두었다가 상태가 끝날 때 꺼낸다 — 지금 전이하면 1타의 후딜을
         //     건너뛴다.
-        if (attackPressed && CanAttack() && m_comboStep == 0
+        //
+        //   ★★ **이어지는 것은 기본 공격뿐이다.** DASH·CROUCH·JUMP 뒤에는
+        //     예약 자체가 안 걸린다. 이 한 줄이 「2타째인가」를 세던 카운터
+        //     (m_comboStep)를 통째로 지웠다 —
+        //     THRUST 는 m_currentAttack != &kDaggerLight 라 스스로 못 잇는다.
+        //     **세는 대신 물으면 셀 것이 없어진다.**
+        if (attackPressed && CanAttack() && m_currentAttack == &kDaggerLight
             && m_stateTicks >= atk.startup + atk.active)
         {
             m_comboQueued = true;
@@ -1043,6 +1051,29 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         ctx.audio.Play("ui_confirm", 0.5f);
         Log::Info("[play] 갑옷 → {}  (poise {})   swing impact 18 / bite impact 12",
                   Armor().name, Armor().poise);
+    }
+
+    // ★ 임시 디버그 키(F4) — 다리를 부러뜨렸다 되돌린다.
+    //
+    //   엎드린 자세의 판정 상자와 「엎드리면 중단을 흘린다」를 **바로** 볼 수
+    //   있게 하려는 것이다. 실제로 부러뜨리려면 잡몹의 물기를 네 번 맞아야 해서
+    //   확인 한 번에 십수 초가 걸린다. 만든 사람이 확인하기 어려운 기능은
+    //   있어도 없는 것과 같다.
+    //
+    //   ※ 죽은 뒤에는 받지 않는다. RestingState 로 되돌리면 되살아나 버린다.
+    if (consumeEdgeInput && ctx.input.LegBreakPressed() && !IsDead())
+    {
+        if (m_parts->LegsBroken()) m_parts->Restore(Part_Legs);
+        else                       m_parts->Damage(Part_Legs, m_parts->MaxHp(Part_Legs));
+
+        // ★ 자세가 바뀌었으니 그림을 다시 건다.
+        //   상자는 Prone() 을 매번 보므로 즉시 바뀌지만, 애니메이션은
+        //   **전이할 때만** 갈린다 — 그래서 force 로 한 번 흔들어 준다.
+        ChangeState(ctx, RestingState(moving), true);
+
+        Log::Info("[play] (F4) 다리 {} — 엎드림 {}",
+                  m_parts->LegsBroken() ? "파괴" : "복구",
+                  m_parts->Prone() ? "ON" : "OFF");
     }
 }
 
@@ -1157,7 +1188,7 @@ void PlayerController::RenderUI(Renderer& renderer)
         const AttackData& a = CurrentAttack();
         renderer.DrawString(
             std::format("{}{}  t{:<3}{}   [{} {} {}]  h{:.0f}{}",
-                        a.name, (m_comboStep > 0) ? "-2" : "",
+                        a.name, (m_currentAttack == &kDaggerCombo2) ? " (2nd)" : "",
                         m_stateTicks, AttackPhase(m_stateTicks, a),
                         a.startup, a.active, a.recovery, a.heightFromFoot,
                         m_comboQueued ? "  >> NEXT" : ""),

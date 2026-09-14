@@ -148,6 +148,10 @@ public:
 
     // ---- 변경 ----
     void Damage(int part, int amount);
+
+    // 부위를 가득 채운다. 지금은 디버그 키가 쓰지만, 회복 아이템이 오면
+    // 그대로 쓰인다 — 그래서 「디버그 전용」이라고 이름 붙이지 않는다.
+    void Restore(int part);
     void Flash(int ticks) { m_flash = ticks; }
     int  FlashTicks() const { return m_flash; }
     void Reset();

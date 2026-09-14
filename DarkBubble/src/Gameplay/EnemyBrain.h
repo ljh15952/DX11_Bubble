@@ -133,5 +133,6 @@ private:
     // 넉백 방향. 휘청인 시점에 고정된다.
     // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
     bool  m_targetProne = false;
+    bool  m_biteTurn    = false;   // 다음이 물 차례인가. 번갈아 내기 위한 것
     float m_knockDirX = 0.0f;
 };

@@ -69,6 +69,7 @@ void Input::Poll()
     // ★ F2 도 누적한다. 이유는 Input.h 의 선언부 주석 참조 —
     //   게임 상태(장착 방어구)를 바꾸므로 틱 안에서 소비되어야 한다.
     m_edges.armorSwap |= m_kbTracker.pressed.F2;
+    m_edges.legBreak  |= m_kbTracker.pressed.F4;
 }
 
 

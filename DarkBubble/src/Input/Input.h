@@ -92,6 +92,11 @@ public:
     //     표시만 바꾼다       -> 아래(엔진 키). Game 이 프레임당 1회
     bool ArmorSwapPressed() const { return m_edges.armorSwap; }   // F2 (임시)
 
+    // ★ F4 — 다리를 부러뜨렸다 되돌린다 (임시).
+    //   엎드린 자세를 **바로** 만들어 판정 상자와 회피를 확인하기 위한 것이다.
+    //   실제로 부러지려면 잡몹의 물기를 네 번 맞아야 해서 확인에만 한참 걸린다.
+    bool LegBreakPressed() const { return m_edges.legBreak; }      // F4 (임시)
+
     // ---- 디버그 / 엔진 키 ----
     //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
     bool DebugTogglePressed()  const;  // F1  — 히트박스 표시
@@ -130,6 +135,7 @@ private:
         // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키.
         //   6단계에서 진짜 장비 시스템이 오면 버린다.
         bool armorSwap = false;
+        bool legBreak  = false;
     };
     Edges m_edges;
 };
