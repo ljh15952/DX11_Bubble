@@ -9,6 +9,7 @@
 #include "Core/Motion.h"
 #include "Gameplay/PartsComponent.h"
 #include "Gameplay/PoiseComponent.h"
+#include "Graphics/Camera.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteComponent.h"
 
@@ -293,7 +294,7 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
     case EnemyState::Hurt:
         // 전용 그림이 없으므로 자세를 유지하고 틴트로 구분한다(ApplyTint).
         m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
-        ctx.audio.Play("ui_cancel", 0.5f, -0.4f, PanFromCanvasX(Owner().transform.x));
+        ctx.audio.Play("ui_cancel", 0.5f, -0.4f, PanFromWorldX(Owner().transform.x, ctx.camera.X()));
         break;
 
     case EnemyState::Attack:
@@ -310,7 +311,7 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
 
         // ★ 이 소리가 **청각 예고**다. 시각 예고(팔을 젖히는 모션)와 이중으로 둔다.
         //   화면을 안 보고 있어도 반응할 수 있게 해 준다.
-        ctx.audio.Play("swing", 0.4f, -0.55f, PanFromCanvasX(Owner().transform.x));
+        ctx.audio.Play("swing", 0.4f, -0.55f, PanFromWorldX(Owner().transform.x, ctx.camera.X()));
         break;
 
     case EnemyState::Dead:

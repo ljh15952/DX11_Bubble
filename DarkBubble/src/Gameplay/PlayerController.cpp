@@ -655,7 +655,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         // ★ 발을 떼는 소리. 착지 소리와 같은 샘플을 피치만 달리해 쓴다 —
         //   「뜬다 / 내린다」가 귀로도 구분된다.
         m_sprite->Play(kJumpClip, true);
-        ctx.audio.Play("step", 0.5f, 0.35f, PanFromCanvasX(tr.x));
+        ctx.audio.Play("step", 0.5f, 0.35f, PanFromWorldX(tr.x, ctx.camera.X()));
         break;
 
     case PlayerState::Attack:
@@ -685,7 +685,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         const float pitch = (atk.heightFromFoot > 40.0f) ?  0.22f    // 찌르기 = 높게
                           : (atk.heightFromFoot < 20.0f) ? -0.25f    // 웅크리기 = 낮게
                           :  0.0f;
-        ctx.audio.Play("swing", 0.55f, pitch + RandomPitch(0.10f), PanFromCanvasX(tr.x));
+        ctx.audio.Play("swing", 0.55f, pitch + RandomPitch(0.10f), PanFromWorldX(tr.x, ctx.camera.X()));
 
         Log::Info("[play] {} 발동  [{} {} {}]  높이 {:.0f}  stam -{}",
                   atk.name, atk.startup, atk.active, atk.recovery,
@@ -704,7 +704,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
             : static_cast<float>(tr.facing);
 
         m_stamina->Spend(kRoll.staminaCost);
-        ctx.audio.Play("swing", 0.4f, -0.35f, PanFromCanvasX(tr.x));  // 낮은 피치
+        ctx.audio.Play("swing", 0.4f, -0.35f, PanFromWorldX(tr.x, ctx.camera.X()));  // 낮은 피치
         break;
     }
 
@@ -787,7 +787,7 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
         m_stepCooldown = (m_parts->CurrentPosture() == Posture::Stand)
             ? kStepIntervalTicks
             : static_cast<int>(kStepIntervalTicks / kCrouchSpeedScale);
-        ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromCanvasX(tr.x));
+        ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromWorldX(tr.x, ctx.camera.X()));
     }
 }
 
@@ -944,7 +944,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
     if (m_parts->Fatal())
     {
         ctx.camera.Shake(kShakeStrength * 2.5f, kShakeTicks * 3);
-        ctx.audio.Play("hit", 1.0f, -0.55f, PanFromCanvasX(tr.x));
+        ctx.audio.Play("hit", 1.0f, -0.55f, PanFromWorldX(tr.x, ctx.camera.X()));
         ChangeState(ctx, PlayerState::Dead);
         return;
     }
@@ -959,7 +959,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
         //   없고, 무적은 그 위험을 막기 위한 장치이기 때문이다.
         //   대신 맞을 때마다 HP 가 확실히 깎인다 — 이것이 버티기의 비용이다.
         ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks);
-        ctx.audio.Play("hit", 0.5f, -0.75f, PanFromCanvasX(tr.x));   // 둔탁하게
+        ctx.audio.Play("hit", 0.5f, -0.75f, PanFromWorldX(tr.x, ctx.camera.X()));   // 둔탁하게
         Log::Info("[play] 버텨냄  poise {} >= impact {}", m_poise->Value(), atk.impact);
         return;
     }
@@ -983,7 +983,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
     m_poise->OnStaggered();
 
     ctx.camera.Shake(kShakeStrength * 1.8f, kShakeTicks * 2);
-    ctx.audio.Play("hit", 0.95f, -0.25f, PanFromCanvasX(tr.x));
+    ctx.audio.Play("hit", 0.95f, -0.25f, PanFromWorldX(tr.x, ctx.camera.X()));
     Log::Info("[play] 휘청  poise {} < impact {}   경직 {}틱 / 무적 {}틱",
               m_poise->Value(), atk.impact, kHurt.ticks, kHurt.invuln);
 
@@ -1111,7 +1111,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         {
             // ★ 착지도 「상태가 끝났다」가 아니라 **「발이 닿았다」**로 판정한다.
             ctx.audio.Play("step", 0.6f, -0.35f,
-                           PanFromCanvasX(Owner().transform.x));
+                           PanFromWorldX(Owner().transform.x, ctx.camera.X()));
             ChangeState(ctx, RestingState(moving));
         }
         break;

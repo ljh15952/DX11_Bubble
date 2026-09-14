@@ -44,6 +44,15 @@ namespace
     //
     //   플레이어와 적이 같은 값을 쓴다 — 몸집이 비슷하기 때문이다.
     //   ※ 적은 웅크리지 않으므로 crouch 값을 쓸 일이 없다.
+    // ---- ★ 카메라 ----
+    //   데드존이 넓을수록 화면이 덜 움직인다. 가로를 세로보다 넓게 두는 것이
+    //   보통이다 — 좌우 이동은 잦지만 점프는 금방 돌아오기 때문이다.
+    constexpr float kDeadHalfW = 56.0f;
+    constexpr float kDeadHalfH = 36.0f;
+
+    //   따라갈 지점을 발밑에서 이만큼 올린다(가슴 높이).
+    constexpr float kCameraEyeHeight = 24.0f;
+
     constexpr float kBodyHalfW        =  9.0f;
     constexpr float kBodyStandHeight  = 44.0f;
     constexpr float kBodyCrouchHeight = 28.0f;
@@ -122,15 +131,15 @@ namespace
 // ============================================================================
 void PlayScene::BuildLevel()
 {
-    const float w = static_cast<float>(Config::kCanvasWidth);
-    const float h = static_cast<float>(Config::kCanvasHeight);
+    const float w = Config::kWorldWidth;
+    const float h = Config::kWorldHeight;
     const float g = Config::kGroundY;
 
     m_level.Clear();
 
     m_level.AddSolid({ 0.0f, g, w, h });                 // 바닥
-    m_level.AddSolid({ -32.0f, 0.0f, 0.0f, h });         // 왼쪽 벽 (화면 밖)
-    m_level.AddSolid({ w, 0.0f, w + 32.0f, h });         // 오른쪽 벽
+    m_level.AddSolid({ -32.0f, -h, 0.0f, h });           // 왼쪽 벽 (월드 밖)
+    m_level.AddSolid({ w, -h, w + 32.0f, h });           // 오른쪽 벽
 
     // ---- 발판 ----
     //   ★ 배치가 그냥 장식이 아니다. 두 가지 숫자에 묶여 있다:
@@ -150,10 +159,57 @@ void PlayScene::BuildLevel()
     //
     //   가장 높은 곳에서 뛰어내리면 발끝이 적의 머리(발끝에서 37~55)를 지난다 —
     //   §3.8.2 의 「높은 데서 뛰어내려 머리를 노린다」가 여기서 처음 성립한다.
-    m_level.AddSolid({ 160.0f, g -  40.0f, 260.0f, g -  32.0f });   // A
-    m_level.AddSolid({ 300.0f, g -  80.0f, 420.0f, g -  72.0f });   // B  (A 에서 40 건넌다)
-    m_level.AddSolid({ 230.0f, g - 120.0f, 330.0f, g - 112.0f });   // D  (B 와 겹쳐 바로 위)
-    m_level.AddSolid({ 500.0f, g -  40.0f, 610.0f, g -  32.0f });   // C
+    //   ★ 세로로도 올라간다. 맵이 화면 두 장 높이(720)이므로 위로 240 을 오르면
+    //     화면이 따라 올라간다 — 카메라가 두 축으로 움직이는 것을 확인할 수 있다.
+    struct Plat { float x0, x1, up; };
+    constexpr Plat kPlats[] = {
+        // 왼쪽 — 계단으로 올라간다
+        {  180.0f,  280.0f,  40.0f },
+        {  320.0f,  440.0f,  80.0f },
+        {  240.0f,  360.0f, 120.0f },
+        {  400.0f,  520.0f, 160.0f },
+        {  560.0f,  700.0f, 200.0f },
+        // 가운데 — 높은 길
+        {  740.0f,  880.0f, 200.0f },
+        {  900.0f, 1020.0f, 160.0f },
+        {  820.0f,  940.0f,  80.0f },
+        // 오른쪽 — 다시 내려온다
+        { 1060.0f, 1180.0f, 120.0f },
+        { 1220.0f, 1340.0f,  80.0f },
+        { 1140.0f, 1260.0f, 200.0f },
+        { 1400.0f, 1540.0f,  40.0f },
+        { 1580.0f, 1720.0f,  80.0f },
+        { 1480.0f, 1620.0f, 120.0f },
+        { 1660.0f, 1840.0f, 160.0f },
+    };
+    for (const Plat& p : kPlats)
+        m_level.AddSolid({ p.x0, g - p.up, p.x1, g - p.up + 8.0f });
+}
+
+
+// ----------------------------------------------------------------------------
+//  BuildBackdrop — 시차 배경
+//
+//    ★ 두 겹이면 충분하다. 깊이가 다른 것이 **두 개만 있어도** 눈은 거리를
+//      읽는다. 세 겹째부터는 비용만 늘고 차이는 거의 없다.
+//
+//    ★ 배경은 지형이 아니다. Level 에 넣지 않는다 — 넣으면 밟히고 막힌다.
+// ----------------------------------------------------------------------------
+void PlayScene::BuildBackdrop()
+{
+    m_backdrop.clear();
+
+    const float g = Config::kGroundY;
+
+    // 먼 층 — 거의 안 움직인다. 높고 굵다.
+    for (float x = -100.0f; x < Config::kWorldWidth + 200.0f; x += 230.0f)
+        m_backdrop.push_back({ x, g - 300.0f, 46.0f, 0.22f });
+
+    // 가까운 층 — 절반쯤 따라 움직인다. 낮고 가늘다.
+    //   ★ 간격을 먼 층과 **서로소에 가깝게** 둔다(230 vs 167).
+    //     배수로 두면 두 층이 주기적으로 겹쳐 「벽 하나」로 보인다.
+    for (float x = 40.0f; x < Config::kWorldWidth + 200.0f; x += 167.0f)
+        m_backdrop.push_back({ x, g - 170.0f, 26.0f, 0.55f });
 }
 
 
@@ -187,6 +243,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     //   Controller / Brain 이 Sprite 보다 먼저여야 이번 틱에 바꾼 클립이
     //   같은 틱에 반영된다.
     BuildLevel();
+    BuildBackdrop();
 
     // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
     //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
@@ -226,6 +283,9 @@ bool PlayScene::Enter(SceneContext& ctx)
     m_playerObj.Start(ctx);
     m_enemyObj.Start(ctx);
     m_weaponObj.Start(ctx);
+
+    // ★ 첫 프레임부터 제자리를 비춘다. Update 가 돌기 전에 한 번 그려진다.
+    UpdateCamera(ctx);
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
     Log::Info("[play] LMB = attack   RMB = bite (팔이 없어도 된다)   LMB = 줍기(발밑)");
@@ -293,7 +353,7 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
     // ★ 소리와 흔들림은 "맞는 순간" 에 낸다. 휘두르는 순간이 아니다.
     ctx.camera.Shake(kShakeStrength, kShakeTicks);
     ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f),
-                   PanFromCanvasX(m_enemyObj.transform.x));
+                   PanFromWorldX(m_enemyObj.transform.x, ctx.camera.X()));
 
     Log::Info("[play] {} 로 {} 명중  dmg {}  남은 HP {}",
               atk.name, m_enemyParts->Name(part), atk.damage,
@@ -391,6 +451,9 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     m_enemyObj.Tick(ctx, consumeEdgeInput);
     TryEnemyHit(ctx);
 
+    // ★ **전부 움직인 뒤**에 따라간다. 먼저 움직이면 한 틱 뒤처진 곳을 비춘다.
+    UpdateCamera(ctx);
+
     // ---- Scene 전환 ----
     //   ★ 사망 화면을 PlayerController 가 직접 띄우지 않는 이유:
     //     Scene 전환은 Scene 의 일이고, Gameplay 가 Scenes 를 알기 시작하면
@@ -409,6 +472,34 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
 
 // ----------------------------------------------------------------------------
+//  UpdateCamera — 데드존 추적
+//
+//    ★ 발밑이 아니라 **가슴 높이**를 본다. 발밑을 따라가면 점프할 때마다
+//      화면이 아래로 쏠린다 — 눈이 쫓는 것은 몸이지 발이 아니다.
+//
+//    ★★ Enter 에서도 부른다. 안 부르면 **첫 프레임만** 카메라가 (0,0) 에 있어
+//      월드 왼쪽 위가 한 번 번쩍인다. 「처음 한 번」을 잊는 고전적인 자리다.
+// ----------------------------------------------------------------------------
+void PlayScene::UpdateCamera(SceneContext& ctx)
+{
+    const Transform& tr = m_playerObj.transform;
+
+    ctx.camera.Follow(tr.x, tr.y - kCameraEyeHeight,
+                      kDeadHalfW, kDeadHalfH,
+                      Config::kCanvasWidth, Config::kCanvasHeight);
+
+    ctx.camera.ClampTo({ 0.0f, 0.0f, Config::kWorldWidth, Config::kWorldHeight },
+                       Config::kCanvasWidth, Config::kCanvasHeight);
+
+    // Render 는 SceneContext 를 못 받으므로 여기에 적어 둔다.
+    //   ※ 일시정지·사망 화면이 위에 떠 있는 동안에는 Update 가 안 돌므로
+    //     이 값이 그대로 남는다 — 카메라가 멈춰 있는 것이 맞다.
+    m_viewX = ctx.camera.X();
+    m_viewY = ctx.camera.Y();
+}
+
+
+// ----------------------------------------------------------------------------
 //  UpdateWeaponPickup — 떨구기와 줍기
 // ----------------------------------------------------------------------------
 void PlayScene::UpdateWeaponPickup(SceneContext& ctx)
@@ -418,7 +509,7 @@ void PlayScene::UpdateWeaponPickup(SceneContext& ctx)
     {
         const Transform& tr = m_playerObj.transform;
         m_pickup->DropAt(tr.x, tr.y);
-        ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromCanvasX(tr.x));
+        ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromWorldX(tr.x, ctx.camera.X()));
         Log::Info("[play] 무기가 땅에 떨어졌다 ({:.0f}, {:.0f})", tr.x, tr.y);
     }
 
@@ -458,14 +549,34 @@ void PlayScene::Render(Renderer& renderer)
     //
     //   ※ 발판 여러 장은 6-d 다. 지금은 한 면이라 사각형 하나로 충분하다.
     const float canvasW = static_cast<float>(Config::kCanvasWidth);
+    const float canvasH = static_cast<float>(Config::kCanvasHeight);
+
+    // ---- ★ 시차 배경 ----
+    //   카메라가 x 만큼 움직였을 때 배경을 x * depth 만큼만 움직이려면,
+    //   월드 좌표를 **반대로 x * (1 - depth) 만큼 되밀어** 그리면 된다.
+    //   (그림은 카메라 변환을 이미 타고 있으므로)
+    for (const BackPillar& p : m_backdrop)
+    {
+        const float dx = std::round(m_viewX * (1.0f - p.depth));
+        const float dy = std::round(m_viewY * (1.0f - p.depth));
+
+        // 멀수록 어둡다 — 공기 원근(aerial perspective). 색 하나로 거리가 읽힌다.
+        const float tone = 0.045f + p.depth * 0.045f;
+
+        renderer.DrawFilledRect(
+            { p.x + dx, p.top + dy, p.x + p.width + dx, Config::kWorldHeight + dy },
+            DirectX::XMVectorSet(tone, tone, tone * 1.35f, 1.0f));
+    }
 
     // ★ 바닥도 발판도 **같은 목록**에서 나온다. 그려지는 것과 막는 것이
     //   같은 데이터라 「보이는데 안 막히는 발판」이 생길 수 없다.
     for (const AABB& s : m_level.Solids())
     {
-        // 화면 밖 벽은 그릴 필요가 없다.
-        if (s.right <= 0.0f || s.left >= canvasW)
-            continue;
+        // ★ 화면 밖은 건너뛴다. 판정이 아니라 **보이는 범위**로 자른다 —
+        //   전에는 캔버스(0~640)로 잘랐는데, 월드가 넓어지면서 그건
+        //   「월드 왼쪽 세 화면」을 뜻하게 되었다.
+        if (s.right <= m_viewX || s.left >= m_viewX + canvasW)  continue;
+        if (s.bottom <= m_viewY || s.top >= m_viewY + canvasH)  continue;
 
         renderer.DrawFilledRect(s, DirectX::XMVectorSet(0.09f, 0.09f, 0.12f, 1.0f));
 

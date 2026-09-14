@@ -18,6 +18,8 @@
 
 #include <DirectXMath.h>
 
+#include "Core/AABB.h"
+
 class Camera
 {
 public:
@@ -30,6 +32,29 @@ public:
     void Shake(float strength, int ticks);
 
     void SetPosition(float x, float y) { m_x = x; m_y = y; }
+
+    // ------------------------------------------------------------------------
+    //  Follow — **데드존** 추적
+    //
+    //    대상이 화면 가운데의 사각형(데드존) **밖으로 나갈 때만** 카메라가 민다.
+    //
+    //    ★ 즉시 추적으로 하면 한 걸음마다 화면 전체가 같이 흔들려 멀미가 난다.
+    //      보간(lerp)은 부드럽지만 이 프로젝트와 궁합이 나쁘다 —
+    //      「그리기는 정수」라 틱당 0.3픽셀씩 움직이면 **반올림 때문에 튄다.**
+    //      데드존은 움직일 때 확실히 움직이고 아니면 아예 안 움직인다.
+    //
+    //    ※ 좌표는 전부 **월드 기준**이다. m_x 는 화면 왼쪽 끝이 가리키는 월드 x.
+    // ------------------------------------------------------------------------
+    void Follow(float targetX, float targetY,
+                float deadHalfW, float deadHalfH,
+                int canvasWidth, int canvasHeight);
+
+    // 맵 밖을 보여주지 않는다. Follow 뒤에 부른다.
+    void ClampTo(const AABB& world, int canvasWidth, int canvasHeight);
+
+    // 월드 좌표 -> 화면 좌표. 소리의 좌우, 화면 밖 판정 등에 쓴다.
+    float ToScreenX(float worldX) const { return worldX - m_x; }
+    float ToScreenY(float worldY) const { return worldY - m_y; }
     void SetZoom(float zoom);
 
     float X()    const { return m_x; }

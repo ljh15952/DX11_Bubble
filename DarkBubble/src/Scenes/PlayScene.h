@@ -23,6 +23,8 @@
 
 #include "Core/GameObject.h"
 #include "Core/Level.h"
+
+#include <vector>
 #include "Core/Scene.h"
 
 class SpriteComponent;
@@ -74,6 +76,25 @@ private:
     //   SceneContext(엔진 표면적)에 올리는 것은 맵이 여러 장이 되는 6-e 에서.
     Level m_level;
     void BuildLevel();
+
+    // ---- ★ 시차(parallax) 배경 ----
+    //   넓은 맵인데 배경이 단색이면 **카메라가 움직이는지 알 수 없다.**
+    //   발판만 스쳐 지나가고 세계는 멈춰 있는 것처럼 보인다.
+    //   느리게 흐르는 층을 얹으면 그것만으로 「내가 움직이고 있다」가 읽힌다.
+    struct BackPillar
+    {
+        float x, top, width;
+        float depth;   // 0 = 아주 멀다(거의 안 움직인다), 1 = 눈앞
+    };
+    std::vector<BackPillar> m_backdrop;
+    void BuildBackdrop();
+
+    // 카메라 추적. Enter 와 Update 가 **같은 것**을 불러야 첫 프레임이 안 튄다.
+    void UpdateCamera(SceneContext& ctx);
+
+    // Render 는 SceneContext 를 못 받으므로 Update 에서 적어 둔다.
+    float m_viewX = 0.0f;
+    float m_viewY = 0.0f;
 
     GameObject m_playerObj{ "player" };
     GameObject m_enemyObj { "enemy"  };

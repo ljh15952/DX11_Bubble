@@ -5,9 +5,12 @@
 #include <algorithm>
 
 
-float PanFromCanvasX(float x)
+float PanFromWorldX(float worldX, float viewLeftX)
 {
-    return std::clamp(x / static_cast<float>(Config::kCanvasWidth) * 2.0f - 1.0f,
+    // ★ 화면 안에서의 위치로 바꾼 뒤 판다. 화면 밖 소리는 양끝에 붙는다 —
+    //   clamp 가 그 일을 한다.
+    const float screenX = worldX - viewLeftX;
+    return std::clamp(screenX / static_cast<float>(Config::kCanvasWidth) * 2.0f - 1.0f,
                       -1.0f, 1.0f);
 }
 
