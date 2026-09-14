@@ -311,6 +311,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     // ★ 순서에 의미가 있다.
     //   플레이어를 먼저 굴리고, 그 결과(이번 틱의 위치·무적)를 보고 적이 움직인다.
     //   그리고 판정은 각자 움직인 **직후**에 한 번씩.
+    // ★ 적이 플레이어의 부위 상태를 **직접 보지 않는다.** Scene 이 이어 준다.
+    //   엎드린 상대에게 휘두르면 몸 위로 지나가므로, 적은 물기로 바꿔야 한다.
+    m_enemyBrain->SetTargetProne(m_playerParts->Prone());
+
     m_playerObj.Tick(ctx, consumeEdgeInput);
     UpdateWeaponPickup(ctx);
     TryPlayerHit(ctx);
@@ -417,7 +421,7 @@ void PlayScene::RenderUI(Renderer& renderer)
 
     if (renderer.DebugDraw())
     {
-        renderer.DrawString("green/blue/yellow=hurtbox  red=my hit  orange=enemy hit",
+        renderer.DrawString("gold=torso/head  purple=arm  red=my hit  orange=enemy hit",
                             6.0f, Config::kCanvasHeight - 66.0f,
                             DirectX::Colors::Lime, 1);
     }

@@ -41,8 +41,19 @@ namespace
         /*recovery*/ 32,            // 합계 60 = 5프레임 × 12틱
         /*reach*/     8.0f,
         /*width*/    26.0f,
-        /*height*/   26.0f,
-        /*heightFromFoot*/ 30.0f,
+        // ★★ 발끝 26~36 의 **띠**다. 두껍게 만들면 안 된다 —
+        //   위아래 양쪽에 「맞지 않아야 하는 것」이 붙어 있기 때문이다:
+        //
+        //       37 ~ 55   서 있는 머리   ← 닿으면 평타로 즉사한다
+        //     ★ 36
+        //       중단 띠 (26~36)          팔 20~36 · 몸통 18~37 에 닿는다
+        //     ★ 26
+        //       ~ 25      엎드린 몸 전체 ← 닿으면 엎드리기가 의미를 잃는다
+        //
+        //   위쪽을 넘기면 잡몹의 평타가 즉사기가 되고,
+        //   아래쪽을 넘기면 「엎드려 흘린다」가 사라진다. 10픽셀이 그 사이다.
+        /*height*/   10.0f,
+        /*heightFromFoot*/ 31.0f,
         /*damage*/   18,
         /*staminaCost*/ 0,          // 적은 스태미나를 쓰지 않는다
         /*impact*/   18,
@@ -131,11 +142,25 @@ const AttackData& EnemyBrain::CurrentAttack() const
 }
 
 
+bool EnemyBrain::WouldBite() const
+{
+    // ★ 물기를 쓰는 이유는 둘인데, 뿌리는 하나다 — **자세 때문에 휘두를 수 없다.**
+    //     ① 내가 엎드려 있다   : 팔을 휘두를 자세가 안 된다
+    //     ② 상대가 엎드려 있다 : 휘둘러 봐야 몸 위로 지나간다(kSwing 주석)
+    //
+    //   ②가 없으면 엎드린 플레이어가 **무적**이 된다. 흘리는 것과 안 맞는 것은
+    //   다르다 — 엎드리기는 휘두르기를 피하는 대신 **물기에 목을 내주는** 거래다.
+    return m_parts->Prone() || m_targetProne;
+}
+
+
 float EnemyBrain::AttackRange() const
 {
     // 이쪽은 latch 가 아니라 **현재 자세**를 본다 —
     // 「지금 다가갈까 공격할까」를 판단하는 값이므로 최신이어야 한다.
-    return m_parts->Prone() ? kBiteRange : kSwingRange;
+    //   ★ 물기는 사거리가 짧다. 엎드린 상대에게는 **더 붙어야** 한다 —
+    //     엎드리기가 거리를 벌어 주는 셈이다.
+    return WouldBite() ? kBiteRange : kSwingRange;
 }
 
 
@@ -257,7 +282,7 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
 
     case EnemyState::Attack:
         // ★ 어느 공격인지 여기서 고정한다. 도중에 다리가 부서져도 안 바뀐다.
-        m_attackIsBite = m_parts->Prone();
+        m_attackIsBite = WouldBite();
         m_hitThisSwing = false;
 
         // forceRestart : 같은 공격을 연달아 낼 때 처음부터 다시 재생되어야 한다.

@@ -44,10 +44,14 @@ namespace
     //    heightFromFoot 하나가 닿는 부위를 정한다(겹침 면적이 큰 쪽에 맞으므로).
     //    적의 부위 상자는 발밑 기준 머리 -55..-37 / 몸통 -37..-18 / 다리 -18..0.
     //
-    //      light    34  몸통      기본
+    //      light    34  몸통      기본. **이동 중에도 이것이 나온다**
     //      crouch   10  다리      Ctrl. 느리고 약한 대신 **조준할 수 있다**
-    //      running  34  몸통      달리다 치면. 길게 뻗지만 비싸다
+    //      dash     34  몸통      ★ 구르기 직후에만. 길게 뻗지만 비싸다
     //      combo2   48  머리      1타를 맞춘 뒤에만. 머리는 즉사다
+    //      jump      6  머리(위에서)  공중에서만
+    //
+    //    ★ 「언제 나오는가」가 전부 **직전에 무엇을 했는가**로 정해진다.
+    //      키가 하나(좌클릭)인데 무브셋이 다섯인 이유다.
     //
     //    ★ 「머리를 노리려면 콤보를 성공시켜야 한다」가 데이터만으로 성립한다.
     //    ★ light(28) + combo2(34) = 62. 100 중 62를 쓰면 38 이 남고 구르기는 30 —
@@ -78,8 +82,17 @@ namespace
         /*clip*/     { /*row*/ 4, 6, 5, false },
     };
 
-    constexpr AttackData kDaggerRunning{
-        /*name*/     "RUN",
+    // ---- ★ 대시 공격 — **구르기 뒤에만** 나온다 ----
+    //   전에는 「달리다 치면」이었는데, 그러면 **걸으면서 치는 평타가 아예
+    //   안 나왔다.** 이동은 거의 항상 하고 있으므로 「기본 공격」이 기본이
+    //   아니게 된 것이다. 무브셋이 선택지가 아니라 사고가 되어 있었다.
+    //
+    //   구르기 뒤로 옮기면 **대가를 먼저 치른 사람만** 쓴다:
+    //       구르기 30 + 대시 34 = 64        (100 중)
+    //       거기서 THRUST 까지 = 98         거의 전부
+    //   길게 뻗는 공격이 「굴러서 파고든 뒤」에 붙으므로 의미도 맞는다.
+    constexpr AttackData kDaggerDash{
+        /*name*/     "DASH",
         /*startup*/  8,
         /*active*/   4,
         /*recovery*/ 12,            // 합계 24
@@ -90,7 +103,7 @@ namespace
         /*damage*/   14,
         /*staminaCost*/ 34,         // 비싸다
         /*impact*/   16,
-        /*clip*/     { /*row*/ 6, 6, 4, false },
+        /*clip*/     { /*row*/ 6, 6, 4, false },   // 6행 = 원래 「달리며 치기」 그림
     };
 
     constexpr AttackData kDaggerCombo2{
@@ -194,10 +207,6 @@ namespace
 
     constexpr float kOriginX = kCellW * 0.5f;
     constexpr float kOriginY = static_cast<float>(kCellH);
-
-    constexpr float kHitHalfWidth = 10.0f;
-    constexpr float kHitHeight    = 44.0f;
-    constexpr float kHitFootGap   = 2.0f;
 
     constexpr float kMoveEpsilon      = 0.01f;
     constexpr int   kStepIntervalTicks = 15;
@@ -460,8 +469,12 @@ const AttackData& PlayerController::SelectAttack(SceneContext& ctx, PlayerState 
     //     ChangeState 가 이 함수를 부르기 직전에 m_comboStep 을 1 로 올리기 때문이다.
     //     무한 연타 방지는 **예약하는 쪽**에 있다. 막을 곳은 한 곳이면 충분하다.
     if (prev == PlayerState::Attack)     return kDaggerCombo2;
-    if (prev == PlayerState::Run)        return kDaggerRunning;  // ③
-    return kDaggerLight;                                          // ④
+
+    // ③ ★ 구르기 직후 -> 대시. 「달리는 중」이 아니라 **구르기 뒤**다.
+    //   달리는 중으로 두었더니 이동이 거의 항상이라 평타가 안 나왔다.
+    if (prev == PlayerState::Roll)       return kDaggerDash;
+
+    return kDaggerLight;                                          // ④ 기본
 }
 
 
@@ -486,6 +499,12 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
 
     m_state      = next;
     m_stateTicks = 0;
+
+    // ★ 예약은 **전이할 때 한 곳에서** 지운다.
+    //   전에는 Attack 에 들어갈 때만 지웠는데, 예약해 둔 채 고갈(Exhausted)로
+    //   빠지면 플래그가 살아남아 **다음 공격이 끝날 때 공짜 콤보**가 나갔다.
+    //   구르기도 예약을 받게 되면서 그런 경로가 더 늘어난다 — 한 곳으로 모은다.
+    m_comboQueued = false;
 
     Transform& tr = Owner().transform;
 
@@ -513,8 +532,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     case PlayerState::Attack:
     {
         // ★ 물기는 콤보에 들어가지 않는다. 무기 콤보의 일부가 아니기 때문이다.
-        m_comboStep   = (prev == PlayerState::Attack && !m_biteRequested) ? 1 : 0;
-        m_comboQueued = false;
+        m_comboStep = (prev == PlayerState::Attack && !m_biteRequested) ? 1 : 0;
 
         // ★ 어느 공격인지 **여기서 고정한다.**
         m_currentAttack = &SelectAttack(ctx, prev);
@@ -685,12 +703,6 @@ AABB PlayerController::SpriteBounds() const
 
 // ★ 용어를 나눠 쓴다. 섞으면 "내 공격이 나를 때리는" 코드를 쓰게 된다.
 //   hurtbox = 내가 맞는 범위 (몸) / hitbox = 내가 때리는 범위 (무기)
-AABB PlayerController::Hurtbox() const
-{
-    const Transform& tr = Owner().transform;
-    return { tr.x - kHitHalfWidth, tr.y - kHitFootGap - kHitHeight,
-             tr.x + kHitHalfWidth, tr.y - kHitFootGap };
-}
 
 
 AABB PlayerController::AttackHitbox() const
@@ -968,10 +980,24 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         // ★ 이동 입력을 처리하지 않는다. 시작할 때 고정한 방향으로만 간다.
         SlideDecaying(m_rollDirX, kRoll.distance, kRoll.TotalTicks());
 
+        // ---- ★ 구르기 -> 대시 공격 예약 ----
+        //   공격 콤보의 예약과 **같은 모양**이다: 「위험 구간이 끝난 뒤부터」.
+        //     공격은 active 가 끝난 뒤부터,  구르기는 **무적이 끝난 뒤부터.**
+        //   무적 구간에서도 받으면 「구르면서 공격 확정」이 되어
+        //   「굴러서 빠져나갈까, 붙어서 칠까」라는 판단이 사라진다.
+        if (attackPressed && CanAttack()
+            && m_stateTicks >= kRoll.windup + kRoll.invincible)
+        {
+            m_comboQueued = true;
+        }
+
         if (m_stateTicks >= kRoll.TotalTicks())
         {
+            // 고갈이 콤보보다 우선한다 — 공격이 끝날 때와 같은 순서다.
             if (m_stamina->Depleted())
                 ChangeState(ctx, PlayerState::Exhausted);
+            else if (m_comboQueued && CanAttack())
+                ChangeState(ctx, PlayerState::Attack);
             else
                 ChangeState(ctx, RestingState(moving));
         }
@@ -1057,15 +1083,18 @@ void PlayerController::RenderDebug(Renderer& renderer)
     if (!renderer.DebugDraw())
         return;
 
-    renderer.DrawRectOutline(SpriteBounds(), DirectX::Colors::SlateGray);
-
-    // ★ hurtbox 는 항상 그린다. 색만 바꿔서 무적을 보여 준다.
-    //   빈 사각형으로 만들었다면 「지금 무적인가」를 눈으로 못 본다.
-    //   그리고 무적의 **종류까지** 색으로 나눈다.
-    DirectX::XMVECTOR hurtColor = DirectX::Colors::Lime;
-    if (RollInvincible())       hurtColor = DirectX::Colors::DeepSkyBlue;  // ① 구르기
-    else if (m_invulnTicks > 0) hurtColor = DirectX::Colors::Yellow;       // ② 피격
-    renderer.DrawRectOutline(Hurtbox(), hurtColor, 2.0f);
+    // ★ 맞는 범위를 여기서 그리지 않는다 — **PartsComponent 가 그린다.**
+    //   전에는 여기서 고정 크기 사각형을 하나 더 그렸는데, 자세를 따라가지
+    //   않아서 「엎드렸는데 상자는 서 있는」 거짓 표시가 되었다.
+    //   같은 것을 두 곳에서 그리면 언젠가 한쪽이 거짓말을 한다.
+    //
+    //   대신 **무적 여부를 바깥 테두리 색**으로 옮겼다. 정보는 남기고
+    //   거짓말만 지운다.
+    DirectX::XMVECTOR frameColor = DirectX::Colors::SlateGray;
+    if (RollInvincible())       frameColor = DirectX::Colors::DeepSkyBlue;  // ① 구르기
+    else if (m_invulnTicks > 0) frameColor = DirectX::Colors::Yellow;       // ② 피격
+    renderer.DrawRectOutline(SpriteBounds(), frameColor,
+                             (RollInvincible() || m_invulnTicks > 0) ? 2.0f : 1.0f);
 
     // ★ 공격 히트박스 — active 구간에서만 나타난다.
     //   , 로 멈추고 . 로 밟으면 t8 에 나타나 t10 까지 있는 것을 볼 수 있다.

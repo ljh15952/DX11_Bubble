@@ -137,7 +137,9 @@ public:
     int         StateTicks() const { return m_stateTicks; }
     bool        IsDead()     const { return m_state == PlayerState::Dead; }
 
-    AABB Hurtbox() const;                     // 내가 맞는 범위 (몸)
+    // ※ Hurtbox() 는 지웠다. 「내가 맞는 범위」는 PartsComponent 의 부위 상자이고,
+    //   그것과 **다른 숫자**를 하나 더 들고 있으면 언젠가 서로 어긋난다.
+    //   실제로 자세가 바뀌어도 안 변해서 「엎드렸는데 상자는 서 있는」 표시가 났다.
     AABB AttackHitbox() const;                // 내가 때리는 범위 (무기)
     bool AttackActive() const;                // 지금 판정이 존재하는가
     const AttackData& CurrentAttack() const;

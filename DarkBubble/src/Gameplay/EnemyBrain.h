@@ -99,6 +99,11 @@ public:
     //     fromX / fromY = 공격자의 위치. 넉백 방향이 여기서 나온다.
     void Stagger(SceneContext& ctx, float fromX, float fromY);
 
+    // ★ Scene 이 매 틱 알려 준다 — 「지금 상대가 엎드려 있다」.
+    //   적이 플레이어의 PartsComponent 를 직접 보게 하지 않는다.
+    //   두 몸 사이의 일은 Scene 이 잇는다(SetPickupAvailable 과 같은 구조).
+    void SetTargetProne(bool v) { m_targetProne = v; }
+
     void Kill(SceneContext& ctx);    // 몸통·머리가 부서졌을 때 PlayScene 이 부른다
     void Reset(SceneContext& ctx);   // 부활(§3.6.1)
 
@@ -106,6 +111,7 @@ private:
     void ChangeState(SceneContext& ctx, EnemyState next);
     void MoveTowardTarget(float speedPerTick);
     bool InAttackPosition() const;
+    bool  WouldBite()   const;   // 휘두를 수 없는 자세인가 (나 또는 상대가 엎드림)
     float AttackRange() const;
     void ApplyTint();
 
@@ -126,5 +132,6 @@ private:
 
     // 넉백 방향. 휘청인 시점에 고정된다.
     // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
+    bool  m_targetProne = false;
     float m_knockDirX = 0.0f;
 };
