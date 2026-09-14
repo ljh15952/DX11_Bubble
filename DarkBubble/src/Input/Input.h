@@ -57,9 +57,8 @@ public:
     //     웅크리기는 「지금 누르고 있나」이므로 매 틱 물어봐도 되고,
     //     틱이 0회 도는 프레임이 있어도 잃어버릴 것이 없다.
     //
-    //   ★ 이 게임은 상하좌우로 다 움직이는 벨트스크롤 방식이라
-    //     「아래 방향키」를 웅크리기로 쓸 수 없다 — 그건 이동이다.
-    //     그래서 전용 키를 배정했다.
+    //   ★ 플랫포머가 되면서 ↓ 가 비긴 했지만 Ctrl 을 유지한다(design.md §3.8.3).
+    //     ↓ 는 나중에 **아래 발판으로 내려가기**에 쓸 자리로 남겨 둔다.
     bool CrouchHeld() const;                                  // Ctrl / 패드 LB
 
     // ---- 게임플레이 엣지 입력 ----
@@ -71,7 +70,15 @@ public:
     bool ConfirmPressed() const { return m_edges.confirm; }   // Enter / Space / 패드 A  (메뉴)
     bool CancelPressed()  const { return m_edges.cancel;  }   // Esc / 패드 B            (메뉴)
 
-    bool AttackPressed()  const { return m_edges.attack;  }   // 좌클릭 / Space / 패드 A
+    // ★ Space 가 공격에서 **점프로** 옮겨 갔다(6-c-8).
+    //   공격은 이미 좌클릭이 주 입력이라 자리를 비워 줄 수 있었다.
+    //   패드도 같이 옮긴다 — A = 점프는 액션 게임의 관례다.
+    //
+    //   ※ 줍기는 따로 키를 두지 않는다. **공격 키**가 발밑에 주울 것이
+    //     있을 때만 뜻이 바뀐다 — 무브셋에서 이미 쓴 방식이다.
+    //     Space 로 두었다면 뛰어넘기만 해도 주워졌을 것이다.
+    bool AttackPressed()  const { return m_edges.attack;  }   // 좌클릭 / 패드 X
+    bool JumpPressed()    const { return m_edges.jump;    }   // Space / 패드 A
     bool BitePressed()    const { return m_edges.bite;    }   // 우클릭 / 패드 Y
     bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
     bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
@@ -115,6 +122,7 @@ private:
         bool confirm = false;
         bool cancel  = false;
         bool attack  = false;
+        bool jump    = false;
         bool roll    = false;
         bool pause   = false;
         bool bite    = false;

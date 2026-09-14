@@ -99,6 +99,7 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Audio\Audio.cpp" />
+    <ClCompile Include="src\Core\BodyComponent.cpp" />
     <ClCompile Include="src\Core\Game.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Core\GameObject.cpp" />
@@ -125,6 +126,7 @@
   <ItemGroup>
     <ClInclude Include="src\Audio\Audio.h" />
     <ClInclude Include="src\Core\AABB.h" />
+    <ClInclude Include="src\Core\BodyComponent.h" />
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
     <ClInclude Include="src\Core\Log.h" />

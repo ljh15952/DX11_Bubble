@@ -1,5 +1,6 @@
 ﻿#include "Gameplay/PlayerController.h"
 
+#include "Core/BodyComponent.h"
 #include "Core/Constants.h"
 #include "Core/GameObject.h"
 #include "Core/Log.h"
@@ -146,6 +147,34 @@ namespace
         return a;
     }();
 
+    // ---- 점프 공격 (design.md §3.8.2) ----
+    //   ★ heightFromFoot 이 **6** 이다. 발끝 바로 위 — 아래를 향해 찍는다.
+    //     공중에 있으면 그 상자가 적의 머리 높이를 지나간다:
+    //         적 머리 상자 = 발끝에서 37~55 위
+    //         점프 정점    = 55
+    //     즉 궤적의 중간쯤에서 머리에 닿는다. 머리는 즉사(§3.2.2)다.
+    //     **「높은 데서 뛰어내려 머리를 노린다」가 숫자 하나로 성립한다.**
+    //     지형이 전술이 되는 지점이고, 플랫포머로 옮기는 진짜 이득이다.
+    //
+    //   impact 20 > 잡몹 강인도 15 이므로 적의 공격을 끊는다. 대신 가장 비싸고,
+    //   공중에서는 구를 수 없어 빗나가면 착지 후딜을 그대로 맞는다.
+    constexpr AttackData kDaggerJump{
+        /*name*/     "JUMP",
+        /*startup*/  8, /*active*/ 4, /*recovery*/ 12,   // 24틱 = 6프레임 x 4틱
+        /*reach*/    10.0f,
+        /*width*/    26.0f,
+        /*height*/   30.0f,
+        /*heightFromFoot*/ 6.0f,
+        /*damage*/   16,
+        /*staminaCost*/ 30,
+        /*impact*/   20,
+        /*clip*/     { /*row*/ 9, 6, 4, false },
+    };
+
+    // 공중 전용 몸 그림은 아직 없다. idle 첫 프레임을 **멈춰서** 쓴다 —
+    //   팔다리가 파닥이지 않아 오히려 낫고, 전용 행은 나중에 얹으면 된다.
+    constexpr AnimationClip kJumpClip{ /*row*/ 0, /*frames*/ 1, /*ticks*/ 8, /*loop*/ true };
+
     constexpr RollData kRoll{ /*windup*/ 4, /*invincible*/ 12, /*recovery*/ 10 };
     constexpr HurtData kHurt{ /*ticks*/ 18, /*invuln*/ 24, /*knockback*/ 22.0f };
 
@@ -177,8 +206,16 @@ namespace
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
 
+    // ---- 점프 (design.md §3.8 의 「미결정」 세 칸이 여기서 숫자가 되었다) ----
+    //   정점 = v0² / (2g) = 6.2² / 0.7 ≈ 55픽셀,  체공 ≈ 35틱(0.6초)
+    constexpr float kJumpSpeed  = 6.2f;
+    //   ★ 공중 제어력. 0 이면 「뛰면 끝」이라 답답하고 1 이면 무게가 사라진다.
+    constexpr float kAirControl = 0.6f;
+    //   ★ 넉백에 섞는 상승. 착지까지 약 11틱이라 경직(18틱)이 끝나기 **전에**
+    //     발이 땅에 닿는다 — 「경직은 풀렸는데 아직 공중」이 생기지 않는다.
+    constexpr float kHurtLift   = 2.0f;
+
     constexpr float kStartX = 120.0f;
-    constexpr float kStartY = 260.0f;
 
     float RandomPitch(float spread)
     {
@@ -208,6 +245,7 @@ const char* PlayerStateName(PlayerState s)
     switch (s)
     {
     case PlayerState::Run:       return "RUN";
+    case PlayerState::Jump:      return "JUMP";
     case PlayerState::Attack:    return "ATTACK";
     case PlayerState::Roll:      return "ROLL";
     case PlayerState::Exhausted: return "EXHAUSTED";
@@ -220,6 +258,7 @@ const char* PlayerStateName(PlayerState s)
 
 void PlayerController::Start(SceneContext& ctx)
 {
+    m_body    = &Owner().Require<BodyComponent>();
     m_sprite  = &Owner().Require<SpriteComponent>();
     m_poise   = &Owner().Require<PoiseComponent>();
     m_parts   = &Owner().Require<PartsComponent>();
@@ -283,7 +322,18 @@ void PlayerController::EquipWeapon(WeaponHand hand)
 bool PlayerController::CanRoll() const
 {
     // 다리가 부서지면 구를 수 없다. 회피 수단을 통째로 잃는다.
-    return !m_parts->LegsBroken();
+    //
+    // ★ 공중에서도 못 구른다(design.md §3.8). 구르기는 땅을 박차는 동작이고,
+    //   무엇보다 「점프 + 구르기」가 되면 **무적으로 날아다니게** 된다.
+    return !m_parts->LegsBroken() && m_body->Grounded();
+}
+
+
+bool PlayerController::CanJump() const
+{
+    // ★ 웅크린 채로는 못 뛴다. 웅크리기는 상태가 아니라 **수식자**라,
+    //   조합을 늘리기 시작하면 (웅크린 점프 공격 같은) 경우의 수가 폭발한다.
+    return !m_parts->LegsBroken() && m_body->Grounded() && !m_crouching;
 }
 
 
@@ -328,15 +378,18 @@ void PlayerController::Respawn(SceneContext& ctx)
 {
     Transform& tr = Owner().transform;
     tr.x = kStartX;
-    tr.y = kStartY;
     tr.facing = 1;
+
+    // ★ 세로는 바닥이 정한다. 부활 좌표에 y 를 적어 두면
+    //   지면 높이를 바꿀 때 여기만 옛 값으로 남는다.
+    m_body->SnapToGround();
 
     m_parts->Reset();
     m_flash       = 0;
     m_invulnTicks = 0;
 
-    m_rollDirX = 1.0f;  m_rollDirY = 0.0f;
-    m_knockDirX = -1.0f; m_knockDirY = 0.0f;
+    m_rollDirX  =  1.0f;
+    m_knockDirX = -1.0f;
 
     m_currentAttack = nullptr;
     m_biteRequested = false;
@@ -396,6 +449,10 @@ const AttackData& PlayerController::SelectAttack(SceneContext& ctx, PlayerState 
     //   자세가 선택지를 지운다 — 「명시적 입력이 이긴다」보다도 위다.
     if (m_parts->Prone())                return kDaggerCrouch;
 
+    // ★ 공중이면 무조건 내려찍기다. 아래의 선택지(웅크리기·콤보·달리기)는
+    //   전부 **발이 땅에 있다**는 전제 위에 있다.
+    if (!m_body->Grounded())             return kDaggerJump;
+
     if (ctx.input.CrouchHeld())          return kDaggerCrouch;   // ① 명시적 입력
 
     // ② 공격 중이었다 -> 2타
@@ -446,6 +503,13 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         m_sprite->Play(m_parts->Prone() ? kCrawlClip : kRunClip);
         break;
 
+    case PlayerState::Jump:
+        // ★ 발을 떼는 소리. 착지 소리와 같은 샘플을 피치만 달리해 쓴다 —
+        //   「뜬다 / 내린다」가 귀로도 구분된다.
+        m_sprite->Play(kJumpClip, true);
+        ctx.audio.Play("step", 0.5f, 0.35f, PanFromCanvasX(tr.x));
+        break;
+
     case PlayerState::Attack:
     {
         // ★ 물기는 콤보에 들어가지 않는다. 무기 콤보의 일부가 아니기 때문이다.
@@ -485,16 +549,9 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
 
         // ★ 방향을 여기서 고정한다. 입력이 없으면 바라보는 방향으로 굴러간다.
         const Input::MoveIntent mv = ctx.input.Move();
-        if (std::abs(mv.x) > kMoveEpsilon || std::abs(mv.y) > kMoveEpsilon)
-        {
-            m_rollDirX = mv.x;
-            m_rollDirY = mv.y;
-        }
-        else
-        {
-            m_rollDirX = static_cast<float>(tr.facing);
-            m_rollDirY = 0.0f;
-        }
+        m_rollDirX = (std::abs(mv.x) > kMoveEpsilon)
+            ? mv.x
+            : static_cast<float>(tr.facing);
 
         m_stamina->Spend(kRoll.staminaCost);
         ctx.audio.Play("swing", 0.4f, -0.35f, PanFromCanvasX(tr.x));  // 낮은 피치
@@ -527,28 +584,39 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
 //    "공격 중에는 이동 불가" 를 !attacking 조건으로 흩뿌리지 않고
 //    아예 호출하지 않는 것으로 표현한다. 이것이 상태 머신의 요점이다.
 // ----------------------------------------------------------------------------
-void PlayerController::UpdateMovement(SceneContext& ctx, float moveX, float moveY)
+void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
 {
     Transform& tr = Owner().transform;
 
     if (moveX < -kMoveEpsilon)      tr.facing = -1;
     else if (moveX > kMoveEpsilon)  tr.facing = +1;
 
-    // ★ 웅크리면 느려진다 — 「다리를 노리려면 멈춰서 노려야 한다」가 한 줄로.
+    // ★ 속도를 **몸의 성질**로 정한다 — 「Jump 상태인가」가 아니라
+    //   「발이 땅에 있는가」로 묻는다. 상태를 더 늘려도 여기는 다시 안 고친다.
+    //
+    //   ★ 웅크리면 느려진다 — 「다리를 노리려면 멈춰서 노려야 한다」가 한 줄로.
     //   ★ 다리가 부서지면 **쓰러져 기어간다**(design.md §3.2.2).
     //     플레이어에게 가장 무서운 부위 파괴다 — 구르기까지 잃으면
     //     §3.1 의 「흘려서 산다」가 통째로 사라진다.
     float speed = kSpeedPerTick;
-    if (m_crouching)            speed *= kCrouchSpeedScale;
-    if (m_parts->Prone())       speed *= kProneSpeedScale;
+    if (!m_body->Grounded())
+    {
+        speed *= kAirControl;   // 공중에서는 약하게만 조종된다
+    }
+    else
+    {
+        if (m_crouching)      speed *= kCrouchSpeedScale;
+        if (m_parts->Prone()) speed *= kProneSpeedScale;
+    }
 
     tr.x = std::clamp(tr.x + moveX * speed, kOriginX,
                       static_cast<float>(Config::kCanvasWidth) - kOriginX);
-    tr.y = std::clamp(tr.y + moveY * speed, kOriginY,
-                      static_cast<float>(Config::kCanvasHeight));
 
-    const bool moving = (std::abs(moveX) > kMoveEpsilon || std::abs(moveY) > kMoveEpsilon);
-    if (!moving)
+    // ★ 세로는 **건드리지 않는다.** 높이를 정하는 것은 BodyComponent 다.
+    //   전에는 여기서 tr.y 를 입력으로 옮겼다 — 그게 벨트스크롤이었다.
+
+    // 발소리는 **땅에 있을 때만.** 공중에서 뛰는 소리가 나면 안 된다.
+    if (std::abs(moveX) <= kMoveEpsilon || !m_body->Grounded())
     {
         m_stepCooldown = 0;
         return;
@@ -576,7 +644,7 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX, float move
 //
 //    ★ 구르기와 넉백이 공유한다. 카메라 흔들림 감쇠와 같은 발상이다.
 // ----------------------------------------------------------------------------
-void PlayerController::SlideDecaying(float dirX, float dirY, float distance, int totalTicks)
+void PlayerController::SlideDecaying(float dirX, float distance, int totalTicks)
 {
     // ★ 공식은 Core/Motion.h 로 올렸다 — 적의 넉백이 같은 것을 쓰게 되었다.
     //   상태를 갖지 않는 계산이라 컴포넌트가 아니라 자유 함수다.
@@ -584,11 +652,27 @@ void PlayerController::SlideDecaying(float dirX, float dirY, float distance, int
     if (step <= 0.0f)
         return;
 
+    // ★ 가로만 민다. 세로는 BodyComponent 의 속도가 담당한다 —
+    //   같은 축을 두 방식이 동시에 밀면 반드시 어긋난다.
     Transform& tr = Owner().transform;
     tr.x = std::clamp(tr.x + dirX * step, kOriginX,
                       static_cast<float>(Config::kCanvasWidth) - kOriginX);
-    tr.y = std::clamp(tr.y + dirY * step, kOriginY,
-                      static_cast<float>(Config::kCanvasHeight));
+}
+
+
+// ----------------------------------------------------------------------------
+//  RestingState — 행동이 끝난 뒤 돌아갈 곳
+//
+//    ★ 공격·구르기·경직이 끝나는 자리마다 `moving ? Run : Idle` 을 적었더니,
+//      공중에서 끝났을 때 **한 틱 동안 서 있는 그림**이 나왔다.
+//      한 곳으로 모으면 그런 곳이 다시 생기지 않는다.
+// ----------------------------------------------------------------------------
+PlayerState PlayerController::RestingState(bool moving) const
+{
+    if (!m_body->Grounded())
+        return PlayerState::Jump;
+
+    return moving ? PlayerState::Run : PlayerState::Idle;
 }
 
 
@@ -668,8 +752,10 @@ bool PlayerController::ConsumeDeathScreenRequest()
 //    ※ 무적 판정은 이 함수에 오기 전에 끝나 있다(PlayScene::TryEnemyHit).
 // ----------------------------------------------------------------------------
 void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int part,
-                               float fromX, float fromY)
+                               float fromX, float /*fromY*/)
 {
+    // ※ fromY 는 지금 쓰이지 않지만 인자에 남겨 둔다 —
+    //   「위에서 맞으면 더 세게 눕는다」 같은 규칙이 오면 여기서 쓴다.
     const Transform& tr = Owner().transform;
 
     m_parts->Damage(part, atk.damage);
@@ -726,22 +812,16 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
     }
 
     // ---- 휘청였다 : 넉백 방향 = 공격자 -> 나 ----
-    float dx = tr.x - fromX;
-    float dy = tr.y - fromY;
-    const float len = std::sqrt(dx * dx + dy * dy);
-    if (len > 0.0001f)
-    {
-        dx /= len;
-        dy /= len;
-    }
-    else
-    {
-        // 완전히 겹쳐 있으면 방향이 없다. 바라보는 반대쪽으로 민다.
-        dx = -static_cast<float>(tr.facing);
-        dy = 0.0f;
-    }
-    m_knockDirX = dx;
-    m_knockDirY = dy;
+    //   ★ 수평 성분만 쓴다. 거리를 대각선으로 나눠 가지면 **뒤로 밀리는 거리가
+    //     줄어**, 「밀려나서 적의 다음 사거리 밖으로 나간다」는 의도가 약해진다.
+    const float dx = tr.x - fromX;
+    m_knockDirX = (std::abs(dx) > 0.0001f)
+        ? ((dx > 0.0f) ? 1.0f : -1.0f)
+        : -static_cast<float>(tr.facing);   // 완전히 겹쳐 있으면 바라보는 반대쪽
+
+    // ★ 살짝 뜬다. 착지까지 약 11틱이라 경직(18틱)이 끝나기 **전에** 발이 닿는다 —
+    //   그래서 「경직은 풀렸는데 아직 공중」이라는 어정쩡한 순간이 생기지 않는다.
+    m_body->AddLift(kHurtLift);
 
     m_invulnTicks = kHurt.invuln;
     m_poise->OnStaggered();
@@ -764,12 +844,16 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     if (m_invulnTicks > 0)  --m_invulnTicks;
 
     const Input::MoveIntent move = ctx.input.Move();
-    const bool moving = (std::abs(move.x) > kMoveEpsilon || std::abs(move.y) > kMoveEpsilon);
+
+    // ★ 「움직이는 중」은 이제 **가로만** 본다. 세로 입력은 몸을 움직이지 않는다 —
+    //   ↑ 를 누른 채 서 있는데 RUN 으로 보이면 안 된다.
+    const bool moving = (std::abs(move.x) > kMoveEpsilon);
 
     // 웅크리기는 **지속 입력**이라 엣지가 아니다. 매 틱 물어봐도 된다.
     m_crouching = ctx.input.CrouchHeld();
 
     const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
+    const bool jumpPressed   = (consumeEdgeInput && ctx.input.JumpPressed());
     const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
     const bool bitePressed   = (consumeEdgeInput && ctx.input.BitePressed());
 
@@ -777,11 +861,23 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     {
     case PlayerState::Idle:
     case PlayerState::Run:
-        UpdateMovement(ctx, move.x, move.y);
+        UpdateMovement(ctx, move.x);
 
+        // ★ 「발밑이 없어졌다」를 입력보다 **먼저** 본다.
+        //   넉백으로 떠올랐을 때도, 나중에 발판 끝에서 걸어 나갔을 때도(6-d)
+        //   이 한 줄이 처리한다 — **원인을 묻지 않고 몸의 상태만 본다.**
+        if (!m_body->Grounded())
+        {
+            ChangeState(ctx, PlayerState::Jump);
+        }
+        else if (jumpPressed && CanJump())
+        {
+            m_body->Jump(kJumpSpeed);
+            ChangeState(ctx, PlayerState::Jump);
+        }
         // 구르기를 공격보다 먼저 본다. 둘이 동시에 눌리면 회피가 우선이다.
         // ★ 다리가 부서지면 구를 수 없다 — 회피 수단을 통째로 잃는다.
-        if (rollPressed && CanRoll())
+        else if (rollPressed && CanRoll())
         {
             ChangeState(ctx, PlayerState::Roll);
         }
@@ -802,7 +898,35 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         {
             ChangeState(ctx, PlayerState::Attack);
         }
-        else                    ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+        else                    ChangeState(ctx, RestingState(moving));
+        break;
+
+    // ========================================================================
+    //  Jump — 공중
+    //    ★ 「올라가는 중」과 「떨어지는 중」을 나누지 않는다. 규칙이 같기 때문이다.
+    //      나눠야 할 이유(다른 조작 · 다른 판정)가 생기면 그때 쪼갠다.
+    // ========================================================================
+    case PlayerState::Jump:
+        UpdateMovement(ctx, move.x);   // 공중 제어력은 UpdateMovement 가 안다
+
+        // ★ 공중에서는 **줍기 갈래가 없다.** 그래서 발밑에 무기가 있어도
+        //   뛰어넘으며 주워지지 않는다 — Space 를 점프로 옮긴 대가를 여기서 치른다.
+        if (bitePressed)
+        {
+            m_biteRequested = true;
+            ChangeState(ctx, PlayerState::Attack, true);
+        }
+        else if (attackPressed && CanAttack())
+        {
+            ChangeState(ctx, PlayerState::Attack);
+        }
+        else if (m_body->Grounded())
+        {
+            // ★ 착지도 「상태가 끝났다」가 아니라 **「발이 닿았다」**로 판정한다.
+            ctx.audio.Play("step", 0.6f, -0.35f,
+                           PanFromCanvasX(Owner().transform.x));
+            ChangeState(ctx, RestingState(moving));
+        }
         break;
 
     case PlayerState::Attack:
@@ -835,21 +959,21 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
                 // ★ force = true. Attack -> Attack 이라 「같은 상태면 무시」에 걸린다.
                 ChangeState(ctx, PlayerState::Attack, true);
             else
-                ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+                ChangeState(ctx, RestingState(moving));
         }
         break;
     }
 
     case PlayerState::Roll:
         // ★ 이동 입력을 처리하지 않는다. 시작할 때 고정한 방향으로만 간다.
-        SlideDecaying(m_rollDirX, m_rollDirY, kRoll.distance, kRoll.TotalTicks());
+        SlideDecaying(m_rollDirX, kRoll.distance, kRoll.TotalTicks());
 
         if (m_stateTicks >= kRoll.TotalTicks())
         {
             if (m_stamina->Depleted())
                 ChangeState(ctx, PlayerState::Exhausted);
             else
-                ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+                ChangeState(ctx, RestingState(moving));
         }
         break;
 
@@ -857,12 +981,12 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         // ★ 아무 입력도 처리하지 않는다. 완전히 무방비.
         //   상태 머신 덕분에 이 한 줄이 「모든 입력에 !exhausted 붙이기」를 대신한다.
         if (!m_stamina->Depleted())
-            ChangeState(ctx, PlayerState::Idle);
+            ChangeState(ctx, RestingState(moving));
         break;
 
     case PlayerState::Hurt:
         // ★ 입력을 처리하지 않는다 — Exhausted 와 같은 구조. 대신 밀려난다.
-        SlideDecaying(m_knockDirX, m_knockDirY, kHurt.knockback, kHurt.ticks);
+        SlideDecaying(m_knockDirX, kHurt.knockback, kHurt.ticks);
 
         if (m_stateTicks >= kHurt.ticks)
         {
@@ -874,7 +998,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
             if (m_stamina->Depleted())
                 ChangeState(ctx, PlayerState::Exhausted);
             else
-                ChangeState(ctx, moving ? PlayerState::Run : PlayerState::Idle);
+                ChangeState(ctx, RestingState(moving));
         }
         break;
 

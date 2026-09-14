@@ -3,6 +3,7 @@
 #include "Scenes/DeathScene.h"
 #include "Scenes/PauseScene.h"
 
+#include "Core/BodyComponent.h"
 #include "Core/Constants.h"
 #include "Core/Log.h"
 #include "Core/SceneManager.h"
@@ -121,6 +122,10 @@ bool PlayScene::Enter(SceneContext& ctx)
     //     Parts(번쩍임)   -> Brain(판단·이동)      -> Sprite
     //   Controller / Brain 이 Sprite 보다 먼저여야 이번 틱에 바꾼 클립이
     //   같은 틱에 반영된다.
+    // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
+    //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
+    //   반대로 붙이면 착지를 한 틱 늦게 알아채 그림이 한 틱 어긋난다.
+    m_playerObj.Add<BodyComponent>();
     m_playerObj.Add<StaminaComponent>();
     m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_playerParts = &m_playerObj.Add<PartsComponent>(kPlayerParts);
@@ -137,6 +142,7 @@ bool PlayScene::Enter(SceneContext& ctx)
         playerSprite.AddLayer(stumpFrontSheet, false),   // 상처는 잘린 뒤에만
         playerSprite.AddLayer(stumpBackSheet,  false));
 
+    m_enemyObj.Add<BodyComponent>();   // ★ 적도 떨어진다. 같은 컴포넌트다
     m_enemyParts = &m_enemyObj.Add<PartsComponent>(kGruntParts);
     m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);
     m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);
@@ -152,8 +158,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     m_enemyObj.Start(ctx);
     m_weaponObj.Start(ctx);
 
-    Log::Info("[play] Arrows/WASD/Stick = move   Space = attack   Shift = roll");
-    Log::Info("[play] LMB / Space = attack   RMB = bite (팔이 없어도 된다)");
+    Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
+    Log::Info("[play] LMB = attack   RMB = bite (팔이 없어도 된다)   LMB = 줍기(발밑)");
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -372,6 +378,22 @@ void PlayScene::UpdateWeaponPickup(SceneContext& ctx)
 // ============================================================================
 void PlayScene::Render(Renderer& renderer)
 {
+    // ---- ★ 바닥 ----
+    //   벨트스크롤일 때는 바닥이 「화면 아래쪽」이라는 암묵적인 것이었다.
+    //   플랫포머에서는 **밟는 면**이 되었으므로 눈에 보여야 한다 —
+    //   안 그리면 캐릭터가 허공에 떠 있는 것처럼 보인다.
+    //
+    //   ※ 발판 여러 장은 6-d 다. 지금은 한 면이라 사각형 하나로 충분하다.
+    const float groundY = Config::kGroundY;
+    const float canvasW = static_cast<float>(Config::kCanvasWidth);
+    const float canvasH = static_cast<float>(Config::kCanvasHeight);
+
+    renderer.DrawFilledRect({ 0.0f, groundY, canvasW, canvasH },
+                            DirectX::XMVectorSet(0.09f, 0.09f, 0.12f, 1.0f));
+    // 윗면에 밝은 선 한 줄. 「여기가 발이 닿는 높이」를 픽셀 하나로 말한다.
+    renderer.DrawFilledRect({ 0.0f, groundY, canvasW, groundY + 1.0f },
+                            DirectX::XMVectorSet(0.30f, 0.31f, 0.38f, 1.0f));
+
     // 바닥의 물건 -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
     m_weaponObj.Render(renderer);
     m_enemyObj.Render(renderer);

@@ -26,6 +26,7 @@
 #include "Core/Transform.h"
 #include "Gameplay/AttackData.h"
 
+class BodyComponent;
 class PartsComponent;
 class PoiseComponent;
 class SpriteComponent;
@@ -111,6 +112,7 @@ private:
     const Transform& m_target;
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
+    BodyComponent*   m_body   = nullptr;
     PartsComponent*  m_parts  = nullptr;
     PoiseComponent*  m_poise  = nullptr;
     SpriteComponent* m_sprite = nullptr;
@@ -123,6 +125,6 @@ private:
     bool m_hitThisSwing   = false;
 
     // 넉백 방향. 휘청인 시점에 고정된다.
+    // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
     float m_knockDirX = 0.0f;
-    float m_knockDirY = 0.0f;
 };

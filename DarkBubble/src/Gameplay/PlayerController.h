@@ -17,6 +17,7 @@
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
 
+class BodyComponent;
 class PartsComponent;
 class PoiseComponent;
 
@@ -44,12 +45,16 @@ class StaminaComponent;
 //      공격이 4종이어도 Attack 은 하나다.
 //
 //    ※ 원칙의 진짜 내용은 「조건이 여러 곳에 흩어지면 상태로 승격한다」이므로,
-//      플랫포머 전환 때 Jump 가 추가되어 8개가 된다(design.md §3.8.1).
+//      플랫포머 전환에서 Jump 가 추가되어 **8개**가 되었다(design.md §3.8.1).
+//      공중은 그 기준을 넘는다 — 이동 제어가 다르고, 구르기가 안 되고,
+//      착지 판정이 필요하고, 공격이 다르다. 넷을 `if (!grounded)` 로
+//      흩뿌리면 상태 머신을 만든 이유가 사라진다.
 // ============================================================================
 enum class PlayerState
 {
     Idle,
     Run,
+    Jump,        // 공중. **올라가는 중과 떨어지는 중을 나누지 않는다** — 규칙이 같다
     Attack,
     Roll,        // 이동이 목적이 아니라 **무적 프레임**이 목적이다
     Exhausted,   // 스태미나 고갈 경직. 부족해도 행동은 나가고 대가를 뒤에 치른다
@@ -168,7 +173,8 @@ public:
 
     // ★ 부위 상실이 행동을 막는다. 조건을 흩뿌리지 않고 이름을 붙여 모은다.
     bool CanAttack() const;   // 무기를 든 손이 살아 있는가
-    bool CanRoll()   const;   // 다리가 살아 있는가
+    bool CanRoll()   const;   // 다리가 살아 있는가 + 땅을 밟고 있는가
+    bool CanJump()   const;   // 다리가 살아 있는가 + 땅을 밟고 있는가 + 웅크리지 않았는가
 
     WeaponHand Hand() const { return m_weaponHand; }
 
@@ -200,18 +206,29 @@ private:
     void ChangeState(SceneContext& ctx, PlayerState next, bool force = false);
     const AttackData& SelectAttack(SceneContext& ctx, PlayerState prev) const;
 
-    void UpdateMovement(SceneContext& ctx, float moveX, float moveY);
+    // ★ moveY 가 사라졌다. 플랫포머에서 세로 위치를 정하는 것은 **중력**이지
+    //   입력이 아니다. 인자를 지우면 옛 호출이 전부 컴파일 에러가 되어
+    //   「고쳐야 할 곳 목록」을 컴파일러가 만들어 준다.
+    void UpdateMovement(SceneContext& ctx, float moveX);
+
+    // 지금 몸이 있어야 할 「기본 상태」. 공중이면 Jump, 아니면 Idle/Run.
+    //   ★ 공격·구르기가 끝나는 자리마다 `moving ? Run : Idle` 을 적었더니
+    //     공중에서 끝났을 때 한 틱 동안 서 있는 그림이 나왔다. 한 곳으로 모은다.
+    PlayerState RestingState(bool moving) const;
 
     // 잘린 팔을 그림에 반영한다. 틴트·눌림과 같은 「표현」이라 Render 에서 부른다.
     void UpdateArmLayers();
 
     // ★ 남은 틱에 비례해 감속하며 미끄러진다. 총 이동량이 distance 가 되도록 정규화.
     //   구르기와 넉백이 공유한다 — 일정 속도로 움직이면 둘 다 어색하다.
-    void SlideDecaying(float dirX, float dirY, float distance, int totalTicks);
+    //   ★ dirY 를 지웠다. 세로 이동은 이제 BodyComponent 의 속도가 담당한다 —
+    //     두 가지 방식이 같은 축을 동시에 밀면 반드시 어긋난다.
+    void SlideDecaying(float dirX, float distance, int totalTicks);
 
     AABB SpriteBounds() const;
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
+    BodyComponent*    m_body    = nullptr;
     SpriteComponent*  m_sprite  = nullptr;
     PoiseComponent*   m_poise   = nullptr;
     PartsComponent*   m_parts   = nullptr;
@@ -227,8 +244,9 @@ private:
     int m_invulnTicks = 0;
 
     // 구르기 방향은 **시작 시점에 고정**된다. 중간에 방향키를 바꿔도 무시된다.
-    float m_rollDirX = 1.0f, m_rollDirY = 0.0f;
-    float m_knockDirX = -1.0f, m_knockDirY = 0.0f;
+    //   ★ 세로 성분이 사라졌다 — 구르기도 넉백도 이제 수평 이동이다.
+    float m_rollDirX  =  1.0f;
+    float m_knockDirX = -1.0f;
 
     // ★ 무브셋 : 어느 공격인지도 시작 시점에 고정된다.
     //   매 틱 다시 고르면 휘두르는 도중에 Ctrl 을 떼는 순간 프레임 데이터가 갈려

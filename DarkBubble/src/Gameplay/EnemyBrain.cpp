@@ -1,6 +1,7 @@
 ﻿#include "Gameplay/EnemyBrain.h"
 
 #include "Core/Constants.h"
+#include "Core/BodyComponent.h"
 #include "Core/GameObject.h"
 #include "Core/Log.h"
 #include "Core/Scene.h"
@@ -88,7 +89,8 @@ namespace
     //   ★ 경직 내성(PoiseComponent 30틱)보다 짧다. 회복되는 그 틱에 다시
     //     휘청이면 무한 루프가 된다.
     constexpr int   kHurtTicks     = 16;
-    constexpr float kHurtKnockback = 12.0f;   // 플레이어(22)보다 짧다 — 적이 더 무겁다
+    constexpr float kHurtKnockback = 12.0f;
+    constexpr float kHurtLift      =  1.6f;   // 넉백에 섞는 상승. 플레이어(2.0)보다 작다   // 플레이어(22)보다 짧다 — 적이 더 무겁다
 }
 
 
@@ -112,6 +114,7 @@ const char* EnemyStateName(EnemyState s)
 void EnemyBrain::Start(SceneContext& ctx)
 {
     // Require : 없으면 조립이 잘못된 것이므로 그 자리에서 죽는다.
+    m_body   = &Owner().Require<BodyComponent>();
     m_parts  = &Owner().Require<PartsComponent>();
     m_poise  = &Owner().Require<PoiseComponent>();
     m_sprite = &Owner().Require<SpriteComponent>();
@@ -174,8 +177,12 @@ void EnemyBrain::Reset(SceneContext& ctx)
 {
     Transform& tr = Owner().transform;
     tr.x = 470.0f;
-    tr.y = 270.0f;
     tr.facing = -1;
+
+    // ★ 세로는 바닥이 정한다. 전에는 270 이라고 적혀 있었는데,
+    //   플레이어(260)와 **달랐다** — 벨트스크롤에서는 「깊이가 다른」 것이라
+    //   문제가 아니었지만, 플랫포머에서는 둘이 같은 땅을 밟아야 한다.
+    m_body->SnapToGround();
 
     m_parts->Reset();
 
@@ -197,21 +204,22 @@ void EnemyBrain::Reset(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 //  Stagger — 휘청인다. 휘두르던 공격이 취소된다.
 // ----------------------------------------------------------------------------
-void EnemyBrain::Stagger(SceneContext& ctx, float fromX, float fromY)
+void EnemyBrain::Stagger(SceneContext& ctx, float fromX, float /*fromY*/)
 {
     if (m_state == EnemyState::Dead)
         return;
 
     const Transform& tr = Owner().transform;
 
-    // 넉백 방향 = 공격자 -> 나
-    float dx = tr.x - fromX;
-    float dy = tr.y - fromY;
-    const float len = std::sqrt(dx * dx + dy * dy);
-    if (len > 0.0001f) { dx /= len; dy /= len; }
-    else               { dx = static_cast<float>(tr.facing); dy = 0.0f; }
-    m_knockDirX = dx;
-    m_knockDirY = dy;
+    // 넉백 방향 = 공격자 -> 나. ★ 수평만 — 플레이어의 넉백과 같은 규칙이다.
+    const float dx = tr.x - fromX;
+    m_knockDirX = (std::abs(dx) > 0.0001f)
+        ? ((dx > 0.0f) ? 1.0f : -1.0f)
+        : static_cast<float>(tr.facing);
+
+    // ★ 살짝 뜬다. 위에서 내려찍혔을 때 반응이 보이도록 —
+    //   점프 공격(§3.8.2)의 타격감이 여기서 나온다.
+    m_body->AddLift(kHurtLift);
 
     m_poise->OnStaggered();
 
@@ -272,9 +280,10 @@ void EnemyBrain::MoveTowardTarget(float speedPerTick)
 {
     Transform& tr = Owner().transform;
 
+    // ★ **1차원 추격.** 플랫포머에서 적이 세로로 다가가는 방법은 없다 —
+    //   걸어가거나(6-d 의 발판), 못 가거나 둘 중 하나다.
+    //   세로를 향해 밀면 그냥 허공을 떠다니게 된다.
     const float dx = m_target.x - tr.x;
-    const float dy = m_target.y - tr.y;
-    const float dist = std::sqrt(dx * dx + dy * dy);
 
     // 바라보는 방향은 거리와 무관하게 갱신한다
     if (dx < -1.0f)     tr.facing = -1;
@@ -283,14 +292,13 @@ void EnemyBrain::MoveTowardTarget(float speedPerTick)
     // ★ 공격 위치에 도달하면 멈춘다.
     //   「멈추는 조건」과 「공격하는 조건」이 같은 함수다 —
     //   따로 두면 「멈췄는데 닿지 않는」 적이 생긴다.
-    if (InAttackPosition() || dist <= 0.0001f)
+    //   ★ 플레이어가 점프하면 InAttackPosition 의 세로 조건이 깨지므로
+    //     적은 **계속 쫓아온다.** 머리 위로 뛰어넘어도 따라붙는다.
+    if (InAttackPosition() || std::abs(dx) <= 0.0001f)
         return;
 
-    tr.x += dx / dist * speedPerTick;
-    tr.y += dy / dist * speedPerTick;
-
+    tr.x += ((dx > 0.0f) ? 1.0f : -1.0f) * speedPerTick;
     tr.x = std::clamp(tr.x, 32.0f, static_cast<float>(Config::kCanvasWidth) - 32.0f);
-    tr.y = std::clamp(tr.y, 64.0f, static_cast<float>(Config::kCanvasHeight));
 }
 
 
@@ -345,8 +353,6 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
                 Transform& tr2 = Owner().transform;
                 tr2.x = std::clamp(tr2.x + m_knockDirX * step, 32.0f,
                                    static_cast<float>(Config::kCanvasWidth) - 32.0f);
-                tr2.y = std::clamp(tr2.y + m_knockDirY * step, 64.0f,
-                                   static_cast<float>(Config::kCanvasHeight));
             }
             if (m_stateTicks >= kHurtTicks)
             {
