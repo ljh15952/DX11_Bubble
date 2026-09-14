@@ -58,7 +58,7 @@ namespace
     // ---- 손 슬롯 아이콘 ----
     constexpr float kHandSlotX = 48.0f;
     constexpr int   kIconSize  = 16;
-    constexpr int   kIconEmpty = 0;
+    constexpr int   kIconEmpty = 0;    // ※ 지금은 안 쓴다. 빈손도 「문다」이므로
     constexpr int   kIconDagger = 1;
     constexpr int   kIconSevered = 2;
     constexpr int   kIconTeeth = 3;
@@ -327,7 +327,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     UpdateCamera(ctx);
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
-    Log::Info("[play] LMB = attack   RMB = bite (팔이 없어도 된다)   LMB = 줍기(발밑)");
+    Log::Info("[play] LMB = 왼손   RMB = 오른손   — 무기가 있으면 휘두르고 없으면 문다");
+    Log::Info("[play] 발밑에 무기가 있으면 그 버튼이 **줍기**가 된다 (누른 손에 든다)");
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -581,18 +582,19 @@ void PlayScene::DrawHandSlots(Renderer& renderer)
     if (!m_icons)
         return;
 
-    // 어느 그림을 쓸지. 팔이 잘렸으면 든 것이 무엇이든 X 다.
-    auto slot = [this](int armPart, WeaponHand hand) -> int
-    {
-        if (m_playerParts->IsBroken(armPart))     return kIconSevered;
-        if (m_player->Hand() == hand)             return kIconDagger;
-        return kIconEmpty;
-    };
-
-    struct Cell { const char* label; int icon; };
+    // ★★ 칸은 「무엇을 들었나」가 아니라 **「이 버튼이 무엇을 하나」**를 말한다.
+    //   조작이 손 단위가 되면서 그것이 플레이어가 알아야 할 전부가 되었다.
+    //
+    //       단검    휘두른다
+    //       이빨    문다 (빈손이든 잘렸든 — 무기가 없으면 남는 것은 이것뿐)
+    //
+    //   ★ 팔이 잘린 쪽은 **붉게** 칠한다. 「문다」는 같지만 몸 상태가 다르므로,
+    //     그림을 하나 더 만드는 대신 **색으로** 한 겹을 얹는다.
+    //     (X 그림은 시트에 남겨 둔다 — 장비 화면이 오면 그때 쓴다)
+    struct Cell { const char* label; int arm; WeaponHand hand; };
     const Cell cells[2] = {
-        { "L", slot(Part_LeftArm,  WeaponHand::Left)  },
-        { "R", slot(Part_RightArm, WeaponHand::Right) },
+        { "L", Part_LeftArm,  WeaponHand::Left  },
+        { "R", Part_RightArm, WeaponHand::Right },
     };
 
     const float y = Config::kCanvasHeight - 78.0f;
@@ -601,25 +603,21 @@ void PlayScene::DrawHandSlots(Renderer& renderer)
     {
         const float x = kHandSlotX + static_cast<float>(i) * (kIconSize + 6.0f);
 
-        const RECT src{ cells[i].icon * kIconSize, 0,
-                        (cells[i].icon + 1) * kIconSize, kIconSize };
+        const bool armed   = m_player->HandArmed(cells[i].hand);
+        const bool severed = m_playerParts->IsBroken(cells[i].arm);
+        const int  icon    = armed ? kIconDagger : kIconTeeth;
 
-        renderer.Sprites().Draw(m_icons.Get(), DirectX::XMFLOAT2(x, y), &src,
-                                DirectX::Colors::White);
+        const RECT src{ icon * kIconSize, 0, (icon + 1) * kIconSize, kIconSize };
+
+        renderer.Sprites().Draw(
+            m_icons.Get(), DirectX::XMFLOAT2(x, y), &src,
+            severed ? DirectX::XMVectorSet(1.0f, 0.42f, 0.42f, 1.0f)
+                    : DirectX::Colors::White);
 
         // 어느 손인지. 아이콘만으로는 좌우를 알 수 없다.
         renderer.DrawString(cells[i].label, x + 5.0f, y + kIconSize + 1.0f,
-                            DirectX::Colors::SlateGray, 1);
-    }
-
-    // ★ 양손을 다 잃으면 남는 것은 이빨뿐이다. 그것도 **칸으로** 보여 준다 —
-    //   「무기가 없다」가 아니라 「이것이 남았다」로 읽혀야 한다(§3.2.2.1).
-    if (m_playerParts->IsBroken(Part_LeftArm) && m_playerParts->IsBroken(Part_RightArm))
-    {
-        const float x = kHandSlotX + 2.0f * (kIconSize + 6.0f);
-        const RECT src{ kIconTeeth * kIconSize, 0, (kIconTeeth + 1) * kIconSize, kIconSize };
-        renderer.Sprites().Draw(m_icons.Get(), DirectX::XMFLOAT2(x, y), &src,
-                                DirectX::Colors::White);
+                            severed ? DirectX::Colors::Crimson
+                                    : DirectX::Colors::SlateGray, 1);
     }
 }
 
@@ -667,22 +665,16 @@ void PlayScene::UpdateWeaponPickup(SceneContext& ctx)
     }
 
     // ---- 줍는다 ----
-    if (!m_player->ConsumePickupRequest())
-        return;
-
-    // ★ 어느 손에 드는가는 **남아 있는 팔**이 정한다.
-    //   오른팔이 살아 있으면 오른손(무기 손), 아니면 왼손.
-    //   왼손에 들면 보조 슬롯이 차서 나중에 횃불을 못 든다 — §1.2 의 기회비용.
-    const WeaponHand hand =
-          !m_playerParts->IsBroken(Part_RightArm) ? WeaponHand::Right
-        : !m_playerParts->IsBroken(Part_LeftArm)  ? WeaponHand::Left
-        :                                           WeaponHand::None;
-
+    //   ★ **어느 손에 드는가를 컨트롤러가 들고 온다.** 전에는 여기서
+    //     「남아 있는 팔」로 골랐는데, 버튼이 손을 가리키게 된 지금은
+    //     **누른 쪽 손**이 답이다 — 고르는 주체가 Scene 에서 플레이어로 옮겨 갔다.
+    //
+    //   ※ 「팔이 없어 못 줍는다」는 경우가 여기서 사라졌다.
+    //     그 판단은 컨트롤러의 CanHold 가 **요청을 내기 전에** 한다 —
+    //     못 하는 일을 요청했다가 되돌리는 것보다 애초에 요청을 안 하는 편이 낫다.
+    const WeaponHand hand = m_player->ConsumePickupRequest();
     if (hand == WeaponHand::None)
-    {
-        Log::Info("[play] 팔이 없어 주울 수 없다");
         return;
-    }
 
     m_pickup->PickedUp();
     m_player->EquipWeapon(hand);

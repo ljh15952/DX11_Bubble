@@ -47,17 +47,17 @@ void Input::Poll()
     //   번역하도록 처음부터 설계해 둔 덕에 장치를 늘려도 게임 코드가 안 바뀐다.
     using MouseTracker = DirectX::Mouse::ButtonStateTracker;
 
-    m_edges.attack  |= m_padTracker.x == PadTracker::PRESSED
-                    || m_mouseTracker.leftButton == MouseTracker::PRESSED;
+    // ★ 버튼 = 손. 무엇을 하는지는 **그 손에 무엇이 들렸는지**가 정한다.
+    m_edges.leftHand  |= m_padTracker.x == PadTracker::PRESSED
+                      || m_mouseTracker.leftButton == MouseTracker::PRESSED;
+
+    m_edges.rightHand |= m_padTracker.y == PadTracker::PRESSED
+                      || m_mouseTracker.rightButton == MouseTracker::PRESSED;
 
     // ★ Space 가 공격에서 점프로 옮겨 왔다. 같은 물리 키가 메뉴에서는
     //   여전히 Confirm 이다 — 의도로 번역해 두었기에 충돌하지 않는다.
     m_edges.jump    |= m_kbTracker.pressed.Space
                     || m_padTracker.a == PadTracker::PRESSED;
-
-    // ★ 물기 — 팔이 없어도 쓸 수 있는 최후의 수단이라 **항상** 받는다.
-    m_edges.bite    |= m_padTracker.y == PadTracker::PRESSED
-                    || m_mouseTracker.rightButton == MouseTracker::PRESSED;
 
     m_edges.roll    |= m_kbTracker.pressed.LeftShift
                     || m_padTracker.b == PadTracker::PRESSED;

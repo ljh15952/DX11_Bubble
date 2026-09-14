@@ -174,7 +174,11 @@ public:
     const ArmorData& Armor() const;
 
     // ★ 부위 상실이 행동을 막는다. 조건을 흩뿌리지 않고 이름을 붙여 모은다.
-    bool CanAttack() const;   // 무기를 든 손이 살아 있는가
+    // ★ `CanAttack()` 을 지웠다. 「공격할 수 있는가」는 이제 **질문이 아니다** —
+    //   손에 무기가 있으면 휘두르고 없으면 문다. 못 하는 경우가 없다.
+    //   대신 **손마다** 묻는다.
+    bool HandArmed(WeaponHand hand) const;   // 그 손에 무기가 들려 있는가
+    bool CanHold(WeaponHand hand)   const;   // 그 손으로 주울 수 있는가
     bool CanRoll()   const;   // 다리가 살아 있는가 + 땅을 밟고 있는가
     bool CanJump()   const;   // 다리가 살아 있는가 + 땅을 밟고 있는가 + 웅크리지 않았는가
 
@@ -193,10 +197,13 @@ public:
     //     말하고, 어디에 어떻게 놓을지는 Scene 이 정한다.
     //     사망 화면을 Scene 이 띄우는 것과 같은 구조다.
     bool ConsumeWeaponDropRequest();
-    bool ConsumePickupRequest();
+    // ★ **어느 손으로** 주울지까지 돌려준다. None = 요청 없음.
+    //   전에는 Scene 이 「남아 있는 팔」로 정했는데, 이제 **누른 버튼**이 정한다 —
+    //   왼손으로 주울지 오른손으로 주울지가 플레이어의 선택이 되었다.
+    WeaponHand ConsumePickupRequest();
 
     // Scene 이 매 틱 알려 준다 — 「지금 발밑에 주울 것이 있다」.
-    //   ★ 틱 **전에** 알려 줘야 한다. 그래야 컨트롤러가 같은 Space 입력을
+    //   ★ 틱 **전에** 알려 줘야 한다. 그래야 컨트롤러가 같은 버튼 입력을
     //     공격이 아니라 줍기로 쓸지 판단할 수 있다.
     void SetPickupAvailable(bool v) { m_pickupAvailable = v; }
 
@@ -271,10 +278,17 @@ private:
     // ★ m_comboStep 을 지웠다. 「몇 타째인가」를 세는 대신 「직전에 무엇을
     //   냈는가」(m_currentAttack)를 묻는다 — 이어지는 것은 기본 공격뿐이므로
     //   셀 것이 없다. 상태를 옳은 곳에 두면 필드가 사라진다.
-    bool m_comboQueued = false;
+    //
+    //   ★★ 그리고 `bool m_comboQueued` 도 사라졌다. 예약에는 「했는가」만이
+    //     아니라 **「어느 손으로」**가 필요해졌는데, bool 로는 말할 수 없다.
+    //     None 이 「예약 없음」을 겸하므로 필드가 하나로 합쳐졌다 —
+    //     bool 하나를 늘리는 대신 **이미 있는 값에 뜻을 얹는다.**
+    WeaponHand m_queuedHand = WeaponHand::None;
 
     // ★ 물기 요청. 다른 키로 들어오므로 무브셋 선택에서 최우선이다.
-    bool m_biteRequested = false;
+    // 이번 공격을 **어느 손**이 냈는가. 무엇이 나갈지는 SelectAttack 이 정한다.
+    WeaponHand m_pendingHand = WeaponHand::None;
+    WeaponHand m_pickupHand  = WeaponHand::None;
     bool m_hitThisSwing = false;
 
     // ★★ 이름이 `m_crouching` 이 아니라 `m_crouchHeld` 인 이유가 있다.

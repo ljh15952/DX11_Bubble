@@ -377,15 +377,33 @@ const ArmorData& PlayerController::Armor() const { return kArmors[m_armorIndex];
 //
 //    ※ 맨손 공격과 왼손으로 옮겨 들기는 8단계(인벤토리)의 몫이다.
 // ----------------------------------------------------------------------------
-bool PlayerController::CanAttack() const
+namespace
 {
-    // 무기가 없으면 휘두를 것이 없고, 든 손이 잘려도 마찬가지다.
-    switch (m_weaponHand)
+    // 손 -> 그 팔의 부위 번호. 두 곳에서 같은 대응을 적지 않으려고 모아 둔다.
+    int ArmOf(WeaponHand hand)
     {
-    case WeaponHand::Right: return !m_parts->IsBroken(Part_RightArm);
-    case WeaponHand::Left:  return !m_parts->IsBroken(Part_LeftArm);
-    default:                return false;
+        return (hand == WeaponHand::Right) ? Part_RightArm : Part_LeftArm;
     }
+}
+
+
+bool PlayerController::HandArmed(WeaponHand hand) const
+{
+    if (hand == WeaponHand::None || m_weaponHand != hand)
+        return false;
+
+    // ※ 팔이 잘리면 TakeHit 이 이미 무기를 떨구므로 여기 걸릴 일은 없다.
+    //   그래도 본다 — 「떨구는 쪽」과 「휘두르는 쪽」이 서로를 믿고 조건을
+    //   생략하면, 한쪽이 바뀔 때 다른 쪽이 조용히 틀린다.
+    return !m_parts->IsBroken(ArmOf(hand));
+}
+
+
+bool PlayerController::CanHold(WeaponHand hand) const
+{
+    if (hand == WeaponHand::None)           return false;
+    if (m_weaponHand != WeaponHand::None)   return false;   // 이미 들고 있다
+    return !m_parts->IsBroken(ArmOf(hand));
 }
 
 
@@ -397,11 +415,11 @@ bool PlayerController::ConsumeWeaponDropRequest()
 }
 
 
-bool PlayerController::ConsumePickupRequest()
+WeaponHand PlayerController::ConsumePickupRequest()
 {
-    if (!m_pickupRequested) return false;
+    if (!m_pickupRequested) return WeaponHand::None;
     m_pickupRequested = false;
-    return true;
+    return m_pickupHand;
 }
 
 
@@ -519,8 +537,9 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_knockDirX = -1.0f;
 
     m_currentAttack = nullptr;
-    m_biteRequested = false;
-    m_comboQueued   = false;
+    m_pendingHand   = WeaponHand::None;
+    m_pickupHand    = WeaponHand::None;
+    m_queuedHand    = WeaponHand::None;
     m_hitThisSwing  = false;
     m_crouchHeld    = false;
     m_crouchForced  = false;
@@ -568,13 +587,16 @@ void PlayerController::Respawn(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 const AttackData& PlayerController::SelectAttack(PlayerState prev) const
 {
-    // ⓪ 물기는 **모든 것보다 위**다. 다른 키로 들어왔으므로 해석의 여지가 없다.
-    //   자세만 반영한다 — 자세마다 **무는 높이**가 다르다.
+    // ⓪ ★★ **그 손에 무기가 없으면 문다.**
     //
-    //   ★ 자세를 `Prone() ? … : …` 로 묻지 않는다. 그렇게 쓰면 자세가 셋이 된
+    //   전에는 「우클릭 = 물기」라는 **전용 버튼**이었다. 이제 물기는 버튼이
+    //   아니라 **상태**다 — 빈손이든 잘렸든, 휘두를 것이 없으면 남는 것은
+    //   이빨뿐이다(§3.2.2.1). 규칙이 하나 줄고 의미는 늘었다.
+    //
+    //   ★ 자세만 반영한다 — 자세마다 **무는 높이**가 다르다.
+    //     자세를 `Prone() ? … : …` 로 묻지 않는다. 그렇게 쓰면 자세가 셋이 된
     //     지금 「웅크리기」가 조용히 빠진다 — 실제로 그렇게 빠져 있었다.
-    //     **자세를 묻는 곳은 PartsComponent 하나**이고 여기는 그걸 읽는다.
-    if (m_biteRequested)
+    if (!HandArmed(m_pendingHand))
     {
         switch (m_parts->CurrentPosture())
         {
@@ -646,7 +668,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     //   전에는 Attack 에 들어갈 때만 지웠는데, 예약해 둔 채 고갈(Exhausted)로
     //   빠지면 플래그가 살아남아 **다음 공격이 끝날 때 공짜 콤보**가 나갔다.
     //   구르기도 예약을 받게 되면서 그런 경로가 더 늘어난다 — 한 곳으로 모은다.
-    m_comboQueued = false;
+    m_queuedHand = WeaponHand::None;
 
     Transform& tr = Owner().transform;
 
@@ -673,11 +695,9 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
 
     case PlayerState::Attack:
     {
-        // ★ 물기는 콤보에 들어가지 않는다. 무기 콤보의 일부가 아니기 때문이다.
 
         // ★ 어느 공격인지 **여기서 고정한다.**
         m_currentAttack = &SelectAttack(prev);
-        m_biteRequested = false;          // 한 번 쓰면 지운다
         const AttackData& atk = *m_currentAttack;
 
         // ★★ 자세별 예외가 **없다.** 전에는 `Prone() ? 기어가기 : 공격그림` 이었고,
@@ -1051,10 +1071,17 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
             m_sprite->Play(PostureClip(m_state == PlayerState::Run), true);
     }
 
-    const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
-    const bool jumpPressed   = (consumeEdgeInput && ctx.input.JumpPressed());
-    const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
-    const bool bitePressed   = (consumeEdgeInput && ctx.input.BitePressed());
+    const bool jumpPressed = (consumeEdgeInput && ctx.input.JumpPressed());
+    const bool rollPressed = (consumeEdgeInput && ctx.input.RollPressed());
+
+    // ★ 두 버튼을 **하나의 값**으로 합친다. 아래에서 「어느 손이 눌렸나」만
+    //   보면 되고, 「무엇이 나가는가」는 SelectAttack 한 곳이 정한다.
+    //   둘이 같은 틱에 눌리면 왼손이 이긴다 — 순서를 정해 두지 않으면
+    //   프레임마다 다른 쪽이 이기는 것처럼 보인다.
+    const WeaponHand handPressed =
+          (consumeEdgeInput && ctx.input.LeftHandPressed())  ? WeaponHand::Left
+        : (consumeEdgeInput && ctx.input.RightHandPressed()) ? WeaponHand::Right
+        :                                                      WeaponHand::None;
 
     switch (m_state)
     {
@@ -1080,21 +1107,21 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         {
             ChangeState(ctx, PlayerState::Roll);
         }
-        else if (bitePressed)
+        // ★ 발밑에 주울 것이 있으면 **그 버튼은 줍기**가 된다.
+        //   맥락이 같은 입력의 뜻을 바꾸는 것 — 무브셋에서 이미 쓴 방식이다.
+        //
+        //   ★★ **누른 버튼이 어느 손에 들지를 정한다.** 전에는 Scene 이
+        //     「남아 있는 팔」로 골라 줬는데, 이제 왼손으로 받을지 오른손으로
+        //     받을지가 플레이어의 선택이다 — §1.2 의 기회비용(왼손에 들면
+        //     나중에 횃불을 못 든다)이 그제야 **선택**이 된다.
+        else if (m_pickupAvailable && CanHold(handPressed))
         {
-            // ★ 물기는 CanAttack() 을 보지 않는다 — 무기가 필요 없기 때문이다.
-            m_biteRequested = true;
-            ChangeState(ctx, PlayerState::Attack, true);
-        }
-        else if (attackPressed && m_pickupAvailable)
-        {
-            // ★ 발밑에 주울 것이 있으면 Space 는 **줍기**가 된다.
-            //   맥락이 같은 입력의 뜻을 바꾸는 것 — 무브셋에서 이미 쓴 방식이다.
-            //   못 줍는 상황(양팔 절단)에서는 이 갈래로 안 들어와 공격이 살아난다.
             m_pickupRequested = true;
+            m_pickupHand      = handPressed;
         }
-        else if (attackPressed && CanAttack())
+        else if (handPressed != WeaponHand::None)
         {
+            m_pendingHand = handPressed;
             ChangeState(ctx, PlayerState::Attack);
         }
         else                    ChangeState(ctx, RestingState(moving));
@@ -1110,13 +1137,9 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
 
         // ★ 공중에서는 **줍기 갈래가 없다.** 그래서 발밑에 무기가 있어도
         //   뛰어넘으며 주워지지 않는다 — Space 를 점프로 옮긴 대가를 여기서 치른다.
-        if (bitePressed)
+        if (handPressed != WeaponHand::None)
         {
-            m_biteRequested = true;
-            ChangeState(ctx, PlayerState::Attack, true);
-        }
-        else if (attackPressed && CanAttack())
-        {
+            m_pendingHand = handPressed;
             ChangeState(ctx, PlayerState::Attack);
         }
         else if (m_body->Grounded())
@@ -1145,10 +1168,13 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //     (m_comboStep)를 통째로 지웠다 —
         //     THRUST 는 m_currentAttack != &kDaggerLight 라 스스로 못 잇는다.
         //     **세는 대신 물으면 셀 것이 없어진다.**
-        if (attackPressed && CanAttack() && m_currentAttack == &kDaggerLight
+        //   ★ 예약에 **손까지** 담는다. 왼손으로 1타를 내고 오른손으로 이어치는
+        //     것도 성립해야 하기 때문이다 — 「이어친다」는 무기의 성질이지
+        //     손의 성질이 아니다.
+        if (handPressed != WeaponHand::None && m_currentAttack == &kDaggerLight
             && m_stateTicks >= atk.startup + atk.active)
         {
-            m_comboQueued = true;
+            m_queuedHand = handPressed;
         }
 
         // ※ 적을 실제로 때렸는지는 PlayScene 이 검사한다(헤더 주석 참조).
@@ -1160,9 +1186,13 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
             //   되면 스태미나 시스템에 구멍이 생긴다.
             if (m_stamina->Depleted())
                 ChangeState(ctx, PlayerState::Exhausted);
-            else if (m_comboQueued && CanAttack())
+            else if (m_queuedHand != WeaponHand::None)
+            {
+                // ★ ChangeState 가 m_queuedHand 를 지우므로 **먼저** 옮겨 담는다.
+                m_pendingHand = m_queuedHand;
                 // ★ force = true. Attack -> Attack 이라 「같은 상태면 무시」에 걸린다.
                 ChangeState(ctx, PlayerState::Attack, true);
+            }
             else
                 ChangeState(ctx, RestingState(moving));
         }
@@ -1178,10 +1208,10 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //     공격은 active 가 끝난 뒤부터,  구르기는 **무적이 끝난 뒤부터.**
         //   무적 구간에서도 받으면 「구르면서 공격 확정」이 되어
         //   「굴러서 빠져나갈까, 붙어서 칠까」라는 판단이 사라진다.
-        if (attackPressed && CanAttack()
+        if (handPressed != WeaponHand::None
             && m_stateTicks >= kRoll.windup + kRoll.invincible)
         {
-            m_comboQueued = true;
+            m_queuedHand = handPressed;
         }
 
         if (m_stateTicks >= kRoll.TotalTicks())
@@ -1189,8 +1219,11 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
             // 고갈이 콤보보다 우선한다 — 공격이 끝날 때와 같은 순서다.
             if (m_stamina->Depleted())
                 ChangeState(ctx, PlayerState::Exhausted);
-            else if (m_comboQueued && CanAttack())
+            else if (m_queuedHand != WeaponHand::None)
+            {
+                m_pendingHand = m_queuedHand;
                 ChangeState(ctx, PlayerState::Attack);
+            }
             else
                 ChangeState(ctx, RestingState(moving));
         }
@@ -1342,14 +1375,15 @@ void PlayerController::RenderUI(Renderer& renderer)
     if (m_pickupAvailable)
     {
         // 주울 수 있을 때만 뜬다. 항상 떠 있으면 아무도 안 읽는다.
-        renderer.DrawString("SPACE : PICK UP",
+        //   ★ **어느 손으로 받을지를 고른다**는 것까지 알려 준다.
+        renderer.DrawString("LMB / RMB : PICK UP (L / R HAND)",
                             12.0f, Config::kCanvasHeight - 92.0f,
                             DirectX::Colors::Gold, 1);
     }
-    else if (!CanAttack())
+    else if (m_weaponHand == WeaponHand::None)
     {
         // ★ 「할 수 있는 것」을 같이 알려 준다. 못 하는 것만 말하면 막힌 느낌이 든다.
-        renderer.DrawString("NO WEAPON - RMB TO BITE",
+        renderer.DrawString("NO WEAPON - BOTH HANDS BITE",
                             12.0f, Config::kCanvasHeight - 92.0f,
                             DirectX::Colors::Crimson, 1);
     }
@@ -1374,7 +1408,7 @@ void PlayerController::RenderUI(Renderer& renderer)
                         a.name, (m_currentAttack == &kDaggerCombo2) ? " (2nd)" : "",
                         m_stateTicks, AttackPhase(m_stateTicks, a),
                         a.startup, a.active, a.recovery, a.heightFromFoot,
-                        m_comboQueued ? "  >> NEXT" : ""),
+                        (m_queuedHand != WeaponHand::None) ? "  >> NEXT" : ""),
             6.0f, 6.0f,
             AttackActive() ? DirectX::Colors::Red : DirectX::Colors::Orange, 1);
     }

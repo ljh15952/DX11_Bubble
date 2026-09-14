@@ -88,9 +88,19 @@ public:
     //   ※ 줍기는 따로 키를 두지 않는다. **공격 키**가 발밑에 주울 것이
     //     있을 때만 뜻이 바뀐다 — 무브셋에서 이미 쓴 방식이다.
     //     Space 로 두었다면 뛰어넘기만 해도 주워졌을 것이다.
-    bool AttackPressed()  const { return m_edges.attack;  }   // 좌클릭 / 패드 X
-    bool JumpPressed()    const { return m_edges.jump;    }   // Space / 패드 A
-    bool BitePressed()    const { return m_edges.bite;    }   // 우클릭 / 패드 Y
+    // ★★ 버튼이 **행동**이 아니라 **손**을 가리킨다(2026-09-15).
+    //
+    //   전에는 「좌클릭 = 공격 / 우클릭 = 물기」였다. 그러면 무기를 어느 손에
+    //   들었든 조작이 같아서, **손이 둘이라는 사실이 조작에 안 나타났다.**
+    //   §3.10 의 슬롯 구조(오른손 무기 · 왼손 보조)가 화면에만 있고
+    //   손끝에는 없었던 셈이다.
+    //
+    //   이제 버튼이 손이고, **그 손에 무엇이 들려 있는지가 결과를 정한다** —
+    //   무기가 있으면 휘두르고, 없으면(빈손이든 잘렸든) 문다.
+    //   「무엇을 하는 버튼인가」를 Input 이 정하지 않는다.
+    bool LeftHandPressed()  const { return m_edges.leftHand;  }   // 좌클릭 / 패드 X
+    bool RightHandPressed() const { return m_edges.rightHand; }   // 우클릭 / 패드 Y
+    bool JumpPressed()      const { return m_edges.jump;      }   // Space / 패드 A
     bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
     bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
 
@@ -142,11 +152,11 @@ private:
     {
         bool confirm = false;
         bool cancel  = false;
-        bool attack  = false;
-        bool jump    = false;
-        bool roll    = false;
+        bool leftHand  = false;
+        bool rightHand = false;
+        bool jump      = false;
+        bool roll      = false;
         bool pause   = false;
-        bool bite    = false;
 
         // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키.
         //   6단계에서 진짜 장비 시스템이 오면 버린다.
