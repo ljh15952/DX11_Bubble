@@ -22,6 +22,7 @@
 #pragma once
 
 #include "Core/GameObject.h"
+#include "Core/Level.h"
 #include "Core/Scene.h"
 
 class SpriteComponent;
@@ -68,6 +69,12 @@ private:
     //
     //   ★ 붙인 순서 = 실행 순서다. 그래서 조립 코드가 곧 실행 순서표이고
     //     따로 외울 것이 없다. (그리기만 예외 — Component::RenderDebug 참조)
+    // ★ 지형은 Scene 이 소유한다. BodyComponent 에는 **참조로** 넘긴다 —
+    //   `Add<EnemyBrain>(m_playerObj.transform)` 과 같은 모양이다.
+    //   SceneContext(엔진 표면적)에 올리는 것은 맵이 여러 장이 되는 6-e 에서.
+    Level m_level;
+    void BuildLevel();
+
     GameObject m_playerObj{ "player" };
     GameObject m_enemyObj { "enemy"  };
     GameObject m_weaponObj{ "weapon" };   // 땅에 떨어진 무기

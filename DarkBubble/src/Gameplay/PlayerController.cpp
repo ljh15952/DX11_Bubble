@@ -663,8 +663,10 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
         if (m_parts->Prone()) speed *= kProneSpeedScale;
     }
 
-    tr.x = std::clamp(tr.x + moveX * speed, kOriginX,
-                      static_cast<float>(Config::kCanvasWidth) - kOriginX);
+    // ★ 가로 이동도 **몸을 거친다.** 전에는 여기서 tr.x 를 직접 썼는데,
+    //   그러면 걷기만 벽을 통과한다. 화면 밖으로 못 나가게 하던 clamp 도
+    //   사라졌다 — 화면 좌우 끝이 이제 **지형(벽)** 이기 때문이다.
+    m_body->MoveX(moveX * speed);
 
     // ★ 세로는 **건드리지 않는다.** 높이를 정하는 것은 BodyComponent 다.
     //   전에는 여기서 tr.y 를 입력으로 옮겼다 — 그게 벨트스크롤이었다.
@@ -708,9 +710,9 @@ void PlayerController::SlideDecaying(float dirX, float distance, int totalTicks)
 
     // ★ 가로만 민다. 세로는 BodyComponent 의 속도가 담당한다 —
     //   같은 축을 두 방식이 동시에 밀면 반드시 어긋난다.
-    Transform& tr = Owner().transform;
-    tr.x = std::clamp(tr.x + dirX * step, kOriginX,
-                      static_cast<float>(Config::kCanvasWidth) - kOriginX);
+    //   ★★ 구르기·넉백도 **같은 문**(MoveX)을 지난다. 하나라도 직접 옮기면
+    //     그 이동만 벽을 통과해 「구르면 벽을 뚫는」 게임이 된다.
+    m_body->MoveX(dirX * step);
 }
 
 

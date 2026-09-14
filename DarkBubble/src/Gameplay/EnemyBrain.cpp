@@ -342,8 +342,20 @@ void EnemyBrain::MoveTowardTarget(float speedPerTick)
     if (InAttackPosition() || std::abs(dx) <= 0.0001f)
         return;
 
-    tr.x += ((dx > 0.0f) ? 1.0f : -1.0f) * speedPerTick;
-    tr.x = std::clamp(tr.x, 32.0f, static_cast<float>(Config::kCanvasWidth) - 32.0f);
+    const float step = ((dx > 0.0f) ? 1.0f : -1.0f) * speedPerTick;
+
+    // ★ 낭떠러지에서 멈춘다.
+    //   **움직이기 전에** 묻는다 — 움직인 뒤에 물으면 이미 허공이다.
+    //
+    //   ★★ 이 한 줄이 지형을 전술로 바꾼다. 발판 위로 올라가면 잡몹이 못
+    //     따라오므로 스태미나를 회복할 수 있다. 「도망칠 곳이 있다」는 것이
+    //     §3.1 의 리듬(버티다 흘리다 회복)을 지형만으로 만든다.
+    //
+    //   ※ 적 AI 는 일단 여기까지다. 점프로 쫓아오거나 뛰어내리는 것은 나중에.
+    if (m_body->WouldStepOffLedge(tr.x + step))
+        return;
+
+    m_body->MoveX(step);
 }
 
 
@@ -394,10 +406,11 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
         case EnemyState::Hurt:
             // ★ 입력도 판단도 없다. 밀려나기만 한다 — 플레이어의 Hurt 와 같은 구조.
             {
+                // ★ 넉백도 몸을 거친다. 벽에 밀어붙이면 거기서 멈춘다.
+                //   낭떠러지 판정은 **하지 않는다** — 맞아서 밀려 떨어지는 것은
+                //   막을 이유가 없다. 「스스로 걸어 나가지 않는다」가 규칙이다.
                 const float step = DecayingStep(m_stateTicks, kHurtTicks, kHurtKnockback);
-                Transform& tr2 = Owner().transform;
-                tr2.x = std::clamp(tr2.x + m_knockDirX * step, 32.0f,
-                                   static_cast<float>(Config::kCanvasWidth) - 32.0f);
+                m_body->MoveX(m_knockDirX * step);
             }
             if (m_stateTicks >= kHurtTicks)
             {

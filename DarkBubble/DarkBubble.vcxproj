@@ -101,6 +101,7 @@
     <ClCompile Include="src\Audio\Audio.cpp" />
     <ClCompile Include="src\Core\BodyComponent.cpp" />
     <ClCompile Include="src\Core\Game.cpp" />
+    <ClCompile Include="src\Core\Level.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Core\GameObject.cpp" />
     <ClCompile Include="src\Core\SceneManager.cpp" />
@@ -130,6 +131,7 @@
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
     <ClInclude Include="src\Core\Log.h" />
+    <ClInclude Include="src\Core\Level.h" />
     <ClInclude Include="src\Core\Motion.h" />
     <ClInclude Include="src\Core\Component.h" />
     <ClInclude Include="src\Core\GameObject.h" />

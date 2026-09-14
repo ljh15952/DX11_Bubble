@@ -34,6 +34,14 @@ namespace
     constexpr int kCellW = 64;
     constexpr int kCellH = 64;
 
+    // ---- ★ 지형 충돌 상자. 피격 상자와 **다른 것**이다 ----
+    //   피격 상자는 자세를 따라 낮아지지만(웅크리기 27 / 엎드리기 25),
+    //   이것은 **고정**이다. 자세를 따라가게 만들면 웅크릴 때마다 몸이
+    //   발판 속으로 내려앉는다.
+    //   플레이어와 적이 같은 값을 쓴다 — 몸집이 비슷하기 때문이다.
+    constexpr float kBodyHalfW  =  9.0f;
+    constexpr float kBodyHeight = 44.0f;
+
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
     constexpr int   kFlashTicks    = 9;
@@ -94,6 +102,55 @@ namespace
 
 
 // ============================================================================
+//  ⓪ 지형
+//
+//    ★ 발판은 **통과할 수 없다**(2026-09-14 결정). 위에서도 옆에서도 막힌다.
+//      「위에서 내려올 때만 밟히는」 통과형은 옆면 충돌이 필요 없어 싸지만,
+//      ↓ 로 내려가기와 묶이는 구조다. ↓ 는 나중에 **사다리**에 쓰기로 했으므로
+//      발판은 그냥 벽으로 둔다.
+//
+//    ★ 화면 좌우 끝도 **지형**이다. 전에는 이동 코드마다 clamp 를 걸었는데,
+//      벽으로 두면 걷기·구르기·넉백이 전부 같은 규칙으로 막힌다 —
+//      「예외를 없애려면 그것도 규칙 안에 넣는다」.
+// ============================================================================
+void PlayScene::BuildLevel()
+{
+    const float w = static_cast<float>(Config::kCanvasWidth);
+    const float h = static_cast<float>(Config::kCanvasHeight);
+    const float g = Config::kGroundY;
+
+    m_level.Clear();
+
+    m_level.AddSolid({ 0.0f, g, w, h });                 // 바닥
+    m_level.AddSolid({ -32.0f, 0.0f, 0.0f, h });         // 왼쪽 벽 (화면 밖)
+    m_level.AddSolid({ w, 0.0f, w + 32.0f, h });         // 오른쪽 벽
+
+    // ---- 발판 ----
+    //   ★ 배치가 그냥 장식이 아니다. 두 가지 숫자에 묶여 있다:
+    //
+    //     ① 높이 차 40 < **점프 정점 55**.
+    //        55 를 넘으면 영영 못 올라간다.
+    //
+    //     ② 가로 간격 <= 40.
+    //        공중 제어력이 0.6 이라 공중에서는 틱당 1.5픽셀밖에 못 간다.
+    //        높이 40 이상을 유지하는 구간이 약 20틱이므로 **30픽셀쯤**이
+    //        건널 수 있는 거리다. 그보다 벌리면 보이는데 못 가는 발판이 된다.
+    //
+    //        280 바닥 -> 240 -> 200 -> 160
+    //
+    //   ★ 스폰 자리(플레이어 120 · 적 470)를 비워 둔다.
+    //     몸 상자가 발판에 끼인 채 시작하면 밀려나면서 튄다.
+    //
+    //   가장 높은 곳에서 뛰어내리면 발끝이 적의 머리(발끝에서 37~55)를 지난다 —
+    //   §3.8.2 의 「높은 데서 뛰어내려 머리를 노린다」가 여기서 처음 성립한다.
+    m_level.AddSolid({ 160.0f, g -  40.0f, 260.0f, g -  32.0f });   // A
+    m_level.AddSolid({ 300.0f, g -  80.0f, 420.0f, g -  72.0f });   // B  (A 에서 40 건넌다)
+    m_level.AddSolid({ 230.0f, g - 120.0f, 330.0f, g - 112.0f });   // D  (B 와 겹쳐 바로 위)
+    m_level.AddSolid({ 500.0f, g -  40.0f, 610.0f, g -  32.0f });   // C
+}
+
+
+// ============================================================================
 //  ① 조립
 // ============================================================================
 bool PlayScene::Enter(SceneContext& ctx)
@@ -122,10 +179,12 @@ bool PlayScene::Enter(SceneContext& ctx)
     //     Parts(번쩍임)   -> Brain(판단·이동)      -> Sprite
     //   Controller / Brain 이 Sprite 보다 먼저여야 이번 틱에 바꾼 클립이
     //   같은 틱에 반영된다.
+    BuildLevel();
+
     // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
     //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
     //   반대로 붙이면 착지를 한 틱 늦게 알아채 그림이 한 틱 어긋난다.
-    m_playerObj.Add<BodyComponent>();
+    m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyHeight);
     m_playerObj.Add<StaminaComponent>();
     m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_playerParts = &m_playerObj.Add<PartsComponent>(kPlayerParts);
@@ -142,7 +201,8 @@ bool PlayScene::Enter(SceneContext& ctx)
         playerSprite.AddLayer(stumpFrontSheet, false),   // 상처는 잘린 뒤에만
         playerSprite.AddLayer(stumpBackSheet,  false));
 
-    m_enemyObj.Add<BodyComponent>();   // ★ 적도 떨어진다. 같은 컴포넌트다
+    // ★ 적도 떨어진다. 같은 컴포넌트, 같은 숫자다.
+    m_enemyObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyHeight);
     m_enemyParts = &m_enemyObj.Add<PartsComponent>(kGruntParts);
     m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);
     m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);
@@ -388,15 +448,22 @@ void PlayScene::Render(Renderer& renderer)
     //   안 그리면 캐릭터가 허공에 떠 있는 것처럼 보인다.
     //
     //   ※ 발판 여러 장은 6-d 다. 지금은 한 면이라 사각형 하나로 충분하다.
-    const float groundY = Config::kGroundY;
     const float canvasW = static_cast<float>(Config::kCanvasWidth);
-    const float canvasH = static_cast<float>(Config::kCanvasHeight);
 
-    renderer.DrawFilledRect({ 0.0f, groundY, canvasW, canvasH },
-                            DirectX::XMVectorSet(0.09f, 0.09f, 0.12f, 1.0f));
-    // 윗면에 밝은 선 한 줄. 「여기가 발이 닿는 높이」를 픽셀 하나로 말한다.
-    renderer.DrawFilledRect({ 0.0f, groundY, canvasW, groundY + 1.0f },
-                            DirectX::XMVectorSet(0.30f, 0.31f, 0.38f, 1.0f));
+    // ★ 바닥도 발판도 **같은 목록**에서 나온다. 그려지는 것과 막는 것이
+    //   같은 데이터라 「보이는데 안 막히는 발판」이 생길 수 없다.
+    for (const AABB& s : m_level.Solids())
+    {
+        // 화면 밖 벽은 그릴 필요가 없다.
+        if (s.right <= 0.0f || s.left >= canvasW)
+            continue;
+
+        renderer.DrawFilledRect(s, DirectX::XMVectorSet(0.09f, 0.09f, 0.12f, 1.0f));
+
+        // 윗면에 밝은 선 한 줄. 「여기가 발이 닿는 높이」를 픽셀 하나로 말한다.
+        renderer.DrawFilledRect({ s.left, s.top, s.right, s.top + 1.0f },
+                                DirectX::XMVectorSet(0.30f, 0.31f, 0.38f, 1.0f));
+    }
 
     // 바닥의 물건 -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
     m_weaponObj.Render(renderer);
