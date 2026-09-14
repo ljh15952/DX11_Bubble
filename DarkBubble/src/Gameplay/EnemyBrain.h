@@ -111,6 +111,10 @@ private:
     void ChangeState(SceneContext& ctx, EnemyState next);
     void MoveTowardTarget(float speedPerTick);
     bool InAttackPosition() const;
+    // ★ 지금 상대를 **인지하고 있는가**. 거리 + 각도, 그리고 청각.
+    //   design.md §3.9 B — 「보이지 않으면 싸울 수 없다」를 적에게도 건다.
+    bool  CanSeeTarget() const;
+
     bool  WouldBite()   const;   // 휘두를 수 없는 자세인가 (나 또는 상대가 엎드림)
     float AttackRange() const;
     void ApplyTint();
@@ -133,6 +137,11 @@ private:
     // 넉백 방향. 휘청인 시점에 고정된다.
     // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
     bool  m_targetProne = false;
+
+    // ★ 놓친 지 몇 틱 되었나. 0 = 지금 보인다.
+    //   「본다/안 본다」가 아니라 **잊어가는 중**으로 두는 이유:
+    //   시야에서 잠깐 벗어날 때마다 적이 멍해지면 싸움이 끊긴다.
+    int   m_lostTicks = 0;
     bool  m_biteTurn    = false;   // 다음이 물 차례인가. 번갈아 내기 위한 것
     float m_knockDirX = 0.0f;
 };

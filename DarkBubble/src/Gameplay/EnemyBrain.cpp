@@ -84,6 +84,34 @@ namespace
     constexpr int kAttackCooldown = 40;   // 0.67 초. 없으면 사거리 안에서 무한 공격
 
     constexpr float kSightRange    = 220.0f;
+
+    // ---- ★ 시야 (design.md §3.9 B) ----
+    //
+    //   전에는 거리 하나뿐이라 **등 뒤에 있어도 봤다.** 각도를 더하면
+    //   「뒤에서 다가간다」가 성립하고, 「어느 쪽에서 접근할까」가 판단이 된다.
+    //
+    //       ＼                    ／
+    //         ＼      적 ▶      ／      부채꼴 ±55도 · 220
+    //           ＼  ( · )     ／        청각 40 — 각도와 무관
+    //
+    //   ★ 청각이 없으면 **뒤에 붙어 무한히 때릴 수 있다.**
+    //     「붙기 전까지는 안전하지만, 때리려면 들킨다」가 되어야 거래가 성립한다.
+    //     플레이어의 공격 사거리(12~40)가 청각 반경 40 과 겹치는 것이 요점이다.
+    //
+    //   ★★ cos 으로 비교한다. 각도를 구하려면 atan2 가 필요하지만,
+    //     **비교만 할 거라면 cos 끼리 비교하면 된다** — 삼각함수 호출이 사라진다.
+    //     cos 은 0~180도에서 단조감소하므로 「각도가 작다」 = 「cos 이 크다」.
+    constexpr float kSightCos      = 0.5736f;   // cos(55도)
+    constexpr float kHearRange     =  40.0f;
+
+    //   눈높이. 표시용이고 판정은 발끝 기준이다 — 상수를 하나로 줄이려다
+    //   「그림과 판정이 다른」 상태를 만들지 않도록, 쓰는 곳을 표시로 한정한다.
+    constexpr float kEyeHeight     =  40.0f;
+
+    //   시야에서 벗어나고 이만큼 지나면 잊는다.
+    //   ★ 없으면 기습이 **첫 1회만** 의미 있다 — 한 번 들키면 영원히 쫓기므로
+    //     발판으로 도망치는 것도 소용없어진다(6-d 의 「지형이 방패」).
+    constexpr int   kForgetTicks   = 120;       // 2초
     constexpr float kWalkPerTick   = 60.0f / 60.0f;
     constexpr float kCrawlPerTick  = 18.0f / 60.0f;
 
@@ -141,6 +169,33 @@ const AttackData& EnemyBrain::CurrentAttack() const
     // ★ latch 된 값을 본다. 매 틱 다시 고르면 휘두르는 도중에 다리가 부서지는
     //   순간 프레임 데이터가 통째로 바뀌어(60틱 -> 54틱) active 를 건너뛴다.
     return m_attackIsBite ? kBite : kSwing;
+}
+
+
+bool EnemyBrain::CanSeeTarget() const
+{
+    const Transform& tr = Owner().transform;
+    const float dx = m_target.x - tr.x;
+    const float dy = m_target.y - tr.y;
+    const float dist2 = dx * dx + dy * dy;
+
+    // ① 청각 — 각도와 무관하다. 바로 뒤에 붙으면 안다.
+    if (dist2 <= kHearRange * kHearRange)
+        return true;
+
+    // ② 시야 — 거리부터. ★ 제곱끼리 비교해 sqrt 를 미룬다.
+    if (dist2 > kSightRange * kSightRange)
+        return false;
+
+    const float dist = std::sqrt(dist2);
+    if (dist <= 0.0001f)
+        return true;
+
+    // ③ 각도. 바라보는 쪽으로 얼마나 기울어 있는가.
+    //   ★ dx * facing 은 「바라보는 방향과의 내적」이다. dist 로 나누면 cos 이 된다.
+    //   ★ 세로 차이가 크면 자동으로 cos 이 작아진다 — **머리 위는 잘 못 본다.**
+    //     발판 위로 올라가면 숨을 수 있는 이유가 이 한 줄에서 나온다.
+    return (dx * static_cast<float>(tr.facing)) / dist >= kSightCos;
 }
 
 
@@ -230,6 +285,10 @@ void EnemyBrain::Reset(SceneContext& ctx)
     m_attackCooldown = 0;
     m_attackIsBite   = false;
     m_biteTurn       = false;   // ★ 첫 공격은 휘두르기. 예고가 길어 배우기 쉽다
+
+    // ★ 잊은 상태에서 시작한다. 부활 직후 적이 이미 노려보고 있으면
+    //   「뒤로 돌아 들어간다」를 시도할 기회 자체가 없다.
+    m_lostTicks      = kForgetTicks;
     m_hitThisSwing   = false;
 
     // ★ ChangeState 를 쓰지 않는다 — 「같은 상태로의 전이는 무시」에 걸린다.
@@ -375,10 +434,13 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
 
     if (m_state != EnemyState::Dead)
     {
-        const Transform& tr = Owner().transform;
-        const float dx = m_target.x - tr.x;
-        const float dy = m_target.y - tr.y;
-        const float dist = std::sqrt(dx * dx + dy * dy);
+        // ★ 인지를 **상태 전이보다 먼저** 갱신한다.
+        //   「보인다/안 보인다」가 아니라 **잊어가는 중**으로 둔다 —
+        //   시야에서 잠깐 벗어날 때마다 멍해지면 싸움이 토막 난다.
+        if (CanSeeTarget()) m_lostTicks = 0;
+        else                ++m_lostTicks;
+
+        const bool alerted = (m_lostTicks < kForgetTicks);
 
         // 사거리 안 + 쿨다운 끝. Chase 와 Crawl 이 공유하는 조건.
         const bool canAttack = InAttackPosition() && (m_attackCooldown <= 0);
@@ -386,7 +448,8 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
         switch (m_state)
         {
         case EnemyState::Idle:
-            if (dist <= kSightRange)
+            // ★ 거리만 보던 것을 **시야**로 바꿨다. 등 뒤로 접근하면 안 걸린다.
+            if (alerted)
                 ChangeState(ctx, m_parts->Prone() ? EnemyState::Crawl
                                                        : EnemyState::Chase);
             break;
@@ -398,14 +461,17 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
                 ChangeState(ctx, EnemyState::Crawl);
                 break;
             }
-            if (canAttack) ChangeState(ctx, EnemyState::Attack);
+            // ★ 잊으면 멈춘다. 발판 위로 도망치면 추격이 끊긴다.
+            if (!alerted)  ChangeState(ctx, EnemyState::Idle);
+            else if (canAttack) ChangeState(ctx, EnemyState::Attack);
             else           MoveTowardTarget(kWalkPerTick);
             break;
 
         case EnemyState::Crawl:
             // 기어가는 중에는 다시 일어나지 않는다. 다리는 회복되지 않는다.
             // ★ 하지만 무해하지는 않다 — 사거리에 들어오면 물어뜯는다.
-            if (canAttack) ChangeState(ctx, EnemyState::Attack);
+            if (!alerted)  ChangeState(ctx, EnemyState::Idle);
+            else if (canAttack) ChangeState(ctx, EnemyState::Attack);
             else           MoveTowardTarget(kCrawlPerTick);
             break;
 
@@ -500,7 +566,57 @@ void EnemyBrain::Render(Renderer& renderer)
 //   히트박스는 **개발자용 표시**라 무조건 맨 위여야 한다. 목적이 다르면 층도 다르다.
 void EnemyBrain::RenderDebug(Renderer& renderer)
 {
-    if (!renderer.DebugDraw() || !AttackActive())
+    if (!renderer.DebugDraw())
+        return;
+
+    // ---- ★ 시야 부채꼴 ----
+    //   눈에 안 보이면 각도를 **맞출 수가 없다.** 55도가 넓은지 좁은지는
+    //   숫자로는 판단이 안 서고, 그려 놓으면 한 번에 보인다.
+    //
+    //   ※ 선 그리기 도구가 없으므로 **점을 뿌려** 두 변과 호를 만든다.
+    //     디버그 표시에 새 렌더 기능을 추가할 만큼의 값은 없다.
+    if (!IsDead())
+    {
+        const Transform& tr = Owner().transform;
+        const float eyeY = tr.y - kEyeHeight;
+        const float f    = static_cast<float>(tr.facing);
+
+        // cos 에서 sin 을 되찾는다. cos²+sin²=1.
+        const float sin55 = std::sqrt(1.0f - kSightCos * kSightCos);
+
+        const bool sees = CanSeeTarget();
+        const DirectX::XMVECTOR edge = sees
+            ? DirectX::XMVectorSet(1.0f, 0.35f, 0.30f, 0.75f)   // 들켰다
+            : DirectX::XMVectorSet(0.45f, 0.75f, 1.00f, 0.45f); // 아직 안 보인다
+
+        // 두 변
+        for (float r = 12.0f; r <= kSightRange; r += 9.0f)
+        {
+            const float px = tr.x + f * kSightCos * r;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                const float py = eyeY + static_cast<float>(s) * sin55 * r;
+                renderer.DrawFilledRect({ px - 1.0f, py - 1.0f, px + 1.0f, py + 1.0f }, edge);
+            }
+        }
+
+        // 호 — 끝의 둥근 경계
+        for (float a = -1.0f; a <= 1.0f; a += 0.08f)
+        {
+            const float c = kSightCos + (1.0f - kSightCos) * (1.0f - std::abs(a));
+            const float s = sin55 * a;
+            const float px = tr.x + f * c * kSightRange;
+            const float py = eyeY + s * kSightRange;
+            renderer.DrawFilledRect({ px - 1.0f, py - 1.0f, px + 1.0f, py + 1.0f }, edge);
+        }
+
+        // 청각 반경 — 각도와 무관하므로 사각형으로 충분히 읽힌다
+        renderer.DrawRectOutline(
+            { tr.x - kHearRange, eyeY - kHearRange, tr.x + kHearRange, eyeY + kHearRange },
+            DirectX::XMVectorSet(0.9f, 0.9f, 0.4f, 0.40f), 1.0f);
+    }
+
+    if (!AttackActive())
         return;
 
     renderer.DrawFilledRect(AttackHitbox(),
@@ -532,6 +648,13 @@ void EnemyBrain::RenderUI(Renderer& renderer)
     if (renderer.DebugDraw())
         m_parts->DrawHpList(renderer, static_cast<float>(Config::kCanvasWidth) - 150.0f, 40.0f);
 
+    // ★ 「보고 있나 / 잊어가는 중인가」를 글자로도 남긴다.
+    //   부채꼴은 F1 을 켜야 보이지만, 이 한 줄은 늘 보인다.
+    const std::string sight =
+        CanSeeTarget()                ? std::string{ "  [SEES YOU]" }
+      : (m_lostTicks < kForgetTicks)  ? std::format("  [losing {}]", kForgetTicks - m_lostTicks)
+      :                                 std::string{ "  [unaware]" };
+
     renderer.DrawString(
         std::format("ENEMY {}{}{}", EnemyStateName(m_state),
                     m_parts->LegsBroken() ? "  (legs broken)" : "",
@@ -539,7 +662,8 @@ void EnemyBrain::RenderUI(Renderer& renderer)
                                          : std::string{})
             + std::format("  poise {}{}", m_poise->Value(),
                           m_poise->Immune() ? std::format(" (immune {})", m_poise->ImmuneTicks())
-                                            : std::string{}),
+                                            : std::string{})
+            + sight,
         6.0f, 34.0f,
         m_parts->LegsBroken() ? DirectX::Colors::Orange : DirectX::Colors::Gold, 1);
 }
