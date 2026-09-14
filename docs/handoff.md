@@ -435,6 +435,7 @@ ArmorData / PartBox / AnimationClip)이 전부 JSON 으로 빠진다.
 | `BodyComponent::MoveX` | `tr.x` 직접 대입 (3곳) | 구르기·넉백이 벽을 통과 |
 | `PostureClip()` | `Prone() ? … : …` (5곳) | 웅크렸는데 선 그림 |
 | `Crouched()` | `m_crouching` / `CrouchHeld()` (4곳) | 이동이 빠름 · 공격하면 섬 |
+| `CurrentPosture()` (자세 3종) | `Prone() ? … : …` 2분기 (4곳) | 웅크린 물기가 **제 머리 위**로 나감 · 엎드려 Ctrl 누르면 속도 **두 번** 깎임 |
 
 **왜 못 잡는가**: 타입이 같다. `bool` → `bool`, `float` → `float`.
 컴파일도 되고 동작도 한다. **낡은 질문에 정확히 답할 뿐이다.**
@@ -452,6 +453,10 @@ ArmorData / PartBox / AnimationClip)이 전부 JSON 으로 빠진다.
 >
 > 원본을 아예 지울 수 있으면 지운다(`Player::x/y/facing`, `Enemy` 구조체가
 > 그랬다). 지울 수 없을 때 쓰는 것이 이름 바꾸기다.
+
+★ 자매 규칙: **경우가 둘에서 셋이 되면 `? :` 를 `switch` 로 바꾼다.**
+`Prone() ? A : B` 는 자세가 셋이 된 순간 **웅크리기를 조용히 삼킨다.**
+`switch (Posture)` 로 쓰면 새 값을 더할 때 컴파일러가 빠진 `case` 를 짚어 준다.
 
 ★ 함께 볼 것: **이름에 「무엇인가」가 아니라 「어디서 왔는가」를 넣는다.**
 `m_crouchHeld`(입력) / `Crouched()`(자세) 처럼 나눠 두면

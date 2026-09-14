@@ -162,8 +162,23 @@ namespace
     //     자세별 판정 상자에서 이미 두 번 밟은 함정과 같은 종류다.
     constexpr AttackData kBiteProne = []{
         AttackData a = kBite;
-        a.heightFromFoot = 18.0f;   // 엎드린 머리(-27..-11)의 한가운데
+        a.heightFromFoot = 18.0f;   // 엎드린 머리(-25..-11)의 한가운데
         a.clip = { /*row*/ 7, 4, 6, true };   // 전용 그림이 없어 기어가기 자세 유지
+        return a;
+    }();
+
+    // 웅크려서 무는 것도 높이가 다르다.
+    //   ★ **자기 머리 높이**로 문다. 웅크린 머리는 발끝 12~27 이므로 한가운데가 20.
+    //     전에는 자세를 안 봐서 웅크린 채 물면 판정이 **제 머리 위(48)** 로 나갔다.
+    //
+    //   ★★ 그래서 웅크린 물기는 **즉사를 노릴 수 없다.** 선 적의 머리는 37~55 인데
+    //     여기서는 11~29 를 훑으므로 몸통·다리에 닿는다.
+    //     「목을 물려면 일어서야 한다」가 좌표만으로 성립한다 —
+    //     웅크리기가 중단을 흘리는 대가를 여기서 치른다.
+    constexpr AttackData kBiteCrouch = []{
+        AttackData a = kBite;
+        a.heightFromFoot = 20.0f;
+        a.clip = { /*row*/ 10, 4, 6, true };  // 전용 그림이 없어 웅크린 자세 유지
         return a;
     }();
 
@@ -281,8 +296,12 @@ const char* PlayerStateName(PlayerState s)
 // ----------------------------------------------------------------------------
 const AnimationClip& PlayerController::PostureClip(bool moving) const
 {
-    if (m_parts->Prone()) return kCrawlClip;
-    if (Crouched())       return kCrouchClip;
+    switch (m_parts->CurrentPosture())
+    {
+    case Posture::Prone:  return kCrawlClip;
+    case Posture::Crouch: return kCrouchClip;
+    case Posture::Stand:  break;
+    }
     return moving ? kRunClip : kIdleClip;
 }
 
@@ -491,23 +510,37 @@ void PlayerController::Respawn(SceneContext& ctx)
 const AttackData& PlayerController::SelectAttack(PlayerState prev) const
 {
     // ⓪ 물기는 **모든 것보다 위**다. 다른 키로 들어왔으므로 해석의 여지가 없다.
-    //   자세만 반영한다 — 엎드리면 무는 높이가 달라진다.
+    //   자세만 반영한다 — 자세마다 **무는 높이**가 다르다.
+    //
+    //   ★ 자세를 `Prone() ? … : …` 로 묻지 않는다. 그렇게 쓰면 자세가 셋이 된
+    //     지금 「웅크리기」가 조용히 빠진다 — 실제로 그렇게 빠져 있었다.
+    //     **자세를 묻는 곳은 PartsComponent 하나**이고 여기는 그걸 읽는다.
     if (m_biteRequested)
-        return m_parts->Prone() ? kBiteProne : kBite;
-
-    // ★ 쓰러져 있으면 낮게 휘두르는 것밖에 못 한다.
-    //   자세가 선택지를 지운다 — 「명시적 입력이 이긴다」보다도 위다.
-    if (m_parts->Prone())                return kDaggerCrouch;
+    {
+        switch (m_parts->CurrentPosture())
+        {
+        case Posture::Prone:  return kBiteProne;
+        case Posture::Crouch: return kBiteCrouch;
+        case Posture::Stand:  break;
+        }
+        return kBite;
+    }
 
     // ★ 공중이면 무조건 내려찍기다. 아래의 선택지(웅크리기·콤보·달리기)는
     //   전부 **발이 땅에 있다**는 전제 위에 있다.
     if (!m_body->Grounded())             return kDaggerJump;
 
-    // ① ★ **입력이 아니라 자세**를 본다.
-    //   전에는 Ctrl 을 눌렀는지를 물었다. 그러면 천장이 낮아 못 일어선 채로
-    //   공격했을 때 **서서 휘두르는 공격**이 나가고 그림도 일어섰다.
-    //   「지금 웅크리고 있나」와 「웅크리기를 누르고 있나」는 다른 질문이다.
-    if (Crouched())                      return kDaggerCrouch;
+    // ① ★ **서 있지 않으면** 낮게 휘두르는 것밖에 못 한다.
+    //   엎드리기든 웅크리기든 **결과가 같으므로 분기도 하나**다.
+    //   전에는 두 줄로 나뉘어 있었고(`Prone()` 한 줄, `CrouchHeld()` 한 줄),
+    //   그래서 자세가 셋이 되었을 때 **한쪽만 고치는 실수**가 가능했다.
+    //
+    //   ★★ 그리고 **입력이 아니라 자세**를 본다. 전에는 Ctrl 을 눌렀는지를
+    //     물어서, 천장이 낮아 못 일어선 채로 공격하면 **서서 휘두르는 공격**이
+    //     나가고 그림도 일어섰다.
+    //     「지금 웅크리고 있나」와 「웅크리기를 누르고 있나」는 다른 질문이다.
+    if (m_parts->CurrentPosture() != Posture::Stand)
+        return kDaggerCrouch;
 
     // ② 공격 중이었다 -> 2타
     //   ★ 무한 연타 방지는 **예약하는 쪽** 한 곳에만 있다.
@@ -588,8 +621,12 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         const AttackData& atk = *m_currentAttack;
 
         // ★ 쓰러진 채로는 서서 휘두르는 그림을 쓸 수 없다.
-        //   전용 기어가며 공격 행은 아직 없어서 자세만 유지한다 —
-        //   판정(crouch 상자)은 이미 낮으므로 게임은 성립한다. 그림은 6-c-5.
+        //   전용 「기어가며 공격」 행이 아직 없어서 자세만 유지한다 —
+        //   판정은 이미 낮으므로 게임은 성립한다.
+        //
+        //   ※ 웅크리기는 여기 없다. 웅크린 공격은 **공격 데이터가 자기 그림을
+        //     들고 있기 때문**이다(kDaggerCrouch 는 4행, kBiteCrouch 는 10행).
+        //     엎드리기만 전용 그림이 없어서 예외로 남아 있다.
         m_sprite->Play(m_parts->Prone() ? kCrawlClip : atk.clip, true);
         m_hitThisSwing = false;
 
@@ -671,8 +708,14 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
     }
     else
     {
-        if (Crouched())       speed *= kCrouchSpeedScale;
-        if (m_parts->Prone()) speed *= kProneSpeedScale;
+        // ★ `if` 두 줄로 쓰면 **둘 다 걸린다** — 엎드린 채 Ctrl 을 누르면
+        //   0.45 x 0.30 으로 두 번 깎였다. 자세는 **하나**이므로 분기도 하나다.
+        switch (m_parts->CurrentPosture())
+        {
+        case Posture::Crouch: speed *= kCrouchSpeedScale; break;
+        case Posture::Prone:  speed *= kProneSpeedScale;  break;
+        case Posture::Stand:  break;
+        }
     }
 
     // ★ 가로 이동도 **몸을 거친다.** 전에는 여기서 tr.x 를 직접 썼는데,
@@ -693,9 +736,10 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
     if (--m_stepCooldown <= 0)
     {
         // 웅크려 걸으면 발소리도 그만큼 뜸해야 한다.
-        m_stepCooldown = Crouched()
-            ? static_cast<int>(kStepIntervalTicks / kCrouchSpeedScale)
-            : kStepIntervalTicks;
+        // 느리게 걸으면 발소리도 그만큼 뜸해야 한다.
+        m_stepCooldown = (m_parts->CurrentPosture() == Posture::Stand)
+            ? kStepIntervalTicks
+            : static_cast<int>(kStepIntervalTicks / kCrouchSpeedScale);
         ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromCanvasX(tr.x));
     }
 }
