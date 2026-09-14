@@ -300,24 +300,20 @@ void PlayerController::SetArmLayers(int armFront, int armBack,
 // ----------------------------------------------------------------------------
 //  UpdateArmLayers — 잘린 팔을 그림에 반영한다
 //
-//    ★ 「앞팔 / 뒷팔」은 시트의 성질이고 「왼팔 / 오른팔」은 몸의 성질이다.
-//      시트는 오른쪽을 보고 그려져 왼쪽을 볼 때 뒤집히므로,
-//      앞팔 시트는 **항상 바라보는 쪽의 팔**로 화면에 나타난다.
-//      그 대응을 정하는 것이 facing 이다.
+//    ★ 앞팔 시트는 「바라보는 쪽 팔」이고, 그건 **항상 오른팔**이다.
+//      시트가 facing 으로 통째로 뒤집히기 때문이다 — 여기서 facing 을
+//      한 번 더 보면 두 번 뒤집혀 제자리로 돌아온다.
+//      대응은 Part_FrontArm / Part_BackArm 이 **한 곳에서** 정한다.
 //
-//    ★★ 이 대응은 PartsComponent::PickHit 의 그것과 **같은 규칙**이어야 한다.
-//      여기서 규칙을 새로 쓰면 「그림은 왼팔이 없는데 판정은 오른팔이 막는」
-//      상태가 되고, 그건 화면만 보고는 절대 못 찾는 버그가 된다.
+//    ★★ 처음엔 그 대응을 이 함수에 **베껴 썼다.** 「PickHit 과 같은 규칙을
+//      쓸 것」이라고 주석까지 달아 놓고 베꼈고, PickHit 쪽이 이미 틀려 있어서
+//      틀린 규칙이 두 벌이 되었다. 같은 규칙은 같은 자리에 있어야 한다 —
+//      주석으로 「맞춰 쓰라」고 적는 것은 맞춘 것이 아니다.
 // ----------------------------------------------------------------------------
 void PlayerController::UpdateArmLayers()
 {
-    const Transform& tr = Owner().transform;
-
-    const int frontArm = (tr.facing > 0) ? Part_RightArm : Part_LeftArm;
-    const int backArm  = (tr.facing > 0) ? Part_LeftArm  : Part_RightArm;
-
-    const bool frontLost = m_parts->IsBroken(frontArm);
-    const bool backLost  = m_parts->IsBroken(backArm);
+    const bool frontLost = m_parts->IsBroken(Part_FrontArm);
+    const bool backLost  = m_parts->IsBroken(Part_BackArm);
 
     // ★ 팔과 상처가 정확히 반대다. 조건을 두 번 쓰지 않고 한 값에서 뽑는다 —
     //   따로 쓰면 「팔도 없고 상처도 없는」 상태가 생길 수 있다.

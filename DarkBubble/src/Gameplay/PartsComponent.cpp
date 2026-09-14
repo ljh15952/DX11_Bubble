@@ -155,12 +155,14 @@ int PartsComponent::PickHit(const AABB& attackBox, float fromX) const
     // 공격자가 **바라보는 쪽**에 있는가. 그쪽 팔이 방패가 된다.
     //   ★ 그래서 「몸을 돌려 성한 팔로 막는다」가 성립한다 —
     //     대신 등을 보이는 대가를 치른다. 규칙 한 줄이 전술을 만든다.
-    const bool inFront  = ((fromX - tr.x) * static_cast<float>(tr.facing)) > 0.0f;
-    const int  frontArm = (tr.facing > 0) ? Part_RightArm : Part_LeftArm;
-    const int  backArm  = (tr.facing > 0) ? Part_LeftArm  : Part_RightArm;
+    //
+    //   ★★ facing 은 **여기 한 번만** 들어간다. 「공격자가 앞에 있나」를
+    //     정하는 데만 쓰고, 「어느 팔이 앞인가」에는 쓰지 않는다 —
+    //     그건 Box() 가 이미 뒤집어 주었기 때문이다(Part_FrontArm 주석 참조).
+    const bool inFront = ((fromX - tr.x) * static_cast<float>(tr.facing)) > 0.0f;
 
-    const int first  = inFront ? frontArm : backArm;
-    const int second = inFront ? backArm  : frontArm;
+    const int first  = inFront ? Part_FrontArm : Part_BackArm;
+    const int second = inFront ? Part_BackArm  : Part_FrontArm;
 
     if (Exists(first)  && !IsBroken(first)  && OverlapArea(attackBox, Box(first))  > 0.0f)
         return first;
