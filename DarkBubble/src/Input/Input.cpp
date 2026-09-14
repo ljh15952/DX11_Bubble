@@ -1,4 +1,5 @@
 ﻿#include "Input/Input.h"
+#include <algorithm>
 #include <cmath>
 
 void Input::Initialize(HWND hwnd)
@@ -79,31 +80,20 @@ void Input::ConsumeEdges()
 }
 
 
-Input::MoveIntent Input::Move() const
+float Input::MoveX() const
 {
-    MoveIntent m;
+    float x = 0.0f;
 
-    if (m_kb.Left  || m_kb.A) m.x -= 1.0f;
-    if (m_kb.Right || m_kb.D) m.x += 1.0f;
-    if (m_kb.Up    || m_kb.W) m.y -= 1.0f;   // 화면 좌표는 아래로 갈수록 +
-    if (m_kb.Down  || m_kb.S) m.y += 1.0f;
+    if (m_kb.Left  || m_kb.A) x -= 1.0f;
+    if (m_kb.Right || m_kb.D) x += 1.0f;
 
     if (m_pad.IsConnected())
-    {
-        m.x += m_pad.thumbSticks.leftX;
-        m.y -= m_pad.thumbSticks.leftY;      // 스틱은 위가 +, 화면은 아래가 +
-    }
+        x += m_pad.thumbSticks.leftX;
 
-    // 대각선 보정: 길이가 1 을 넘을 때만 정규화한다.
-    // 이렇게 하면 키보드 대각선(√2 ≒ 1.41배)은 억제되고,
-    // 스틱을 살짝 기울인 아날로그 입력은 그대로 살아난다.
-    const float len = std::sqrt(m.x * m.x + m.y * m.y);
-    if (len > 1.0f)
-    {
-        m.x /= len;
-        m.y /= len;
-    }
-    return m;
+    // ★ 축이 하나라 「정규화」가 아니라 **자르기**다.
+    //   왼쪽+오른쪽을 같이 누르면 0 이 되는 것도 이 한 줄이 처리한다.
+    //   스틱을 살짝 기울인 아날로그 값은 그대로 살아난다.
+    return std::clamp(x, -1.0f, 1.0f);
 }
 
 

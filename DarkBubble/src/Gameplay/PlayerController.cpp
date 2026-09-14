@@ -711,9 +711,9 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         m_sprite->Play(kRollClip, true);
 
         // ★ 방향을 여기서 고정한다. 입력이 없으면 바라보는 방향으로 굴러간다.
-        const Input::MoveIntent mv = ctx.input.Move();
-        m_rollDirX = (std::abs(mv.x) > kMoveEpsilon)
-            ? mv.x
+        const float mv = ctx.input.MoveX();
+        m_rollDirX = (std::abs(mv) > kMoveEpsilon)
+            ? mv
             : static_cast<float>(tr.facing);
 
         m_stamina->Spend(kRoll.staminaCost);
@@ -1012,11 +1012,10 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     if (m_flash > 0)        --m_flash;
     if (m_invulnTicks > 0)  --m_invulnTicks;
 
-    const Input::MoveIntent move = ctx.input.Move();
-
-    // ★ 「움직이는 중」은 이제 **가로만** 본다. 세로 입력은 몸을 움직이지 않는다 —
-    //   ↑ 를 누른 채 서 있는데 RUN 으로 보이면 안 된다.
-    const bool moving = (std::abs(move.x) > kMoveEpsilon);
+    // ★ 입력이 가로 하나뿐이다. 전에는 (x, y) 벡터였고, 아무것도 안 하는 y 가
+    //   정규화에 끼어들어 **↑를 같이 누르면 가로 속도가 0.707 배**가 되었다.
+    const float moveX = ctx.input.MoveX();
+    const bool  moving = (std::abs(moveX) > kMoveEpsilon);
 
     // 웅크리기는 **지속 입력**이라 엣지가 아니다. 매 틱 물어봐도 된다.
     m_crouchHeld = ctx.input.CrouchHeld();
@@ -1061,7 +1060,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     {
     case PlayerState::Idle:
     case PlayerState::Run:
-        UpdateMovement(ctx, move.x);
+        UpdateMovement(ctx, moveX);
 
         // ★ 「발밑이 없어졌다」를 입력보다 **먼저** 본다.
         //   넉백으로 떠올랐을 때도, 나중에 발판 끝에서 걸어 나갔을 때도(6-d)
@@ -1107,7 +1106,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     //      나눠야 할 이유(다른 조작 · 다른 판정)가 생기면 그때 쪼갠다.
     // ========================================================================
     case PlayerState::Jump:
-        UpdateMovement(ctx, move.x);   // 공중 제어력은 UpdateMovement 가 안다
+        UpdateMovement(ctx, moveX);   // 공중 제어력은 UpdateMovement 가 안다
 
         // ★ 공중에서는 **줍기 갈래가 없다.** 그래서 발밑에 무기가 있어도
         //   뛰어넘으며 주워지지 않는다 — Space 를 점프로 옮긴 대가를 여기서 치른다.
