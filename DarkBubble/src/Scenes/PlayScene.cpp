@@ -47,6 +47,7 @@ namespace
     constexpr float kBodyHalfW        =  9.0f;
     constexpr float kBodyStandHeight  = 44.0f;
     constexpr float kBodyCrouchHeight = 28.0f;
+    constexpr float kBodyProneHeight  = 26.0f;   // 엎드린 그림(위끝 25)보다 1픽셀 넉넉히
 
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
@@ -190,8 +191,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
     //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
     //   반대로 붙이면 착지를 한 틱 늦게 알아채 그림이 한 틱 어긋난다.
-    m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW,
-                                   kBodyStandHeight, kBodyCrouchHeight);
+    m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
+                                   kBodyCrouchHeight, kBodyProneHeight);
     m_playerObj.Add<StaminaComponent>();
     m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_playerParts = &m_playerObj.Add<PartsComponent>(kPlayerParts);
@@ -209,8 +210,8 @@ bool PlayScene::Enter(SceneContext& ctx)
         playerSprite.AddLayer(stumpBackSheet,  false));
 
     // ★ 적도 떨어진다. 같은 컴포넌트, 같은 숫자다.
-    m_enemyObj.Add<BodyComponent>(m_level, kBodyHalfW,
-                                  kBodyStandHeight, kBodyCrouchHeight);
+    m_enemyObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
+                                  kBodyCrouchHeight, kBodyProneHeight);
     m_enemyParts = &m_enemyObj.Add<PartsComponent>(kGruntParts);
     m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);
     m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);

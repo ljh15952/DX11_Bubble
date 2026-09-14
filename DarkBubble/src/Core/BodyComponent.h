@@ -46,16 +46,17 @@
 
 #include "Core/AABB.h"
 #include "Core/Component.h"
+#include "Core/Posture.h"
 
 class Level;
 
 class BodyComponent final : public Component
 {
 public:
-    // halfWidth / standHeight / crouchHeight = **지형 충돌용** 몸 상자.
+    // halfWidth + 자세마다의 높이 = **지형 충돌용** 몸 상자.
     // 발밑이 원점이라 높이는 위로 자란다.
     BodyComponent(const Level& level, float halfWidth,
-                  float standHeight, float crouchHeight);
+                  float standHeight, float crouchHeight, float proneHeight);
 
     const char* TypeName() const override { return "Body"; }
 
@@ -77,9 +78,12 @@ public:
     //   세로 충돌은 「움직이는 중」에만 해결되므로, 가만히 커진 몸은 아무도 밀어내지 않는다.
     bool CanStandUp() const;
 
-    // 자세를 알려 준다. 엎드리기는 몸이 스스로 알지만(PartsComponent),
-    // 웅크리기는 키를 누르는 동안만이라 소유자가 알려 줘야 한다.
-    void SetCrouching(bool v) { m_crouching = v; }
+    // 자세를 알려 준다.
+    //   ★ 전에는 `SetCrouching(bool)` 이었다. 자세가 둘일 때는 맞았는데,
+    //     엎드리기가 생기자 **bool 로 말할 수 없는 세 번째 값**이 되었고
+    //     엎드린 몸이 「서 있는 크기」로 남았다. bool 은 언제나 둘 중 하나를
+    //     정확히 답하므로 아무도 눈치채지 못한다.
+    void SetPosture(Posture p) { m_posture = p; }
 
     // ★ 이 x 로 한 걸음 옮기면 발밑이 비는가.
     //   적이 발판 끝에서 멈추는 데 쓴다. **움직이기 전에** 물어야 멈출 수 있다.
@@ -117,7 +121,8 @@ private:
     float m_halfWidth    =  9.0f;
     float m_standHeight  = 44.0f;
     float m_crouchHeight = 28.0f;
-    bool  m_crouching    = false;
+    float m_proneHeight  = 26.0f;
+    Posture m_posture    = Posture::Stand;
 
     float m_velocityY = 0.0f;
     bool  m_grounded  = true;

@@ -163,7 +163,7 @@ namespace
     constexpr AttackData kBiteProne = []{
         AttackData a = kBite;
         a.heightFromFoot = 18.0f;   // 엎드린 머리(-25..-11)의 한가운데
-        a.clip = { /*row*/ 7, 4, 6, true };   // 전용 그림이 없어 기어가기 자세 유지
+        a.clip = { /*row*/ 13, 6, 4, false };   // 엎드려 물기 (이빨은 프레임 2·3)
         return a;
     }();
 
@@ -178,7 +178,7 @@ namespace
     constexpr AttackData kBiteCrouch = []{
         AttackData a = kBite;
         a.heightFromFoot = 20.0f;
-        a.clip = { /*row*/ 10, 4, 6, true };  // 전용 그림이 없어 웅크린 자세 유지
+        a.clip = { /*row*/ 12, 6, 4, false };   // 웅크려 물기 (이빨은 프레임 2·3)
         return a;
     }();
 
@@ -209,6 +209,24 @@ namespace
     // 공중 전용 몸 그림은 아직 없다. idle 첫 프레임을 **멈춰서** 쓴다 —
     //   팔다리가 파닥이지 않아 오히려 낫고, 전용 행은 나중에 얹으면 된다.
     constexpr AnimationClip kJumpClip{ /*row*/ 0, /*frames*/ 1, /*ticks*/ 8, /*loop*/ true };
+
+    // ---- 엎드려 휘두르기 ----
+    //   ★ 전에는 엎드린 공격이 kDaggerCrouch 를 빌려 쓰고, 그림은 「전용 행이
+    //     없으니 기어가기 자세 유지」로 예외 처리했다. 그 행은 **반복**이라
+    //     공격해도 아무 일도 안 일어나 보였다.
+    //
+    //   ★★ 전용 그림(11행)을 그리자 **예외가 사라졌다.**
+    //     공격 데이터가 자기 그림을 들고 다니면 「이 자세일 때는 저 그림」이라는
+    //     분기가 필요 없다. 웅크리기 때와 완전히 같은 결말이다.
+    //
+    //   높이 8 — 엎드린 몸이 훑는 높이. 선 적의 다리(0~18)에 닿는다.
+    constexpr AttackData kDaggerProne = []{
+        AttackData a = kDaggerCrouch;
+        a.name           = "PRONE";
+        a.heightFromFoot = 8.0f;
+        a.clip           = { /*row*/ 11, 6, 5, false };   // 30틱 = 6 x 5
+        return a;
+    }();
 
     constexpr RollData kRoll{ /*windup*/ 4, /*invincible*/ 12, /*recovery*/ 10 };
     constexpr HurtData kHurt{ /*ticks*/ 18, /*invuln*/ 24, /*knockback*/ 22.0f };
@@ -390,7 +408,15 @@ bool PlayerController::Crouched() const
     //     정하면 낮은 틈에서 Ctrl 을 떼는 순간 몸이 천장 속에 박힌다 —
     //     세로 충돌은 「움직이는 중」에만 해결되므로 가만히 커진 몸은
     //     아무도 밀어내지 않는다.
-    return m_crouchHeld || m_crouchForced;
+    //
+    //   ★★★ 웅크리기는 **지상 전용**이다. 공중에서 Ctrl 을 누르면 그림은 점프
+    //     자세인데 상자만 줄어들었다 — 점프 중에는 그림을 자세에 맞춰 다시
+    //     걸지 않기 때문이다. 「땅을 딛고 몸을 낮추는」 동작이므로 원래 맞지 않다.
+    //
+    //   ※ **강제 웅크리기는 공중도 막지 않는다.** 천장에 눌린 채 발밑이 사라지면
+    //     몸이 공중에서 커져 천장 속으로 들어간다. 「못 일어선다」는 어디서든
+    //     못 일어서는 것이다.
+    return m_crouchForced || (m_crouchHeld && m_body->Grounded());
 }
 
 
@@ -531,16 +557,17 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     if (!m_body->Grounded())             return kDaggerJump;
 
     // ① ★ **서 있지 않으면** 낮게 휘두르는 것밖에 못 한다.
-    //   엎드리기든 웅크리기든 **결과가 같으므로 분기도 하나**다.
-    //   전에는 두 줄로 나뉘어 있었고(`Prone()` 한 줄, `CrouchHeld()` 한 줄),
-    //   그래서 자세가 셋이 되었을 때 **한쪽만 고치는 실수**가 가능했다.
-    //
-    //   ★★ 그리고 **입력이 아니라 자세**를 본다. 전에는 Ctrl 을 눌렀는지를
-    //     물어서, 천장이 낮아 못 일어선 채로 공격하면 **서서 휘두르는 공격**이
-    //     나가고 그림도 일어섰다.
+    //   ★★ **입력이 아니라 자세**를 본다. 전에는 Ctrl 을 눌렀는지를 물어서,
+    //     천장이 낮아 못 일어선 채로 공격하면 서서 휘두르는 공격이 나갔다.
     //     「지금 웅크리고 있나」와 「웅크리기를 누르고 있나」는 다른 질문이다.
-    if (m_parts->CurrentPosture() != Posture::Stand)
-        return kDaggerCrouch;
+    //
+    //   물기와 **같은 모양의 switch** 다. 자세가 늘면 컴파일러가 여기도 짚는다.
+    switch (m_parts->CurrentPosture())
+    {
+    case Posture::Prone:  return kDaggerProne;
+    case Posture::Crouch: return kDaggerCrouch;
+    case Posture::Stand:  break;
+    }
 
     // ② 공격 중이었다 -> 2타
     //   ★ 무한 연타 방지는 **예약하는 쪽** 한 곳에만 있다.
@@ -620,14 +647,14 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         m_biteRequested = false;          // 한 번 쓰면 지운다
         const AttackData& atk = *m_currentAttack;
 
-        // ★ 쓰러진 채로는 서서 휘두르는 그림을 쓸 수 없다.
-        //   전용 「기어가며 공격」 행이 아직 없어서 자세만 유지한다 —
-        //   판정은 이미 낮으므로 게임은 성립한다.
+        // ★★ 자세별 예외가 **없다.** 전에는 `Prone() ? 기어가기 : 공격그림` 이었고,
+        //   그 탓에 엎드려 공격하면 반복 재생되는 기어가기 그림이 나와
+        //   **아무 일도 안 일어나 보였다.**
         //
-        //   ※ 웅크리기는 여기 없다. 웅크린 공격은 **공격 데이터가 자기 그림을
-        //     들고 있기 때문**이다(kDaggerCrouch 는 4행, kBiteCrouch 는 10행).
-        //     엎드리기만 전용 그림이 없어서 예외로 남아 있다.
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : atk.clip, true);
+        //   자세마다 전용 행을 그리자 예외가 통째로 사라졌다 —
+        //   **공격 데이터가 자기 그림을 들고 다니기 때문**이다.
+        //     서기 2·5·6행 / 웅크리기 4·12행 / 엎드리기 11·13행 / 공중 9행
+        m_sprite->Play(atk.clip, true);
         m_hitThisSwing = false;
 
         // ★ 부족해도 공격은 나간다. 0 미만이면 끝난 뒤 Exhausted 로 간다.
@@ -967,12 +994,16 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     //     거꾸로 하면 「이미 커진 몸」으로 여유를 재게 되어 영영 못 일어선다.
     m_crouchForced = !m_crouchHeld && !m_body->CanStandUp();
 
-    // ★ 자세를 몸과 부위에 알려 준다.
+    // ★ 자세를 부위에 먼저 알려 주고, **부위가 계산한 자세**를 몸에 넘긴다.
     //   몸  : 어디를 **지나갈 수 있는가** (높이 하나)
     //   부위: 어디를 **맞는가**          (상자 다섯)
-    //   둘은 다른 것이지만 **같은 자세**를 본다. 출처가 하나라 어긋날 수 없다.
-    m_body->SetCrouching(Crouched());
+    //
+    //   ★★ 몸에 Crouched() 를 그대로 넘기면 안 된다. 그건 「웅크렸는가」이지
+    //     자세가 아니다 — **엎드림을 말할 수 없다.** 실제로 그래서 엎드린 몸이
+    //     선 크기(44)로 남아 있었다.
+    //     엎드리기를 아는 것은 부위(다리가 부서졌다)이므로 거기서 받아 온다.
     m_parts->SetCrouching(Crouched());
+    m_body->SetPosture(m_parts->CurrentPosture());
 
     // ★ 자세가 바뀌면 **그림도** 바꾼다.
     //   Ctrl 은 상태를 바꾸지 않으므로 ChangeState 가 안 불린다.

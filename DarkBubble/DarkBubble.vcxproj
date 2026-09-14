@@ -135,6 +135,7 @@
     <ClInclude Include="src\Core\Motion.h" />
     <ClInclude Include="src\Core\Component.h" />
     <ClInclude Include="src\Core\GameObject.h" />
+    <ClInclude Include="src\Core\Posture.h" />
     <ClInclude Include="src\Core\Scene.h" />
     <ClInclude Include="src\Core\SceneManager.h" />
     <ClInclude Include="src\Core\Transform.h" />

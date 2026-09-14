@@ -363,6 +363,11 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
 {
     ++m_stateTicks;
 
+    // ★ 자세를 몸에 알려 준다. 기어다니면 지형 상자도 낮아져야 한다 —
+    //   안 그러면 엎드린 적이 **선 키 그대로** 벽에 걸린다.
+    //   적은 웅크리지 않으므로 부위가 아는 자세가 곧 전부다.
+    m_body->SetPosture(m_parts->CurrentPosture());
+
     // 쿨다운도 시간이다. 상태와 무관하게 흐른다.
     if (m_attackCooldown > 0)
         --m_attackCooldown;

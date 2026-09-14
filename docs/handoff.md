@@ -95,6 +95,7 @@ DarkBubble/src/
 │   ├── SceneManager.h/.cpp  스택 + 지연 전환 + Pop 시 아래에 Resume 통지
 │   ├── AABB.h            충돌 판정
 │   ├── Motion.h          감속 이동 공식. ★ 상태가 없어서 컴포넌트가 아니라 자유 함수
+│   ├── Posture.h         자세 3종(Stand/Crouch/Prone). ★ 지형·피격이 **같이** 쓴다
 │   ├── BodyComponent     ★ 중력 · 수직 속도 · **지형 충돌**. 플레이어와 적이 같이 쓴다
 │   ├── Level.h/.cpp      지형(고체 사각형). ★ 「질문의 모양」만 고정 — 속은 나중에 타일맵
 │   ├── Transform.h       위치 · 방향. ★ 컴포넌트가 아니라 GameObject 내장
@@ -126,7 +127,7 @@ Scene 은 이 여섯 개만 안다.
 
 | 파일 | 내용 |
 |---|---|
-| `assets/textures/player.png` | 384x704. 6열 x 11행 = idle / run / light / roll / **crouchatk** / thrust / dash / crawl(4) / bite(6) / jumpatk(6) / **crouch(4)** |
+| `assets/textures/player.png` | 384x896. 6열 x 14행 = idle / run / light / roll / crouchatk / thrust / dash / crawl(4) / bite / jumpatk / crouch(4) / **proneatk / crouchbite / pronebite** |
 | `assets/textures/player_arm_front.png` | **팔 레이어.** player.png 와 칸이 1:1. 바라보는 쪽 팔 |
 | `assets/textures/player_arm_back.png` | 팔 레이어. 반대쪽 팔(어두운 색) |
 | `assets/textures/player_stump_front.png` | 앞팔이 **잘린 자리**. 팔 레이어와 정확히 반대로 켜진다 |
@@ -147,6 +148,8 @@ Scene 은 이 여섯 개만 안다.
 | `tools/gen_player_arms.ps1` | **팔·상처 레이어 4장.** 칸마다 몸통 색의 경계를 읽어 거기에 팔을 붙인다 |
 | `tools/gen_player_jumpatk.ps1` | 점프 공격(내려찍기) 행. ★ 돌린 뒤 **반드시 `gen_player_arms.ps1` 을 다시** 돌린다 |
 | `tools/gen_player_crouch.ps1` | **웅크리기 행 + 웅크린 공격 행.** 머리는 idle 에서 오려 오고 몸만 접는다. ★ 뒤에 `gen_player_arms.ps1` |
+| `tools/gen_player_prone_attack.ps1` | 엎드려 휘두르기. 기어가기 몸에 칼만 얹는다. ★ 뒤에 `gen_player_arms.ps1` |
+| `tools/gen_player_posture_bites.ps1` | 웅크려/엎드려 **물기** 두 행. 자세는 그대로 두고 **이빨만** 낸다. ★ 뒤에 `gen_player_arms.ps1` |
 | `tools/strip_frame_labels.ps1` | 시트 각 셀의 디버그 프레임 번호 제거. **지우기 전에 셀마다 검사하고, 그림 본체가 걸리면 중단한다** |
 
 둘 다 **멱등**하다 — 몇 번 돌려도, 어느 순서로 돌려도 결과가 같다.
@@ -360,6 +363,8 @@ ArmorData / PartBox / AnimationClip)이 전부 JSON 으로 빠진다.
 | Scene 전환을 틱마다 요청 | 한 프레임에 틱이 여러 번 돌면 `Push`/`Pop` 이 여러 번 요청되어 「전환이 두 번 요청됨」 경고가 난다. 요청했음을 표시할 것 |
 | ★ 같은 것을 두 곳에서 막기 | 콤보 무한 연타를 「예약할 때」와 「고를 때」 양쪽에서 막았더니, 고르는 쪽이 **이미 올라간 카운터**를 봐서 콤보가 아예 안 나왔다. 빌드도 통과하고 죽지도 않는 「그냥 안 되는」 버그다. **막을 곳은 한 곳** |
 | ★ 같은 것을 **두 곳에서 그리기** | 부위 상자가 생긴 뒤에도 `PlayerController::Hurtbox()`(고정 44px)가 디버그 표시에 남아 있었다. 판정에는 안 쓰였지만 자세를 안 따라가서 **「엎드렸는데 상자는 서 있는」 거짓 표시**가 났다. 정보(무적 여부)는 다른 곳으로 옮기고 상자는 지웠다 — 「안 쓰이니 놔두자」가 가장 오래 가는 거짓말이 된다 |
+| ★★ 「전용 그림이 없으니 예외로」 | 자세별 공격 그림이 없어서 `Prone() ? 기어가기 : 공격그림` 으로 때웠다. 그 행은 **반복**이라 엎드려 공격하면 **아무 일도 안 일어나 보였다.** 그림을 그리자 예외가 통째로 사라졌다 — **공격 데이터가 자기 그림을 들고 다니면 분기가 필요 없다** |
+| 자세가 늘면 **조합**이 늘어난다 | 자세 3 x 공격 2(무기·물기) = 6 가지 그림이 필요하다. 하나를 채우면 나머지가 빈 것이 드러난다. 자세를 늘릴 때는 **조합표를 먼저 그려 볼 것** |
 | ★ 「자세는 따라가면 안 된다」는 성급한 결론 | 지형 상자를 자세와 무관하게 고정해 두고 「따라가면 발판 속으로 내려앉는다」고 적었는데 **틀렸다.** 원점이 발밑이라 상자는 **위에서** 줄어든다 — 발은 그대로다. 그대로 뒀다면 발판 아래 32픽셀 틈을 **서서도 웅크려도 못 지나가는** 채로 남았을 것이다 |
 | 가만히 커지는 상자 | 세로 충돌은 「움직이는 중」(`dy != 0`)에만 해결된다. 그래서 낮은 틈에서 일어서면 **아무도 밀어내지 않아 천장 속에 박힌다.** 상자가 커질 수 있으면 **커져도 되는지 먼저 묻는** 함수(`CanStandUp`)가 반드시 함께 있어야 한다 |
 | 좌표를 직접 옮기는 곳이 여럿 | 지형 충돌이 들어오자 `tr.x` 를 직접 쓰던 세 곳(걷기·구르기·넉백)이 전부 벽을 통과했다. **이동은 문 하나(`BodyComponent::MoveX`)로 모을 것** — 하나라도 새면 그 이동만 규칙 밖이 된다 |
@@ -436,6 +441,7 @@ ArmorData / PartBox / AnimationClip)이 전부 JSON 으로 빠진다.
 | `PostureClip()` | `Prone() ? … : …` (5곳) | 웅크렸는데 선 그림 |
 | `Crouched()` | `m_crouching` / `CrouchHeld()` (4곳) | 이동이 빠름 · 공격하면 섬 |
 | `CurrentPosture()` (자세 3종) | `Prone() ? … : …` 2분기 (4곳) | 웅크린 물기가 **제 머리 위**로 나감 · 엎드려 Ctrl 누르면 속도 **두 번** 깎임 |
+| `SetPosture(Posture)` | `SetCrouching(bool)` | **bool 은 세 번째 값을 말할 수 없다** — 엎드린 몸이 「선 크기」로 남았고, 적은 아예 자세를 안 알려 주고 있었다 |
 
 **왜 못 잡는가**: 타입이 같다. `bool` → `bool`, `float` → `float`.
 컴파일도 되고 동작도 한다. **낡은 질문에 정확히 답할 뿐이다.**

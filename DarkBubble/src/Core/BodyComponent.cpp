@@ -30,11 +30,12 @@ namespace
 
 
 BodyComponent::BodyComponent(const Level& level, float halfWidth,
-                             float standHeight, float crouchHeight)
+                             float standHeight, float crouchHeight, float proneHeight)
     : m_level(level)
     , m_halfWidth(halfWidth)
     , m_standHeight(standHeight)
     , m_crouchHeight(crouchHeight)
+    , m_proneHeight(proneHeight)
 {
 }
 
@@ -42,7 +43,15 @@ BodyComponent::BodyComponent(const Level& level, float halfWidth,
 AABB BodyComponent::Box() const
 {
     const Transform& tr = Owner().transform;
-    const float h = m_crouching ? m_crouchHeight : m_standHeight;
+
+    float h = m_standHeight;
+    switch (m_posture)
+    {
+    case Posture::Crouch: h = m_crouchHeight; break;
+    case Posture::Prone:  h = m_proneHeight;  break;
+    case Posture::Stand:  break;
+    }
+
     return { tr.x - m_halfWidth, tr.y - h,
              tr.x + m_halfWidth, tr.y };
 }
