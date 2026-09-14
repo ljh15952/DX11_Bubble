@@ -222,6 +222,9 @@ private:
     //   「고쳐야 할 곳 목록」을 컴파일러가 만들어 준다.
     void UpdateMovement(SceneContext& ctx, float moveX);
 
+    // 지금 자세에 맞는 기본 그림. 자세를 고르는 곳은 여기 한 곳이다.
+    const AnimationClip& PostureClip(bool moving) const;
+
     // 지금 몸이 있어야 할 「기본 상태」. 공중이면 Jump, 아니면 Idle/Run.
     //   ★ 공격·구르기가 끝나는 자리마다 `moving ? Run : Idle` 을 적었더니
     //     공중에서 끝났을 때 한 틱 동안 서 있는 그림이 나왔다. 한 곳으로 모은다.
@@ -273,6 +276,7 @@ private:
     bool m_hitThisSwing = false;
 
     bool m_crouching    = false; // 수식자다. 상태가 아니다
+    bool m_crouchedLast = false; // 자세가 바뀌는 순간을 잡기 위한 것
     int  m_stepCooldown = 0;
 
     // ★ 장비는 **되돌아가지 않는다**(design.md §3.6.1 의 「남는다」 칸).

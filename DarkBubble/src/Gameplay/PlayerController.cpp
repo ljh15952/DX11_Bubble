@@ -38,6 +38,13 @@ namespace
     //   적의 기어가기 행을 플레이어 팔레트로 다시 칠한 임시 그림이다.
     constexpr AnimationClip kCrawlClip{ /*row*/ 7, 4, 10, /*loop*/ true };
 
+    // ★ 웅크린 자세. tools/gen_player_crouch.ps1 로 만든다.
+    //   전에는 서 있는 그림을 세로로 눌러서(SetScale) 표현했는데, 그러면
+    //   **판정 상자는 안 눌려서** 그림과 판정이 다른 말을 했다.
+    //   전용 그림을 그리면 둘이 같은 높이(발끝 기준 27)에서 만난다.
+    //   ※ 웅크려 걷는 전용 그림은 없다 — 같은 자세를 쓴다.
+    constexpr AnimationClip kCrouchClip{ /*row*/ 10, 4, 10, /*loop*/ true };
+
     // ========================================================================
     //  단검의 무브셋 — 무기 하나 = 공격 여러 개 (기획서 §3.2.1)
     //
@@ -265,6 +272,21 @@ const char* PlayerStateName(PlayerState s)
 }
 
 
+// ----------------------------------------------------------------------------
+//  PostureClip — 지금 자세에 맞는 기본 그림
+//
+//    ★ 자세를 고르는 곳이 한 곳이어야 한다. 전에는 `Prone() ? 기어가기 : 서기`
+//      가 다섯 군데에 복사되어 있었고, 웅크리기를 넣으려면 다섯 곳을 다 고쳐야
+//      했다 — 그러다 한 곳을 빠뜨리면 「웅크렸는데 서 있는 그림」이 된다.
+// ----------------------------------------------------------------------------
+const AnimationClip& PlayerController::PostureClip(bool moving) const
+{
+    if (m_parts->Prone()) return kCrawlClip;
+    if (Crouched())       return kCrouchClip;
+    return moving ? kRunClip : kIdleClip;
+}
+
+
 void PlayerController::Start(SceneContext& ctx)
 {
     m_body    = &Owner().Require<BodyComponent>();
@@ -340,7 +362,12 @@ bool PlayerController::CanRoll() const
 
 bool PlayerController::Crouched() const
 {
-    return m_crouching && m_state != PlayerState::Attack;
+    // ★ 공격 중에도 웅크린 채다. 전에는 공격을 제외했는데, 그건 「공격 행에
+    //   눌린 자세가 구워져 있으니 또 누르면 두 번 눌린다」는 **스케일 시절의
+    //   사정**이었다. 전용 그림을 그린 지금은 4행이 이미 웅크린 높이라
+    //   예외가 필요 없다 — 그리고 웅크려 찌르는 동안 판정만 일어서는 것이
+    //   오히려 이상했다.
+    return m_crouching;
 }
 
 
@@ -411,6 +438,7 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_comboQueued   = false;
     m_hitThisSwing  = false;
     m_crouching     = false;
+    m_crouchedLast  = false;
     m_stepCooldown  = 0;
 
     m_deathScreenRequested = false;
@@ -520,15 +548,15 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     switch (next)
     {
     case PlayerState::Idle:
-        // ★ 쓰러져 있으면 서 있는 그림을 쓸 수 없다. 자세는 몸이 정한다.
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip);
+        // ★ 그림은 상태가 아니라 **자세**가 정한다.
+        m_sprite->Play(PostureClip(false));
         break;
 
     case PlayerState::Run:
         // ★ 여기서 m_stepCooldown 을 0 으로 되돌리면 안 된다 —
         //   UpdateMovement 가 이미 발소리를 내고 쿨다운을 채워 놓았고,
         //   되돌리면 1/60초 간격으로 두 번 울린다.
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kRunClip);
+        m_sprite->Play(PostureClip(true));
         break;
 
     case PlayerState::Jump:
@@ -585,7 +613,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     }
 
     case PlayerState::Exhausted:
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip);
+        m_sprite->Play(PostureClip(false));
         ctx.audio.Play("ui_cancel", 0.45f);
         Log::Info("[play] 스태미나 고갈 — 경직 (stam {:.1f})", m_stamina->Current());
         break;
@@ -593,11 +621,11 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
     case PlayerState::Hurt:
         // ★ 소리는 여기서 내지 않는다 — 버텼는지 휘청였는지에 따라 다르므로
         //   원인을 아는 TakeHit 가 낸다.
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
+        m_sprite->Play(PostureClip(false), true);
         break;
 
     case PlayerState::Dead:
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
+        m_sprite->Play(PostureClip(false), true);
         ctx.audio.Play("ui_cancel", 0.9f, -0.6f);
         Log::Info("[play] ★★ 플레이어 사망 — {}틱 뒤 사망 화면", kDeathScreenDelay);
         break;
@@ -877,6 +905,20 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     //   키를 누르는 동안만이라 알려 주지 않으면 몸이 알 방법이 없다.
     m_parts->SetCrouching(Crouched());
 
+    // ★ 자세가 바뀌면 **그림도** 바꾼다.
+    //   Ctrl 은 상태를 바꾸지 않으므로 ChangeState 가 안 불린다.
+    //   그냥 두면 「웅크렸는데 서 있는 그림」이 되어, 방금 고친 것과
+    //   똑같은 어긋남이 반대 방향으로 생긴다.
+    if (Crouched() != m_crouchedLast)
+    {
+        m_crouchedLast = Crouched();
+
+        // 서 있거나 걷는 중에만. 공격·구르기 도중에 그림을 갈아치우면
+        // 프레임 데이터와 그림이 어긋난다.
+        if (m_state == PlayerState::Idle || m_state == PlayerState::Run)
+            m_sprite->Play(PostureClip(m_state == PlayerState::Run), true);
+    }
+
     const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
     const bool jumpPressed   = (consumeEdgeInput && ctx.input.JumpPressed());
     const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
@@ -1108,14 +1150,9 @@ void PlayerController::Render(Renderer&)
 
     m_sprite->SetTint(tint);
 
-    // ★ 웅크린 자세를 세로로 눌러서 표현한다.
-    //   ★★ 원점을 발밑에 둔 결정이 여기서 값을 한다 — 눌러도 발이 그 자리에 남는다.
-    //
-    //   ★★★ 0.78 에서 **0.45** 로 내렸다. 전에는 「조금 낮아 보이는」 정도였는데,
-    //     그 높이로는 중단 공격(발끝 26~36) 아래로 들어가지 못한다.
-    //     **그림이 판정을 설명해야 한다** — 흘리는 자세는 흘릴 만큼 낮아 보여야 한다.
-    //     판정 상자(kBoxCrouch, 위끝 24)와 같은 비율이다.
-    m_sprite->SetScale(1.0f, Crouched() ? 0.45f : 1.0f);
+    // ※ 웅크린 자세를 세로로 눌러서 표현하던 코드가 여기 있었다.
+    //   **전용 그림(10행 · 4행)이 생기면서 사라졌다.**
+    //   눌러서 만든 자세는 판정 상자를 데리고 오지 못한다 — 그림만 낮아진다.
 
     // ★ 틴트·눌림과 같은 「표현 넘기기」다. 매 틱이 아니라 매 프레임 한 번이면
     //   충분하다 — 잘린 팔은 상태에서 **파생**되는 것이라 따로 기억할 게 없다.
