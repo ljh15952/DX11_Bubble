@@ -35,12 +35,18 @@ namespace
     constexpr int kCellH = 64;
 
     // ---- ★ 지형 충돌 상자. 피격 상자와 **다른 것**이다 ----
-    //   피격 상자는 자세를 따라 낮아지지만(웅크리기 27 / 엎드리기 25),
-    //   이것은 **고정**이다. 자세를 따라가게 만들면 웅크릴 때마다 몸이
-    //   발판 속으로 내려앉는다.
+    //   피격 상자는 **부위 다섯**으로 나뉘지만 지형 상자는 **하나**다.
+    //   지형은 「머리가 맞았나」를 묻지 않기 때문이다.
+    //
+    //   ★ 높이는 자세를 따라간다. 웅크리면 낮은 틈을 지나갈 수 있어야 한다.
+    //     원점이 발밑이라 상자는 **위에서** 줄어든다 — 발은 그대로다.
+    //     28 은 웅크린 그림(위끝 27)보다 1픽셀 넉넉한 값이다.
+    //
     //   플레이어와 적이 같은 값을 쓴다 — 몸집이 비슷하기 때문이다.
-    constexpr float kBodyHalfW  =  9.0f;
-    constexpr float kBodyHeight = 44.0f;
+    //   ※ 적은 웅크리지 않으므로 crouch 값을 쓸 일이 없다.
+    constexpr float kBodyHalfW        =  9.0f;
+    constexpr float kBodyStandHeight  = 44.0f;
+    constexpr float kBodyCrouchHeight = 28.0f;
 
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
@@ -184,7 +190,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
     //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
     //   반대로 붙이면 착지를 한 틱 늦게 알아채 그림이 한 틱 어긋난다.
-    m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyHeight);
+    m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW,
+                                   kBodyStandHeight, kBodyCrouchHeight);
     m_playerObj.Add<StaminaComponent>();
     m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_playerParts = &m_playerObj.Add<PartsComponent>(kPlayerParts);
@@ -202,7 +209,8 @@ bool PlayScene::Enter(SceneContext& ctx)
         playerSprite.AddLayer(stumpBackSheet,  false));
 
     // ★ 적도 떨어진다. 같은 컴포넌트, 같은 숫자다.
-    m_enemyObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyHeight);
+    m_enemyObj.Add<BodyComponent>(m_level, kBodyHalfW,
+                                  kBodyStandHeight, kBodyCrouchHeight);
     m_enemyParts = &m_enemyObj.Add<PartsComponent>(kGruntParts);
     m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);
     m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);

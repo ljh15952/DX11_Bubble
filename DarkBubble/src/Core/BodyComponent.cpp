@@ -29,10 +29,12 @@ namespace
 }
 
 
-BodyComponent::BodyComponent(const Level& level, float halfWidth, float height)
+BodyComponent::BodyComponent(const Level& level, float halfWidth,
+                             float standHeight, float crouchHeight)
     : m_level(level)
     , m_halfWidth(halfWidth)
-    , m_height(height)
+    , m_standHeight(standHeight)
+    , m_crouchHeight(crouchHeight)
 {
 }
 
@@ -40,8 +42,23 @@ BodyComponent::BodyComponent(const Level& level, float halfWidth, float height)
 AABB BodyComponent::Box() const
 {
     const Transform& tr = Owner().transform;
-    return { tr.x - m_halfWidth, tr.y - m_height,
+    const float h = m_crouching ? m_crouchHeight : m_standHeight;
+    return { tr.x - m_halfWidth, tr.y - h,
              tr.x + m_halfWidth, tr.y };
+}
+
+
+bool BodyComponent::CanStandUp() const
+{
+    // ★ **선 자세의 상자**로 묻는다. 지금 웅크려 있든 아니든 답은 같아야 한다 —
+    //   「여기서 일어설 수 있나」는 현재 자세와 무관한 질문이다.
+    const Transform& tr = Owner().transform;
+    const AABB standing{ tr.x - m_halfWidth, tr.y - m_standHeight,
+                         tr.x + m_halfWidth, tr.y };
+
+    bool blocked = false;
+    m_level.ForEachOverlapping(standing, [&blocked](const AABB&) { blocked = true; });
+    return !blocked;
 }
 
 
@@ -148,15 +165,17 @@ void BodyComponent::Tick(SceneContext&, bool)
     else if (dy < 0.0f)
     {
         // 올라가는 중 -> 천장에 머리를 박는다. **상승만 끊고** 떨어지게 둔다.
-        float bottom = tr.y - m_height;
+        const float head = Box().top;
+
+        float bottom = head;
         m_level.ForEachOverlapping(Box(), [&bottom](const AABB& s)
         {
             if (s.bottom > bottom) bottom = s.bottom;
         });
 
-        if (bottom > tr.y - m_height)
+        if (bottom > head)
         {
-            tr.y        = bottom + m_height;
+            tr.y       += (bottom - head);   // 머리가 파고든 만큼 내린다
             m_velocityY = 0.0f;
         }
     }

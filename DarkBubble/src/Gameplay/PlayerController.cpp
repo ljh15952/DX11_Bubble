@@ -365,9 +365,13 @@ bool PlayerController::Crouched() const
     // ★ 공격 중에도 웅크린 채다. 전에는 공격을 제외했는데, 그건 「공격 행에
     //   눌린 자세가 구워져 있으니 또 누르면 두 번 눌린다」는 **스케일 시절의
     //   사정**이었다. 전용 그림을 그린 지금은 4행이 이미 웅크린 높이라
-    //   예외가 필요 없다 — 그리고 웅크려 찌르는 동안 판정만 일어서는 것이
-    //   오히려 이상했다.
-    return m_crouching;
+    //   예외가 필요 없다.
+    //
+    //   ★★ 그리고 **못 일어서는 자리**가 있다. 자세를 「키를 누르고 있는가」로만
+    //     정하면 낮은 틈에서 Ctrl 을 떼는 순간 몸이 천장 속에 박힌다 —
+    //     세로 충돌은 「움직이는 중」에만 해결되므로 가만히 커진 몸은
+    //     아무도 밀어내지 않는다.
+    return m_crouching || m_crouchForced;
 }
 
 
@@ -375,7 +379,10 @@ bool PlayerController::CanJump() const
 {
     // ★ 웅크린 채로는 못 뛴다. 웅크리기는 상태가 아니라 **수식자**라,
     //   조합을 늘리기 시작하면 (웅크린 점프 공격 같은) 경우의 수가 폭발한다.
-    return !m_parts->LegsBroken() && m_body->Grounded() && !m_crouching;
+    //
+    //   ★★ Crouched() 를 보므로 **천장이 낮아도** 못 뛴다. 당연한 결과인데
+    //     m_crouching 을 봤다면 「일어서지도 못하는데 점프는 되는」 자리가 생긴다.
+    return !m_parts->LegsBroken() && m_body->Grounded() && !Crouched();
 }
 
 
@@ -438,6 +445,7 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_comboQueued   = false;
     m_hitThisSwing  = false;
     m_crouching     = false;
+    m_crouchForced  = false;
     m_crouchedLast  = false;
     m_stepCooldown  = 0;
 
@@ -905,9 +913,17 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     // 웅크리기는 **지속 입력**이라 엣지가 아니다. 매 틱 물어봐도 된다.
     m_crouching = ctx.input.CrouchHeld();
 
-    // ★ 자세를 몸에게 알려 준다. 판정 상자가 여기서 낮아진다.
-    //   엎드리기는 몸이 스스로 알지만(다리가 부서졌다), 웅크리기는
-    //   키를 누르는 동안만이라 알려 주지 않으면 몸이 알 방법이 없다.
+    // ★ 천장이 낮으면 Ctrl 을 떼어도 못 일어선다.
+    //   ★★ **묻는 순서가 중요하다.** 일어설 수 있는지를 먼저 묻고,
+    //     그 답으로 자세를 정하고, 자세를 몸과 부위에 알려 준다.
+    //     거꾸로 하면 「이미 커진 몸」으로 여유를 재게 되어 영영 못 일어선다.
+    m_crouchForced = !m_crouching && !m_body->CanStandUp();
+
+    // ★ 자세를 몸과 부위에 알려 준다.
+    //   몸  : 어디를 **지나갈 수 있는가** (높이 하나)
+    //   부위: 어디를 **맞는가**          (상자 다섯)
+    //   둘은 다른 것이지만 **같은 자세**를 본다. 출처가 하나라 어긋날 수 없다.
+    m_body->SetCrouching(Crouched());
     m_parts->SetCrouching(Crouched());
 
     // ★ 자세가 바뀌면 **그림도** 바꾼다.

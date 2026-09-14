@@ -25,12 +25,16 @@
 //    규칙을 어기는 것이 아니라, 규칙의 조건이 이미 충족된 드문 경우다.
 //
 //  ---- ★★ 지형 상자와 피격 상자는 **다른 것**이다 ----
-//    여기의 상자는 「어디에 설 수 있는가」를 정하고,
+//    여기의 상자는 「어디를 지나갈 수 있는가」를 정하고,
 //    PartsComponent 의 상자는 「어디를 맞는가」를 정한다.
 //
-//    같게 만들면 **웅크릴 때마다 지형을 뚫는다** — 피격 상자는 자세를 따라
-//    낮아지는데, 그걸 지형에 쓰면 몸이 발판 속으로 내려앉기 때문이다.
-//    그래서 여기의 상자는 **자세와 무관하게 고정**이다.
+//    다만 **높이는 자세를 따라간다.** 웅크리면 낮은 틈을 지나갈 수 있어야
+//    하기 때문이다. 원점이 발밑이라 상자는 **위에서** 줄어든다 — 발은 그대로다.
+//
+//    부위별로 나뉘지 않는 것이 피격 상자와의 차이다. 지형은 「머리가 맞았나」를
+//    묻지 않는다. 그래서 상자 하나면 되고, 자세는 **높이 하나**로 표현된다.
+//
+//    ★ 높이가 변하면 「일어설 수 없는 자리」가 생긴다(CanStandUp 참조).
 //
 //  ---- 이 컴포넌트가 **모르는** 것 ----
 //    점프 버튼도, 상태 머신도, 「지금 구르는 중인지」도 모른다.
@@ -48,8 +52,10 @@ class Level;
 class BodyComponent final : public Component
 {
 public:
-    // halfWidth / height = **지형 충돌용** 몸 상자. 발밑이 원점이다.
-    BodyComponent(const Level& level, float halfWidth, float height);
+    // halfWidth / standHeight / crouchHeight = **지형 충돌용** 몸 상자.
+    // 발밑이 원점이라 높이는 위로 자란다.
+    BodyComponent(const Level& level, float halfWidth,
+                  float standHeight, float crouchHeight);
 
     const char* TypeName() const override { return "Body"; }
 
@@ -63,7 +69,17 @@ public:
     bool  Grounded()  const { return m_grounded; }
     float VelocityY() const { return m_velocityY; }
 
-    AABB Box() const;   // 지금 지형 충돌 상자
+    AABB Box() const;   // 지금 지형 충돌 상자 (자세에 따라 높이가 다르다)
+
+    // ★ 지금 자리에서 **일어설 수 있는가.**
+    //   천장이 낮으면 false — 부르는 쪽은 웅크린 채로 둬야 한다.
+    //   없으면 낮은 틈에서 Ctrl 을 떼는 순간 몸이 천장 속에 박힌다.
+    //   세로 충돌은 「움직이는 중」에만 해결되므로, 가만히 커진 몸은 아무도 밀어내지 않는다.
+    bool CanStandUp() const;
+
+    // 자세를 알려 준다. 엎드리기는 몸이 스스로 알지만(PartsComponent),
+    // 웅크리기는 키를 누르는 동안만이라 소유자가 알려 줘야 한다.
+    void SetCrouching(bool v) { m_crouching = v; }
 
     // ★ 이 x 로 한 걸음 옮기면 발밑이 비는가.
     //   적이 발판 끝에서 멈추는 데 쓴다. **움직이기 전에** 물어야 멈출 수 있다.
@@ -98,8 +114,10 @@ public:
 private:
     const Level& m_level;
 
-    float m_halfWidth = 9.0f;
-    float m_height    = 44.0f;
+    float m_halfWidth    =  9.0f;
+    float m_standHeight  = 44.0f;
+    float m_crouchHeight = 28.0f;
+    bool  m_crouching    = false;
 
     float m_velocityY = 0.0f;
     bool  m_grounded  = true;

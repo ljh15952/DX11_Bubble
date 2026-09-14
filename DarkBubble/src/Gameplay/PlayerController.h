@@ -182,9 +182,8 @@ public:
     //   둘이 다른 조건을 쓰면 「그림은 서 있는데 판정은 웅크린」 상태가 생기고,
     //   그건 화면만 보고는 못 찾는다.
     //
-    //   공격 중에는 빠진다 — CROUCH 공격은 전용 그림 행에 자세가 이미
-    //   구워져 있어서 또 누르면 두 번 눌린다. 그리고 「공격은 커밋」이라
-    //   휘두르는 동안 판정이 작아지지 않는 편이 규칙으로도 맞다.
+    //   ★ Ctrl 을 떼어도 **천장이 낮으면 웅크린 채**다(m_crouchForced).
+    //     없으면 낮은 틈에서 일어서는 순간 몸이 천장 속에 박힌다.
     bool Crouched() const;
 
     WeaponHand Hand() const { return m_weaponHand; }
@@ -276,6 +275,7 @@ private:
     bool m_hitThisSwing = false;
 
     bool m_crouching    = false; // 수식자다. 상태가 아니다
+    bool m_crouchForced = false; // 천장이 낮아 못 일어선다
     bool m_crouchedLast = false; // 자세가 바뀌는 순간을 잡기 위한 것
     int  m_stepCooldown = 0;
 
