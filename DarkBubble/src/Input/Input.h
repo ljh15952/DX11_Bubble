@@ -108,6 +108,11 @@ public:
     //   실제로 부러지려면 잡몹의 물기를 네 번 맞아야 해서 확인에만 한참 걸린다.
     bool LegBreakPressed() const { return m_edges.legBreak; }      // F4 (임시)
 
+    // ★ F5 — 어둠 껐다 켜기.
+    //   밝기는 **비교해 봐야** 정할 수 있다. 끄고 켤 수 없으면
+    //   「지금이 어두운 건지 원래 그런 건지」를 알 수가 없다.
+    bool DarkTogglePressed() const { return m_edges.darkToggle; }
+
     // ---- 디버그 / 엔진 키 ----
     //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
     bool DebugTogglePressed()  const;  // F1  — 히트박스 표시
@@ -147,6 +152,7 @@ private:
         //   6단계에서 진짜 장비 시스템이 오면 버린다.
         bool armorSwap = false;
         bool legBreak  = false;
+        bool darkToggle = false;
     };
     Edges m_edges;
 };

@@ -44,6 +44,25 @@ namespace
     //
     //   플레이어와 적이 같은 값을 쓴다 — 몸집이 비슷하기 때문이다.
     //   ※ 적은 웅크리지 않으므로 crouch 값을 쓸 일이 없다.
+    // ---- ★ 어둠 ----
+    //   마스크 크기는 그림과 같아야 한다(tools/gen_light_mask.ps1).
+    constexpr float kLightMaskW = 640.0f;
+    constexpr float kLightMaskH = 320.0f;
+    constexpr float kLightHeight = 28.0f;   // 빛의 중심 = 가슴 높이
+
+    //   ★ 완전한 검정(1.0)이 아니다. 완전히 가리면 지형을 못 읽어 답답하고,
+    //     무엇보다 **적의 `!` 예고가 안 보여** 불공평해진다.
+    //     실루엣이 희미하게 남는 정도가 「어둠」이다.
+    constexpr float kDarkAlpha = 0.88f;
+
+    // ---- 손 슬롯 아이콘 ----
+    constexpr float kHandSlotX = 48.0f;
+    constexpr int   kIconSize  = 16;
+    constexpr int   kIconEmpty = 0;
+    constexpr int   kIconDagger = 1;
+    constexpr int   kIconSevered = 2;
+    constexpr int   kIconTeeth = 3;
+
     // ---- ★ 카메라 ----
     //   데드존이 넓을수록 화면이 덜 움직인다. 가로를 세로보다 넓게 두는 것이
     //   보통이다 — 좌우 이동은 잦지만 점프는 금방 돌아오기 때문이다.
@@ -248,6 +267,11 @@ bool PlayScene::Enter(SceneContext& ctx)
     auto stumpFrontSheet = ctx.assets.Texture(L"assets/textures/player_stump_front.png");
     auto stumpBackSheet  = ctx.assets.Texture(L"assets/textures/player_stump_back.png");
     if (!armFrontSheet || !armBackSheet || !stumpFrontSheet || !stumpBackSheet)
+        return false;
+
+    m_lightMask = ctx.assets.Texture(L"assets/textures/light_mask.png");
+    m_icons     = ctx.assets.Texture(L"assets/textures/icons.png");
+    if (!m_lightMask || !m_icons)
         return false;
 
     // ★ 상속 계층을 짜지 않는다. 필요한 능력을 붙일 뿐이다.
@@ -476,12 +500,126 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     if (m_player->ConsumeDeathScreenRequest())
         ctx.scenes.Push(std::make_unique<DeathScene>());
 
+    // ★ 임시 키. 밝기는 **비교해 봐야** 정할 수 있다.
+    if (consumeEdgeInput && ctx.input.DarkTogglePressed())
+    {
+        m_dark = !m_dark;
+        Log::Info("[play] (F5) 어둠 {}", m_dark ? "ON" : "OFF");
+    }
+
     if (consumeEdgeInput && ctx.input.PausePressed())
     {
         // 일시정지는 PausePressed 를 쓴다. 패드 B 가 구르기이므로
         // CancelPressed 를 쓰면 구를 때마다 일시정지가 걸린다.
         ctx.audio.Play("ui_cancel");
         ctx.scenes.Push(std::make_unique<PauseScene>());
+    }
+}
+
+
+// ----------------------------------------------------------------------------
+//  DrawDarkness — 어둠 (design.md §3.9 A)
+//
+//    ★ 마스크 한 장을 플레이어 위에 덮고, **그 밖은 사각형 넷으로** 채운다.
+//      마스크가 화면보다 작으므로 남는 자리를 안 채우면 거기만 훤해진다.
+// ----------------------------------------------------------------------------
+void PlayScene::DrawDarkness(Renderer& renderer)
+{
+    if (!m_dark || !m_lightMask)
+        return;
+
+    const Transform& tr = m_playerObj.transform;
+
+    // 빛의 중심은 발밑이 아니라 **가슴**이다. 발밑에 두면 머리 위가 어둡다.
+    const float lx = std::round(tr.x);
+    const float ly = std::round(tr.y - kLightHeight);
+
+    const float halfW = kLightMaskW * 0.5f;
+    const float halfH = kLightMaskH * 0.5f;
+
+    // ★ 진하기는 **여기서** 정한다. 그림에는 굽지 않았다 —
+    //   그래야 장소마다 다르게 두어도 그림을 다시 안 만든다.
+    const DirectX::XMVECTOR tint =
+        DirectX::XMVectorSet(1.0f, 1.0f, 1.0f, kDarkAlpha);
+
+    const DirectX::XMFLOAT2 pos{ lx, ly };
+    renderer.Sprites().Draw(
+        m_lightMask.Get(), pos, nullptr, tint,
+        0.0f, DirectX::XMFLOAT2(halfW, halfH), DirectX::XMFLOAT2(1.0f, 1.0f),
+        (tr.facing < 0) ? DirectX::SpriteEffects_FlipHorizontally
+                        : DirectX::SpriteEffects_None);
+
+    // ---- 마스크 밖 ----
+    //   보이는 범위(카메라)를 기준으로 위·아래·좌·우 넷.
+    const float vl = m_viewX;
+    const float vt = m_viewY;
+    const float vr = m_viewX + static_cast<float>(Config::kCanvasWidth);
+    const float vb = m_viewY + static_cast<float>(Config::kCanvasHeight);
+
+    const float ml = lx - halfW, mr = lx + halfW;
+    const float mt = ly - halfH, mb = ly + halfH;
+
+    const DirectX::XMVECTOR black =
+        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, kDarkAlpha);
+
+    if (mt > vt) renderer.DrawFilledRect({ vl, vt, vr, mt }, black);   // 위
+    if (mb < vb) renderer.DrawFilledRect({ vl, mb, vr, vb }, black);   // 아래
+    if (ml > vl) renderer.DrawFilledRect({ vl, mt, ml, mb }, black);   // 왼쪽
+    if (mr < vr) renderer.DrawFilledRect({ mr, mt, vr, mb }, black);   // 오른쪽
+}
+
+
+// ----------------------------------------------------------------------------
+//  DrawHandSlots — 손에 든 것
+//
+//    ★ 글자가 아니라 그림인 이유: 몸 상태를 이미 그림으로 보여 주고 있다(§3.2.3).
+//      같은 층의 정보를 한쪽만 글자로 두면 눈이 두 번 읽어야 한다.
+//      「오른손이 잘려 무기를 떨궜다」가 **한 칸이 X 로 바뀌는 것**으로 읽힌다.
+// ----------------------------------------------------------------------------
+void PlayScene::DrawHandSlots(Renderer& renderer)
+{
+    if (!m_icons)
+        return;
+
+    // 어느 그림을 쓸지. 팔이 잘렸으면 든 것이 무엇이든 X 다.
+    auto slot = [this](int armPart, WeaponHand hand) -> int
+    {
+        if (m_playerParts->IsBroken(armPart))     return kIconSevered;
+        if (m_player->Hand() == hand)             return kIconDagger;
+        return kIconEmpty;
+    };
+
+    struct Cell { const char* label; int icon; };
+    const Cell cells[2] = {
+        { "L", slot(Part_LeftArm,  WeaponHand::Left)  },
+        { "R", slot(Part_RightArm, WeaponHand::Right) },
+    };
+
+    const float y = Config::kCanvasHeight - 78.0f;
+
+    for (int i = 0; i < 2; ++i)
+    {
+        const float x = kHandSlotX + static_cast<float>(i) * (kIconSize + 6.0f);
+
+        const RECT src{ cells[i].icon * kIconSize, 0,
+                        (cells[i].icon + 1) * kIconSize, kIconSize };
+
+        renderer.Sprites().Draw(m_icons.Get(), DirectX::XMFLOAT2(x, y), &src,
+                                DirectX::Colors::White);
+
+        // 어느 손인지. 아이콘만으로는 좌우를 알 수 없다.
+        renderer.DrawString(cells[i].label, x + 5.0f, y + kIconSize + 1.0f,
+                            DirectX::Colors::SlateGray, 1);
+    }
+
+    // ★ 양손을 다 잃으면 남는 것은 이빨뿐이다. 그것도 **칸으로** 보여 준다 —
+    //   「무기가 없다」가 아니라 「이것이 남았다」로 읽혀야 한다(§3.2.2.1).
+    if (m_playerParts->IsBroken(Part_LeftArm) && m_playerParts->IsBroken(Part_RightArm))
+    {
+        const float x = kHandSlotX + 2.0f * (kIconSize + 6.0f);
+        const RECT src{ kIconTeeth * kIconSize, 0, (kIconTeeth + 1) * kIconSize, kIconSize };
+        renderer.Sprites().Draw(m_icons.Get(), DirectX::XMFLOAT2(x, y), &src,
+                                DirectX::Colors::White);
     }
 }
 
@@ -611,6 +749,11 @@ void PlayScene::Render(Renderer& renderer)
     m_enemyObj.Render(renderer);
     m_playerObj.Render(renderer);
 
+    // ---- ★ 어둠은 그림 위, 디버그 **아래** ----
+    //   순서가 규칙이다. 디버그보다 위에 덮으면 어두워서 판정 상자를 못 본다.
+    //   「보여야 하는 것」과 「가려야 하는 것」이 층으로 갈린다.
+    DrawDarkness(renderer);
+
     // ★ 디버그는 **모든 그림이 끝난 뒤에** 그린다.
     //   붙인 순서가 곧 실행 순서라서, Parts 를 먼저 붙이면 판정 상자를
     //   스프라이트가 덮어 「히트박스가 뒤에 있는」 상태가 된다.
@@ -625,6 +768,7 @@ void PlayScene::RenderUI(Renderer& renderer)
 {
     // 각 컴포넌트가 자기 표시를 그린다. Scene 은 순서만 정한다.
     m_playerObj.RenderUI(renderer);
+    DrawHandSlots(renderer);
     m_enemyObj.RenderUI(renderer);
 
     if (renderer.DebugDraw())

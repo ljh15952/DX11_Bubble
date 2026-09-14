@@ -25,6 +25,9 @@
 #include "Core/Level.h"
 
 #include <vector>
+
+#include <d3d11.h>
+#include <wrl/client.h>
 #include "Core/Scene.h"
 
 class SpriteComponent;
@@ -91,6 +94,19 @@ private:
 
     // 카메라 추적. Enter 와 Update 가 **같은 것**을 불러야 첫 프레임이 안 튄다.
     void UpdateCamera(SceneContext& ctx);
+
+    // ---- ★ 어둠 (design.md §3.9 A) ----
+    //   가운데가 투명하고 바깥이 검은 그림을 **플레이어 위에 한 장 덮는다.**
+    //   기획서는 「3패스로 늘린다」고 적어 두었지만 패스는 안 늘어났다 —
+    //   알파 블렌딩이 그대로 「보이는 만큼만 보인다」가 되기 때문이다.
+    //   ★ 「어떻게 만들까」보다 **「무엇이면 충분한가」**를 먼저 물으면 싸진다.
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_lightMask;
+    bool m_dark = true;                  // F5 로 껐다 켠다(임시)
+    void DrawDarkness(Renderer& renderer);
+
+    // 손에 든 것을 보여 주는 아이콘 (빈손 / 단검 / 잘림 / 이빨)
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_icons;
+    void DrawHandSlots(Renderer& renderer);
 
     // Render 는 SceneContext 를 못 받으므로 Update 에서 적어 둔다.
     float m_viewX = 0.0f;
