@@ -214,7 +214,10 @@ public:
 
 private:
     void ChangeState(SceneContext& ctx, PlayerState next, bool force = false);
-    const AttackData& SelectAttack(SceneContext& ctx, PlayerState prev) const;
+    // ★ ctx 를 받지 않는다. 무브셋 선택이 **입력을 직접 보면 안 되기** 때문이다 —
+    //   자세는 입력에서 파생된 것이고(천장까지 본다), 여기서 입력을 다시 보면
+    //   파생 전의 값으로 판단하게 된다.
+    const AttackData& SelectAttack(PlayerState prev) const;
 
     // ★ moveY 가 사라졌다. 플랫포머에서 세로 위치를 정하는 것은 **중력**이지
     //   입력이 아니다. 인자를 지우면 옛 호출이 전부 컴파일 에러가 되어
@@ -274,7 +277,17 @@ private:
     bool m_biteRequested = false;
     bool m_hitThisSwing = false;
 
-    bool m_crouching    = false; // 수식자다. 상태가 아니다
+    // ★★ 이름이 `m_crouching` 이 아니라 `m_crouchHeld` 인 이유가 있다.
+    //   이건 **입력**이지 자세가 아니다. 자세는 Crouched() 다(천장까지 본다).
+    //
+    //   전에 `m_crouching` 이었을 때, 「자세」를 물어야 할 네 곳이 이걸 그대로
+    //   읽고 있었다 — 이동 속도 · 발소리 · 무브셋 선택 · 화면 표시.
+    //   전부 컴파일되고 전부 동작했다. **낡은 질문에 답했을 뿐이다.**
+    //
+    //   이름을 바꾸자 그 네 곳이 전부 컴파일 에러가 되었다.
+    //   ★ 파생된 답을 만들면 **원본의 이름을 바꿔** 옛 사용처를 드러낸다.
+    //     눈으로 훑는 것과 달리 빠뜨릴 수가 없다.
+    bool m_crouchHeld   = false; // 키를 누르고 있는가 (입력 그 자체)
     bool m_crouchForced = false; // 천장이 낮아 못 일어선다
     bool m_crouchedLast = false; // 자세가 바뀌는 순간을 잡기 위한 것
     int  m_stepCooldown = 0;

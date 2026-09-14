@@ -371,7 +371,7 @@ bool PlayerController::Crouched() const
     //     정하면 낮은 틈에서 Ctrl 을 떼는 순간 몸이 천장 속에 박힌다 —
     //     세로 충돌은 「움직이는 중」에만 해결되므로 가만히 커진 몸은
     //     아무도 밀어내지 않는다.
-    return m_crouching || m_crouchForced;
+    return m_crouchHeld || m_crouchForced;
 }
 
 
@@ -381,7 +381,7 @@ bool PlayerController::CanJump() const
     //   조합을 늘리기 시작하면 (웅크린 점프 공격 같은) 경우의 수가 폭발한다.
     //
     //   ★★ Crouched() 를 보므로 **천장이 낮아도** 못 뛴다. 당연한 결과인데
-    //     m_crouching 을 봤다면 「일어서지도 못하는데 점프는 되는」 자리가 생긴다.
+    //     입력만 봤다면 「일어서지도 못하는데 점프는 되는」 자리가 생긴다.
     return !m_parts->LegsBroken() && m_body->Grounded() && !Crouched();
 }
 
@@ -444,7 +444,7 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_biteRequested = false;
     m_comboQueued   = false;
     m_hitThisSwing  = false;
-    m_crouching     = false;
+    m_crouchHeld    = false;
     m_crouchForced  = false;
     m_crouchedLast  = false;
     m_stepCooldown  = 0;
@@ -488,7 +488,7 @@ void PlayerController::Respawn(SceneContext& ctx)
 //      Ctrl 을 누르고 있다는 것은 「다리를 노리겠다」는 의사표시이고,
 //      「방금 달리고 있었다」보다 최신 의도다.
 // ----------------------------------------------------------------------------
-const AttackData& PlayerController::SelectAttack(SceneContext& ctx, PlayerState prev) const
+const AttackData& PlayerController::SelectAttack(PlayerState prev) const
 {
     // ⓪ 물기는 **모든 것보다 위**다. 다른 키로 들어왔으므로 해석의 여지가 없다.
     //   자세만 반영한다 — 엎드리면 무는 높이가 달라진다.
@@ -503,7 +503,11 @@ const AttackData& PlayerController::SelectAttack(SceneContext& ctx, PlayerState 
     //   전부 **발이 땅에 있다**는 전제 위에 있다.
     if (!m_body->Grounded())             return kDaggerJump;
 
-    if (ctx.input.CrouchHeld())          return kDaggerCrouch;   // ① 명시적 입력
+    // ① ★ **입력이 아니라 자세**를 본다.
+    //   전에는 Ctrl 을 눌렀는지를 물었다. 그러면 천장이 낮아 못 일어선 채로
+    //   공격했을 때 **서서 휘두르는 공격**이 나가고 그림도 일어섰다.
+    //   「지금 웅크리고 있나」와 「웅크리기를 누르고 있나」는 다른 질문이다.
+    if (Crouched())                      return kDaggerCrouch;
 
     // ② 공격 중이었다 -> 2타
     //   ★ 무한 연타 방지는 **예약하는 쪽** 한 곳에만 있다.
@@ -579,7 +583,7 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         // ★ 물기는 콤보에 들어가지 않는다. 무기 콤보의 일부가 아니기 때문이다.
 
         // ★ 어느 공격인지 **여기서 고정한다.**
-        m_currentAttack = &SelectAttack(ctx, prev);
+        m_currentAttack = &SelectAttack(prev);
         m_biteRequested = false;          // 한 번 쓰면 지운다
         const AttackData& atk = *m_currentAttack;
 
@@ -667,7 +671,7 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
     }
     else
     {
-        if (m_crouching)      speed *= kCrouchSpeedScale;
+        if (Crouched())       speed *= kCrouchSpeedScale;
         if (m_parts->Prone()) speed *= kProneSpeedScale;
     }
 
@@ -689,7 +693,7 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
     if (--m_stepCooldown <= 0)
     {
         // 웅크려 걸으면 발소리도 그만큼 뜸해야 한다.
-        m_stepCooldown = m_crouching
+        m_stepCooldown = Crouched()
             ? static_cast<int>(kStepIntervalTicks / kCrouchSpeedScale)
             : kStepIntervalTicks;
         ctx.audio.Play("step", 0.45f, RandomPitch(0.15f), PanFromCanvasX(tr.x));
@@ -911,13 +915,13 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     const bool moving = (std::abs(move.x) > kMoveEpsilon);
 
     // 웅크리기는 **지속 입력**이라 엣지가 아니다. 매 틱 물어봐도 된다.
-    m_crouching = ctx.input.CrouchHeld();
+    m_crouchHeld = ctx.input.CrouchHeld();
 
     // ★ 천장이 낮으면 Ctrl 을 떼어도 못 일어선다.
     //   ★★ **묻는 순서가 중요하다.** 일어설 수 있는지를 먼저 묻고,
     //     그 답으로 자세를 정하고, 자세를 몸과 부위에 알려 준다.
     //     거꾸로 하면 「이미 커진 몸」으로 여유를 재게 되어 영영 못 일어선다.
-    m_crouchForced = !m_crouching && !m_body->CanStandUp();
+    m_crouchForced = !m_crouchHeld && !m_body->CanStandUp();
 
     // ★ 자세를 몸과 부위에 알려 준다.
     //   몸  : 어디를 **지나갈 수 있는가** (높이 하나)
@@ -1288,7 +1292,7 @@ void PlayerController::RenderUI(Renderer& renderer)
     {
         renderer.DrawString(
             std::format("STATE {}{}  t{}{}", PlayerStateName(m_state),
-                        m_crouching ? " (CROUCH)" : "", m_stateTicks,
+                        Crouched() ? " (CROUCH)" : "", m_stateTicks,
                         (m_invulnTicks > 0) ? std::format("   invuln {}", m_invulnTicks)
                                             : std::string{}),
             6.0f, 6.0f,
