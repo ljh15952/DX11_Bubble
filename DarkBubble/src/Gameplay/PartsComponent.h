@@ -75,6 +75,27 @@ constexpr int Part_FrontArm = Part_RightArm;   // 바라보는 쪽
 constexpr int Part_BackArm  = Part_LeftArm;    // 등 쪽
 
 
+// ============================================================================
+//  자세 — 판정 상자는 자세마다 다르다
+//
+//    ★ 왜 웅크리기를 `PlayerState` 로 올리지 않는가:
+//      design.md §3.2.1 은 「웅크린 자세의 피격 판정이 실제로 달라져야 할 때
+//      상태로 승격한다」고 적어 두었다. 그 시점이 왔는데, 막상 해 보니
+//      **상태로 올리면 안 된다**는 것이 분명해졌다 —
+//      상태 머신은 한 번에 하나만 될 수 있는데 웅크리기는 **공격과 공존한다.**
+//      (웅크려 다리를 베는 것이 무브셋의 핵심이다)
+//
+//      그러므로 웅크리기는 끝까지 **수식자**이고, 달라지는 것은 상태가 아니라
+//      **자세**다. 그래서 개념을 여기에 둔다.
+//
+//    ★ 두 자세의 출처가 다르다:
+//        Prone  — 몸에서 **파생**된다 (다리가 부서졌다)
+//        Crouch — 키를 누르는 동안이라 **소유자가 알려 줘야 한다**
+//      그래서 하나는 Prone() 이 스스로 판정하고, 하나는 SetCrouching 으로 받는다.
+// ============================================================================
+enum class Posture { Stand, Crouch, Prone };
+
+
 // ★ HP·이름과 상자 좌표를 나눈다.
 //   HP 는 자세와 무관하다 — 엎드려도 머리 HP 는 그대로다.
 //   상자는 자세마다 다르다. 섞어 두면 「자세가 바뀌었는데 판정 상자가
@@ -120,8 +141,23 @@ public:
 
     bool LegsBroken() const { return IsBroken(Part_Legs); }
 
-    // 엎드려 있는가. 자세 판정의 유일한 출처다.
+    // 엎드려 있는가. **몸에서 파생된다** — 아무도 알려 주지 않아도 안다.
     bool Prone() const { return m_profile.proneWhenLegsBroken && LegsBroken(); }
+
+    // 웅크리고 있는가. ★ 이쪽은 파생되지 않는다 — 소유자가 알려 준다.
+    //   ★★ 알려 주는 쪽은 **그림을 누르는 것과 같은 조건**을 써야 한다.
+    //     따로 쓰면 「그림은 서 있는데 판정은 웅크린」 상태가 생기고,
+    //     그건 화면만 보고는 절대 못 찾는다(PlayerController::Crouched).
+    void SetCrouching(bool v) { m_crouching = v; }
+
+    // 지금 자세. ★ 엎드리기가 웅크리기를 이긴다 —
+    //   다리가 없으면 「일어설지 말지」에 선택의 여지가 없기 때문이다.
+    Posture CurrentPosture() const
+    {
+        if (Prone())      return Posture::Prone;
+        if (m_crouching)  return Posture::Crouch;
+        return Posture::Stand;
+    }
 
     // 죽었는가. 머리 또는 몸통이 부서지면 즉사(design.md §3.2.2).
     bool Fatal() const { return IsBroken(Part_Head) || IsBroken(Part_Torso); }
@@ -168,4 +204,5 @@ private:
     PartsProfile m_profile;
     int m_hp[Part_Count]{};
     int m_flash = 0;
+    bool m_crouching = false;
 };

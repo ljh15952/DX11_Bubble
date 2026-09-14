@@ -338,6 +338,12 @@ bool PlayerController::CanRoll() const
 }
 
 
+bool PlayerController::Crouched() const
+{
+    return m_crouching && m_state != PlayerState::Attack;
+}
+
+
 bool PlayerController::CanJump() const
 {
     // ★ 웅크린 채로는 못 뛴다. 웅크리기는 상태가 아니라 **수식자**라,
@@ -866,6 +872,11 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     // 웅크리기는 **지속 입력**이라 엣지가 아니다. 매 틱 물어봐도 된다.
     m_crouching = ctx.input.CrouchHeld();
 
+    // ★ 자세를 몸에게 알려 준다. 판정 상자가 여기서 낮아진다.
+    //   엎드리기는 몸이 스스로 알지만(다리가 부서졌다), 웅크리기는
+    //   키를 누르는 동안만이라 알려 주지 않으면 몸이 알 방법이 없다.
+    m_parts->SetCrouching(Crouched());
+
     const bool attackPressed = (consumeEdgeInput && ctx.input.AttackPressed());
     const bool jumpPressed   = (consumeEdgeInput && ctx.input.JumpPressed());
     const bool rollPressed   = (consumeEdgeInput && ctx.input.RollPressed());
@@ -1099,9 +1110,12 @@ void PlayerController::Render(Renderer&)
 
     // ★ 웅크린 자세를 세로로 눌러서 표현한다.
     //   ★★ 원점을 발밑에 둔 결정이 여기서 값을 한다 — 눌러도 발이 그 자리에 남는다.
-    //   공격 중에는 끈다. CROUCH 공격은 전용 행에 눌린 자세가 이미 구워져 있다.
-    const bool squash = m_crouching && (m_state != PlayerState::Attack);
-    m_sprite->SetScale(1.0f, squash ? 0.78f : 1.0f);
+    //
+    //   ★★★ 0.78 에서 **0.45** 로 내렸다. 전에는 「조금 낮아 보이는」 정도였는데,
+    //     그 높이로는 중단 공격(발끝 26~36) 아래로 들어가지 못한다.
+    //     **그림이 판정을 설명해야 한다** — 흘리는 자세는 흘릴 만큼 낮아 보여야 한다.
+    //     판정 상자(kBoxCrouch, 위끝 24)와 같은 비율이다.
+    m_sprite->SetScale(1.0f, Crouched() ? 0.45f : 1.0f);
 
     // ★ 틴트·눌림과 같은 「표현 넘기기」다. 매 틱이 아니라 매 프레임 한 번이면
     //   충분하다 — 잘린 팔은 상태에서 **파생**되는 것이라 따로 기억할 게 없다.

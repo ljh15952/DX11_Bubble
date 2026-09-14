@@ -43,6 +43,30 @@ namespace
         { -10.0f, -14.0f,   0.0f,  -3.0f },   // LEGS  — 이미 부서져 있어 안 쓰인다
     };
 
+    // ---- 웅크린 자세의 상자 ----
+    //   ★ 이것이 없어서 **Ctrl 로 웅크려도 판정이 선 채였다.**
+    //     그림은 눌리는데(SetScale) 상자는 그대로라, 화면이 「낮아졌다」고
+    //     말하는 동안 판정은 「서 있다」고 말하고 있었다.
+    //
+    //   ★★ 가장 높은 점이 **24** 다. 잡몹의 휘두르기가 발끝 26~36 이므로
+    //     웅크리면 그 공격이 **머리 위로 지나간다.** 엎드리기(~25)와 같은 원리다.
+    //
+    //     37 ~ 55   서 있는 머리     ← 여기에 닿으면 평타 두 대에 죽는다
+    //     중단 띠 (26~36)            팔 20~36 · 몸통 18~37 에 닿는다
+    //   ★ 24      웅크린 몸 전체    ← 여기까지 낮춰야 흘린다
+    //
+    //   ★ 대신 잡몹의 물기(4~20)에는 그대로 맞는다. 웅크리기는 무적이 아니라
+    //     **중단을 하단으로 바꾸는 거래**다.
+    //
+    //   ※ 세로만 줄이고 가로는 그대로다 — 웅크린다고 몸이 좁아지지는 않는다.
+    constexpr PartBox kBoxCrouch[Part_Count] = {
+        { -10.0f, -24.0f,  10.0f, -16.0f },   // HEAD
+        { -14.0f, -16.0f,  -3.0f,  -9.0f },   // L.ARM
+        {   3.0f, -16.0f,  14.0f,  -9.0f },   // R.ARM
+        { -11.0f, -16.0f,  11.0f,  -8.0f },   // TORSO
+        { -10.0f,  -8.0f,  10.0f,   0.0f },   // LEGS
+    };
+
     // 두 사각형이 겹치는 면적. 안 겹치면 0.
     float OverlapArea(const AABB& a, const AABB& b)
     {
@@ -119,8 +143,17 @@ AABB PartsComponent::Box(int part) const
 {
     const Transform& tr = Owner().transform;
 
-    // ★ 자세를 상태가 아니라 **몸**으로 판정한다.
-    const PartBox& b = Prone() ? kBoxCrawl[part] : kBoxStand[part];
+    // ★ 자세를 상태가 아니라 **자세**로 고른다.
+    //   전에는 `Prone() ? 기어가기 : 서기` 였다 — 웅크리기가 아예 없어서
+    //   Ctrl 을 눌러도 상자가 안 바뀌었다.
+    const PartBox* table = kBoxStand;
+    switch (CurrentPosture())
+    {
+    case Posture::Prone:  table = kBoxCrawl;  break;
+    case Posture::Crouch: table = kBoxCrouch; break;
+    case Posture::Stand:  break;
+    }
+    const PartBox& b = table[part];
 
     // ★ 좌우 비대칭 자세를 위해 facing 에 따라 x 를 뒤집는다.
     //   [left, right] 를 0 기준으로 뒤집으면 [-right, -left] 가 된다.
