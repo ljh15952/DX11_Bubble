@@ -38,6 +38,19 @@ namespace
     //   적의 기어가기 행을 플레이어 팔레트로 다시 칠한 임시 그림이다.
     constexpr AnimationClip kCrawlClip{ /*row*/ 7, 4, 10, /*loop*/ true };
 
+    // ---- ★ 죽은 자세 ----
+    //   **프레임 하나 · 반복 없음** = 그 자리에서 멎는다.
+    //
+    //   ★★ 전에는 죽을 때 클립을 아예 안 걸고 `break` 만 두고서
+    //     「마지막 프레임에서 멈춘다」고 적어 두었다. 그건 규칙이 아니라
+    //     **직전 클립에 대한 가정**이었다 — 비반복 클립(공격) 중에 죽으면
+    //     맞았지만, 추격·대기처럼 **반복 클립** 중에 죽으면 시체가 영원히
+    //     걸어 다녔다. 그리고 죽는 순간의 상태는 대부분 그쪽이다.
+    //
+    //   ★ 기어가기 행을 쓴다. 누운 그림이 곧 시체로 읽힌다 —
+    //     전용 사망 그림이 없어도 「쓰러졌다」가 전달된다.
+    constexpr AnimationClip kDeadClip { /*row*/ 7, 1,  1, /*loop*/ false };
+
     // ★ 웅크린 자세. tools/gen_player_crouch.ps1 로 만든다.
     //   전에는 서 있는 그림을 세로로 눌러서(SetScale) 표현했는데, 그러면
     //   **판정 상자는 안 눌려서** 그림과 판정이 다른 말을 했다.
@@ -810,7 +823,10 @@ void PlayerController::ChangeState(SceneContext& ctx, PlayerState next, bool for
         break;
 
     case PlayerState::Dead:
-        m_sprite->Play(PostureClip(false), true);
+        // ★ 자세를 묻지 않는다. 죽으면 **어떤 자세였든 쓰러진다.**
+        //   전에는 PostureClip 을 썼는데, 서 있었으면 반복하는 idle 이 걸려
+        //   **시체가 계속 숨을 쉬었다.**
+        m_sprite->Play(kDeadClip, true);
         ctx.audio.Play("ui_cancel", 0.9f, -0.6f);
         Log::Info("[play] ★★ 플레이어 사망 — {}틱 뒤 사망 화면", kDeathScreenDelay);
         break;

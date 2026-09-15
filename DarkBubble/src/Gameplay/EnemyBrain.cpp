@@ -26,6 +26,19 @@ namespace
     constexpr AnimationClip kIdleClip  { /*row*/ 0, 4, 14, /*loop*/ true  };
     constexpr AnimationClip kChaseClip { /*row*/ 0, 4,  6, /*loop*/ true  };
     constexpr AnimationClip kCrawlClip { /*row*/ 1, 4, 10, /*loop*/ true  };
+
+    // ---- ★ 죽은 자세 ----
+    //   **프레임 하나 · 반복 없음** = 그 자리에서 멎는다.
+    //
+    //   ★★ 전에는 죽을 때 클립을 아예 안 걸고 `break` 만 두고서
+    //     「마지막 프레임에서 멈춘다」고 적어 두었다. 그건 규칙이 아니라
+    //     **직전 클립에 대한 가정**이었다 — 비반복 클립(공격) 중에 죽으면
+    //     맞았지만, 추격·대기처럼 **반복 클립** 중에 죽으면 시체가 영원히
+    //     걸어 다녔다. 그리고 죽는 순간의 상태는 대부분 그쪽이다.
+    //
+    //   ★ 기어가기 행을 쓴다. 누운 그림이 곧 시체로 읽힌다 —
+    //     전용 사망 그림이 없어도 「쓰러졌다」가 전달된다.
+    constexpr AnimationClip kDeadClip  { /*row*/ 1, 1,  1, /*loop*/ false };
     constexpr AnimationClip kSwingClip { /*row*/ 2, 5, 12, /*loop*/ false };
     constexpr AnimationClip kBiteClip  { /*row*/ 3, 6,  9, /*loop*/ false };
 
@@ -409,7 +422,9 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
         break;
 
     case EnemyState::Dead:
-        break;   // 마지막 프레임에서 멈춘다
+        // ★ **멈추는 것도 걸어 줘야 한다.** 안 걸면 직전 클립이 계속 돈다.
+        m_sprite->Play(kDeadClip, true);
+        break;
     }
 
     Log::Info("[enemy] -> {}", EnemyStateName(next));
