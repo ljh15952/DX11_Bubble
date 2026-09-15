@@ -172,6 +172,16 @@ const AttackData& EnemyBrain::CurrentAttack() const
 }
 
 
+const AnimationClip& EnemyBrain::PostureClip(EnemyState s) const
+{
+    // ★ 자세가 상태를 이긴다. 다리가 부서졌으면 무슨 상태든 기어가는 그림이다.
+    if (m_parts->Prone())
+        return kCrawlClip;
+
+    return (s == EnemyState::Chase) ? kChaseClip : kIdleClip;
+}
+
+
 bool EnemyBrain::CanSeeTarget() const
 {
     const Transform& tr = Owner().transform;
@@ -289,13 +299,20 @@ void EnemyBrain::Reset(SceneContext& ctx)
     // ★ 잊은 상태에서 시작한다. 부활 직후 적이 이미 노려보고 있으면
     //   「뒤로 돌아 들어간다」를 시도할 기회 자체가 없다.
     m_lostTicks      = kForgetTicks;
+    m_proneLast      = false;
     m_hitThisSwing   = false;
 
     // ★ ChangeState 를 쓰지 않는다 — 「같은 상태로의 전이는 무시」에 걸린다.
     //   리셋은 상태를 직접 놓고 애니메이션을 forceRestart 로 다시 건다.
     m_state      = EnemyState::Idle;
     m_stateTicks = 0;
-    m_sprite->Play(kIdleClip, true);
+
+    // ★ 여기서도 자세를 묻는다. 지금은 바로 위에서 부위를 되돌리므로 서 있는
+    //   것이 맞지만, 「여기만 자세를 안 본다」는 예외를 남기지 않는다 —
+    //   나중에 「부활해도 다리는 안 낫는다」 같은 규칙이 생기면 이 줄만
+    //   조용히 틀린다. 지금까지 난 버그는 전부 그 모양이었다.
+    m_proneLast  = m_parts->Prone();
+    m_sprite->Play(PostureClip(m_state), true);
     m_sprite->ClearTint();
 
     (void)ctx;
@@ -346,13 +363,17 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
 
     switch (next)
     {
-    case EnemyState::Idle:  m_sprite->Play(kIdleClip);  break;
-    case EnemyState::Chase: m_sprite->Play(kChaseClip); break;
-    case EnemyState::Crawl: m_sprite->Play(kCrawlClip); break;
+    // ★ 그림은 상태가 아니라 **자세**가 정한다.
+    //   전에는 Idle 이 kIdleClip 을 그대로 썼다. 그래서 다리가 부서진 채
+    //   플레이어를 놓치고 Idle 로 돌아오면 **서 있는 그림**이 되었다 —
+    //   상태는 「가만히 있다」인데 몸은 기어다니는 중이었다.
+    case EnemyState::Idle:  m_sprite->Play(PostureClip(next)); break;
+    case EnemyState::Chase: m_sprite->Play(PostureClip(next)); break;
+    case EnemyState::Crawl: m_sprite->Play(kCrawlClip);        break;
 
     case EnemyState::Hurt:
         // 전용 그림이 없으므로 자세를 유지하고 틴트로 구분한다(ApplyTint).
-        m_sprite->Play(m_parts->Prone() ? kCrawlClip : kIdleClip, true);
+        m_sprite->Play(PostureClip(EnemyState::Idle), true);
         ctx.audio.Play("ui_cancel", 0.5f, -0.4f, PanFromWorldX(Owner().transform.x, ctx.camera.X()));
         break;
 
@@ -427,6 +448,21 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
     //   안 그러면 엎드린 적이 **선 키 그대로** 벽에 걸린다.
     //   적은 웅크리지 않으므로 부위가 아는 자세가 곧 전부다.
     m_body->SetPosture(m_parts->CurrentPosture());
+
+    // ★ 자세가 바뀌면 **그림도** 바꾼다.
+    //   다리가 부서지는 것은 상태 전이가 아니므로 ChangeState 가 안 불린다.
+    //   Chase 중이었다면 다음 틱에 Crawl 로 넘어가며 갱신되지만,
+    //   **Idle 이면 아무 일도 안 일어나** 서 있는 그림이 그대로 남는다.
+    //   플레이어에서 Ctrl 을 눌렀을 때와 **완전히 같은 함정**이다.
+    if (m_parts->Prone() != m_proneLast)
+    {
+        m_proneLast = m_parts->Prone();
+        if (m_state == EnemyState::Idle || m_state == EnemyState::Chase
+            || m_state == EnemyState::Crawl)
+        {
+            m_sprite->Play(PostureClip(m_state), true);
+        }
+    }
 
     // 쿨다운도 시간이다. 상태와 무관하게 흐른다.
     if (m_attackCooldown > 0)

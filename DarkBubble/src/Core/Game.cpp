@@ -285,14 +285,17 @@ void Game::DrawStatsOverlay()
         m_scenes.TopName(), m_scenes.Depth(),
         m_assets.Count(), m_assets.LoadCount(), m_assets.HitCount());
 
-    // 글자가 배경에 묻히지 않게 반투명 판을 먼저 깐다.
+    // 글자가 배경에 묻히지 않게 판을 먼저 깐다.
+    //   ★ 0.55 로 두었더니 **아래 HUD 가 비쳐서** 두 글자가 겹쳐 보였다.
+    //     이 판이 가리는 것은 배경이 아니라 **Scene 의 UI** 다 —
+    //     오버레이는 UI 보다 뒤에 그려지므로, 「살짝 어둡게」로는 부족하다.
     // ★ 높이를 손으로 세지 않는다. 위 서식 문자열에 줄을 하나 추가했을 때
     //   배경판만 조용히 어긋나는 것을 막는다.
     const float w = m_renderer.MeasureString(text, 1);
     const float h = m_renderer.MeasureStringHeight(text, 1);
     m_renderer.DrawFilledRect(
         AABB::FromXYWH(2.0f, 2.0f, w + 8.0f, h + 6.0f),
-        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.55f));
+        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.92f));
 
     m_renderer.DrawString(text, 6.0f, 5.0f,
                           m_frozen ? DirectX::Colors::Yellow : DirectX::Colors::Lime, 1);

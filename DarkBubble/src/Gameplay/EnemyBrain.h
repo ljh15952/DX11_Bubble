@@ -115,6 +115,10 @@ private:
     //   design.md §3.9 B — 「보이지 않으면 싸울 수 없다」를 적에게도 건다.
     bool  CanSeeTarget() const;
 
+    // ★ 지금 자세에 맞는 기본 그림. 플레이어의 PostureClip 과 같은 역할이다.
+    //   전에는 `case Idle: Play(kIdleClip)` 이라 **다리가 부서져도 서 있었다.**
+    const AnimationClip& PostureClip(EnemyState s) const;
+
     bool  WouldBite()   const;   // 휘두를 수 없는 자세인가 (나 또는 상대가 엎드림)
     float AttackRange() const;
     void ApplyTint();
@@ -137,6 +141,9 @@ private:
     // 넉백 방향. 휘청인 시점에 고정된다.
     // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
     bool  m_targetProne = false;
+
+    // 자세가 바뀌는 순간을 잡기 위한 것. 상태 전이 없이도 그림을 바꿔야 한다.
+    bool  m_proneLast   = false;
 
     // ★ 놓친 지 몇 틱 되었나. 0 = 지금 보인다.
     //   「본다/안 본다」가 아니라 **잊어가는 중**으로 두는 이유:

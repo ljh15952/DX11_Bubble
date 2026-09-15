@@ -570,7 +570,10 @@ void PlayerController::Respawn(SceneContext& ctx)
     //   리셋은 상태를 직접 놓고 애니메이션을 forceRestart 로 다시 건다.
     m_state      = PlayerState::Idle;
     m_stateTicks = 0;
-    m_sprite->Play(kIdleClip, true);
+
+    // ★ 여기서도 자세를 묻는다. 「여기만 예외」를 남기지 않는다 —
+    //   이유는 EnemyBrain::Reset 의 같은 줄 참조.
+    m_sprite->Play(PostureClip(false), true);
     m_sprite->ClearTint();
     m_sprite->SetScale(1.0f, 1.0f);
 
@@ -1368,7 +1371,9 @@ void PlayerController::RenderUI(Renderer& renderer)
     m_parts->DrawBodyDiagram(renderer, 12.0f, Config::kCanvasHeight - 78.0f);
 
     if (renderer.DebugDraw())
-        m_parts->DrawHpList(renderer, 48.0f, Config::kCanvasHeight - 78.0f);
+        // ★ 손 슬롯(48~86)과 **겹치지 않게** 오른쪽으로 민다.
+        //   F1 을 켜면 숫자가 아이콘 위에 얹혀 둘 다 못 읽었다.
+        m_parts->DrawHpList(renderer, 100.0f, Config::kCanvasHeight - 78.0f);
 
     // ★ 무기를 잃었다는 것은 **반드시 보여야 한다.**
     //   「왜 공격이 안 되지」를 플레이어가 추측하게 두면 안 된다.
