@@ -123,6 +123,11 @@ public:
     //   「지금이 어두운 건지 원래 그런 건지」를 알 수가 없다.
     bool DarkTogglePressed() const { return m_edges.darkToggle; }
 
+    // ★ F6 — 무브셋(weapons.json)을 다시 읽는다.
+    //   게임 상태(공격 수치)를 바꾸므로 **누적 엣지**다 —
+    //   「어느 키인가」가 아니라 **「무엇을 바꾸는가」**로 자리가 정해진다.
+    bool MovesetReloadPressed() const { return m_edges.movesetReload; }
+
     // ---- 디버그 / 엔진 키 ----
     //   Game 이 틱 밖에서 프레임당 1회 읽는다. 붙잡아 둘 필요가 없다.
     bool DebugTogglePressed()  const;  // F1  — 히트박스 표시
@@ -163,6 +168,7 @@ private:
         bool armorSwap = false;
         bool legBreak  = false;
         bool darkToggle = false;
+        bool movesetReload = false;
     };
     Edges m_edges;
 };

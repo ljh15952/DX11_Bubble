@@ -241,6 +241,29 @@ namespace
         return a;
     }();
 
+    // ========================================================================
+    //  DefaultMoveset — **위의 상수들이 이제 「기본값」이다**
+    //
+    //    6-g 에서 숫자가 assets/data/weapons.json 으로 나갔다.
+    //    그렇다고 여기 값들이 사라진 것은 아니다 — 파일이 없거나 깨졌을 때
+    //    쓰는 **바닥값**이고, 무엇보다 **왜 그 숫자인지가 여기 적혀 있다.**
+    //    JSON 에는 주석을 못 단다. 이유는 코드에 남고 값만 파일로 나간다.
+    // ========================================================================
+    Moveset DefaultMoveset()
+    {
+        Moveset m;
+        m.light      = kDaggerLight;
+        m.crouch     = kDaggerCrouch;
+        m.dash       = kDaggerDash;
+        m.thrust     = kDaggerCombo2;
+        m.jump       = kDaggerJump;
+        m.prone      = kDaggerProne;
+        m.bite       = kBite;
+        m.biteCrouch = kBiteCrouch;
+        m.biteProne  = kBiteProne;
+        return m;
+    }
+
     constexpr RollData kRoll{ /*windup*/ 4, /*invincible*/ 12, /*recovery*/ 10 };
     constexpr HurtData kHurt{ /*ticks*/ 18, /*invuln*/ 24, /*knockback*/ 22.0f };
 
@@ -352,6 +375,11 @@ const AnimationClip& PlayerController::PostureClip(bool moving) const
 
 void PlayerController::Start(SceneContext& ctx)
 {
+    // ★ 순서가 규칙이다: **기본값을 먼저 채우고 파일로 덮어쓴다.**
+    //   반대로 하면 파일에 없는 항목이 비어 버린다.
+    m_moves = DefaultMoveset();
+    ReloadMoveset();
+
     m_body    = &Owner().Require<BodyComponent>();
     m_sprite  = &Owner().Require<SpriteComponent>();
     m_poise   = &Owner().Require<PoiseComponent>();
@@ -445,6 +473,31 @@ bool PlayerController::CanRoll() const
     //   천장에 눌려 못 일어서는 자리에서는 회피 수단이 통째로 없다 —
     //   낮은 틈이 안전한 곳이 아니라 **선택지가 없는 곳**이 된다.
     return !m_parts->LegsBroken() && m_body->Grounded() && !Crouched();
+}
+
+
+// ----------------------------------------------------------------------------
+//  ReloadMoveset — 파일에서 다시 읽는다 (F6)
+//
+//    ★ 실패하면 **아무것도 안 바뀐다.** 로그만 남는다.
+//      JSON 을 고치다 오타가 나서 게임이 죽으면 아무도 핫 리로드를 안 쓴다 —
+//      리로드의 값어치는 「틀려도 안전하다」는 데서 나온다.
+//
+//    ★ 실패해도 **true/false 를 보고 무언가 하지 않는다.** 부르는 쪽이
+//      되돌릴 필요가 없기 때문이다(MovesetIO::LoadInto 의 약속).
+// ----------------------------------------------------------------------------
+void PlayerController::ReloadMoveset()
+{
+    std::string err;
+    if (MovesetIO::LoadInto(L"assets/data/weapons.json", m_moves, &err))
+    {
+        Log::Info("[moveset] weapons.json 적용");
+        return;
+    }
+
+    // ※ 파일이 아예 없는 것도 여기로 온다. 그게 정상 동작이다 —
+    //   기본값으로 굴러가고, 나중에 파일을 두면 그때부터 읽힌다.
+    Log::Info("[moveset] weapons.json 을 못 읽었다 ({}) — 이전 값 유지", err);
 }
 
 
@@ -603,16 +656,16 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     {
         switch (m_parts->CurrentPosture())
         {
-        case Posture::Prone:  return kBiteProne;
-        case Posture::Crouch: return kBiteCrouch;
+        case Posture::Prone:  return m_moves.biteProne;
+        case Posture::Crouch: return m_moves.biteCrouch;
         case Posture::Stand:  break;
         }
-        return kBite;
+        return m_moves.bite;
     }
 
     // ★ 공중이면 무조건 내려찍기다. 아래의 선택지(웅크리기·콤보·달리기)는
     //   전부 **발이 땅에 있다**는 전제 위에 있다.
-    if (!m_body->Grounded())             return kDaggerJump;
+    if (!m_body->Grounded())             return m_moves.jump;
 
     // ① ★ **서 있지 않으면** 낮게 휘두르는 것밖에 못 한다.
     //   ★★ **입력이 아니라 자세**를 본다. 전에는 Ctrl 을 눌렀는지를 물어서,
@@ -622,8 +675,8 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     //   물기와 **같은 모양의 switch** 다. 자세가 늘면 컴파일러가 여기도 짚는다.
     switch (m_parts->CurrentPosture())
     {
-    case Posture::Prone:  return kDaggerProne;
-    case Posture::Crouch: return kDaggerCrouch;
+    case Posture::Prone:  return m_moves.prone;
+    case Posture::Crouch: return m_moves.crouch;
     case Posture::Stand:  break;
     }
 
@@ -634,20 +687,20 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     // ★ **기본 공격 뒤에만** 2타가 나온다. DASH·CROUCH·JUMP 뒤에는 안 나온다.
     //   ※ SelectAttack 은 m_currentAttack 이 갱신되기 **전에** 불리므로,
     //     여기서 보는 것은 아직 **직전 공격**이다.
-    if (prev == PlayerState::Attack && m_currentAttack == &kDaggerLight)
-        return kDaggerCombo2;
+    if (prev == PlayerState::Attack && m_currentAttack == &m_moves.light)
+        return m_moves.thrust;
 
     // ③ ★ 구르기 직후 -> 대시. 「달리는 중」이 아니라 **구르기 뒤**다.
     //   달리는 중으로 두었더니 이동이 거의 항상이라 평타가 안 나왔다.
-    if (prev == PlayerState::Roll)       return kDaggerDash;
+    if (prev == PlayerState::Roll)       return m_moves.dash;
 
-    return kDaggerLight;                                          // ④ 기본
+    return m_moves.light;                                         // ④ 기본
 }
 
 
 const AttackData& PlayerController::CurrentAttack() const
 {
-    return m_currentAttack ? *m_currentAttack : kDaggerLight;
+    return m_currentAttack ? *m_currentAttack : m_moves.light;
 }
 
 
@@ -1174,7 +1227,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //   ★ 예약에 **손까지** 담는다. 왼손으로 1타를 내고 오른손으로 이어치는
         //     것도 성립해야 하기 때문이다 — 「이어친다」는 무기의 성질이지
         //     손의 성질이 아니다.
-        if (handPressed != WeaponHand::None && m_currentAttack == &kDaggerLight
+        if (handPressed != WeaponHand::None && m_currentAttack == &m_moves.light
             && m_stateTicks >= atk.startup + atk.active)
         {
             m_queuedHand = handPressed;
@@ -1273,6 +1326,11 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         Log::Info("[play] 갑옷 → {}  (poise {})   swing impact 18 / bite impact 12",
                   Armor().name, Armor().poise);
     }
+
+    // ★ F6 — 무브셋을 파일에서 다시 읽는다.
+    //   숫자 하나 고칠 때마다 빌드하지 않아도 되는 것이 이 단계의 전부다.
+    if (consumeEdgeInput && ctx.input.MovesetReloadPressed())
+        ReloadMoveset();
 
     // ★ 임시 디버그 키(F4) — 다리를 부러뜨렸다 되돌린다.
     //
@@ -1410,7 +1468,7 @@ void PlayerController::RenderUI(Renderer& renderer)
         const AttackData& a = CurrentAttack();
         renderer.DrawString(
             std::format("{}{}  t{:<3}{}   [{} {} {}]  h{:.0f}{}",
-                        a.name, (m_currentAttack == &kDaggerCombo2) ? " (2nd)" : "",
+                        a.name, (m_currentAttack == &m_moves.thrust) ? " (2nd)" : "",
                         m_stateTicks, AttackPhase(m_stateTicks, a),
                         a.startup, a.active, a.recovery, a.heightFromFoot,
                         (m_queuedHand != WeaponHand::None) ? "  >> NEXT" : ""),

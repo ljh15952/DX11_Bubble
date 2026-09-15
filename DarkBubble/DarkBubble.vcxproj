@@ -101,12 +101,14 @@
     <ClCompile Include="src\Audio\Audio.cpp" />
     <ClCompile Include="src\Core\BodyComponent.cpp" />
     <ClCompile Include="src\Core\Game.cpp" />
+    <ClCompile Include="src\Core\Json.cpp" />
     <ClCompile Include="src\Core\Level.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Core\GameObject.cpp" />
     <ClCompile Include="src\Core\SceneManager.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp" />
+    <ClCompile Include="src\Gameplay\Moveset.cpp" />
     <ClCompile Include="src\Gameplay\PartsComponent.cpp" />
     <ClCompile Include="src\Gameplay\PlayerController.cpp" />
     <ClCompile Include="src\Gameplay\PoiseComponent.cpp" />
@@ -131,6 +133,7 @@
     <ClInclude Include="src\Core\Constants.h" />
     <ClInclude Include="src\Core\Game.h" />
     <ClInclude Include="src\Core\Log.h" />
+    <ClInclude Include="src\Core\Json.h" />
     <ClInclude Include="src\Core\Level.h" />
     <ClInclude Include="src\Core\Motion.h" />
     <ClInclude Include="src\Core\Component.h" />
@@ -142,6 +145,7 @@
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Gameplay\AttackData.h" />
     <ClInclude Include="src\Gameplay\EnemyBrain.h" />
+    <ClInclude Include="src\Gameplay\Moveset.h" />
     <ClInclude Include="src\Gameplay\PartsComponent.h" />
     <ClInclude Include="src\Gameplay\PlayerController.h" />
     <ClInclude Include="src\Gameplay\PoiseComponent.h" />

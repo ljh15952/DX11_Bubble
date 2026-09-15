@@ -16,6 +16,7 @@
 #include "Core/AABB.h"
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
+#include "Gameplay/Moveset.h"
 
 class BodyComponent;
 class PartsComponent;
@@ -231,6 +232,9 @@ private:
     //   「고쳐야 할 곳 목록」을 컴파일러가 만들어 준다.
     void UpdateMovement(SceneContext& ctx, float moveX);
 
+    // 무브셋을 파일에서 다시 읽는다. 실패하면 이전 값이 그대로 남는다.
+    void ReloadMoveset();
+
     // 지금 자세에 맞는 기본 그림. 자세를 고르는 곳은 여기 한 곳이다.
     const AnimationClip& PostureClip(bool moving) const;
 
@@ -249,6 +253,11 @@ private:
     void SlideDecaying(float dirX, float distance, int totalTicks);
 
     AABB SpriteBounds() const;
+
+    // ★ 무브셋을 **값으로** 소유한다. 「직전에 기본 공격을 냈는가」를
+    //   `m_currentAttack == &m_moves.light` 로 묻고 있으므로 주소가 안정해야 한다.
+    //   리로드는 필드를 덮어쓸 뿐이라 주소가 유지된다.
+    Moveset m_moves;
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     BodyComponent*    m_body    = nullptr;
