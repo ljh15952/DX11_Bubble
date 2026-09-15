@@ -24,6 +24,7 @@
 #include "Core/GameObject.h"
 #include "Core/Level.h"
 
+#include <memory>
 #include <vector>
 
 #include <d3d11.h>
@@ -113,17 +114,46 @@ private:
     float m_viewY = 0.0f;
 
     GameObject m_playerObj{ "player" };
-    GameObject m_enemyObj { "enemy"  };
     GameObject m_weaponObj{ "weapon" };   // 땅에 떨어진 무기
+
+    // ========================================================================
+    //  ★ 적은 여럿이다
+    //
+    //    ★★ `std::vector<GameObject>` 이면 **안 된다.**
+    //      GameObject::Add 가 `component.m_owner = this` 로 **주인의 주소**를
+    //      컴포넌트에 심는다. 벡터가 커지며 재배치하는 순간 그 주소가 전부
+    //      댕글링이다 — 컴파일도 되고 한동안 돌기까지 한다.
+    //      unique_ptr 은 편의가 아니라 **필수**다.
+    // ========================================================================
+    struct Enemy
+    {
+        std::unique_ptr<GameObject> obj;
+
+        // 조립할 때 받아 둔다. obj 가 살아 있는 한 유효하다.
+        EnemyBrain*     brain = nullptr;
+        PartsComponent* parts = nullptr;
+        PoiseComponent* poise = nullptr;
+
+        Transform&       Tr()       { return obj->transform; }
+        const Transform& Tr() const { return obj->transform; }
+    };
+    std::vector<Enemy> m_enemies;
+
+    // ★ **이 목록이 곧 앞으로의 맵 파일이다.**
+    //   지금은 코드에 적혀 있지만, 7단계에서 `Level` 의 사각형 목록과 함께
+    //   map.json 으로 나간다. 그래서 지금부터 **데이터 모양**으로 둔다.
+    struct EnemySpawn { float x; };
+    void SpawnEnemies(SceneContext& ctx);
+
+    // 가장 가까운 살아 있는 적. 디버그 표시가 쓴다(없으면 nullptr).
+    const Enemy* NearestEnemy() const;
 
     // Start 에서 캐시한다. 매번 dynamic_cast 하지 않기 위해서다.
     //   ★ 스프라이트와 스태미나는 여기 없다. Scene 이 쓸 일이 없기 때문이다 —
     //     컨트롤러가 자기 Start 에서 Require 로 찾아 쓴다.
     //     Scene 이 들고 있으면 「누가 누구를 쓰는가」가 흐려진다.
+    //   ※ 적 쪽 포인터는 여기 없다 — Enemy 구조체가 들고 있다.
     PlayerController* m_player      = nullptr;
     PartsComponent*   m_playerParts = nullptr;
-    PartsComponent*   m_enemyParts = nullptr;
-    PoiseComponent*   m_enemyPoise = nullptr;
-    WeaponPickup*     m_pickup     = nullptr;
-    EnemyBrain*       m_enemyBrain = nullptr;
+    WeaponPickup*     m_pickup      = nullptr;
 };

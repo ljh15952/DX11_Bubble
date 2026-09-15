@@ -83,6 +83,9 @@ namespace
 
     constexpr int kAttackCooldown = 40;   // 0.67 초. 없으면 사거리 안에서 무한 공격
 
+    // 뒤에 선 적이 물러서는 거리. 몸 너비(18)보다 넉넉해야 안 겹친다.
+    constexpr float kPersonalSpace = 26.0f;
+
     constexpr float kSightRange    = 220.0f;
 
     // ---- ★ 시야 (design.md §3.9 B) ----
@@ -300,6 +303,7 @@ void EnemyBrain::Reset(SceneContext& ctx)
     //   「뒤로 돌아 들어간다」를 시도할 기회 자체가 없다.
     m_lostTicks      = kForgetTicks;
     m_proneLast      = false;
+    m_yieldRoom      = false;
     m_hitThisSwing   = false;
 
     // ★ ChangeState 를 쓰지 않는다 — 「같은 상태로의 전이는 무시」에 걸린다.
@@ -421,6 +425,11 @@ void EnemyBrain::MoveTowardTarget(float speedPerTick)
     //   ★ 플레이어가 점프하면 InAttackPosition 의 세로 조건이 깨지므로
     //     적은 **계속 쫓아온다.** 머리 위로 뛰어넘어도 따라붙는다.
     if (InAttackPosition() || std::abs(dx) <= 0.0001f)
+        return;
+
+    // ★ 「멈추는 거리」는 공격 사거리와 **다를 수 있다.**
+    //   나보다 가까운 동료가 있으면 한 칸 물러서서 기다린다(SetYieldRoom).
+    if (m_yieldRoom && std::abs(dx) <= AttackRange() + kPersonalSpace)
         return;
 
     const float step = ((dx > 0.0f) ? 1.0f : -1.0f) * speedPerTick;

@@ -247,6 +247,63 @@ void PlayScene::BuildBackdrop()
 }
 
 
+// ----------------------------------------------------------------------------
+//  SpawnEnemies — **이 목록이 곧 앞으로의 맵 파일이다**
+//
+//    지금은 코드에 적혀 있지만 7단계에서 `Level` 의 사각형 목록과 함께
+//    map.json 으로 나간다. 그래서 지금부터 **데이터 모양**으로 둔다 —
+//    「좌표 목록을 훑어 만든다」가 파일에서 읽어 와도 그대로 성립한다.
+//
+//    ★ 스폰 자리를 서로 떨어뜨려 둔다. 같은 자리에서 시작하면 몸이 겹친 채로
+//      출발하고, 밀어내기가 없으므로 그대로 붙어 다닌다.
+// ----------------------------------------------------------------------------
+void PlayScene::SpawnEnemies(SceneContext& ctx)
+{
+    (void)ctx;
+
+    constexpr EnemySpawn kSpawns[] = {
+        {  470.0f },
+        {  980.0f },
+        { 1480.0f },
+    };
+
+    m_enemies.clear();
+    m_enemies.reserve(std::size(kSpawns));
+
+    for (const EnemySpawn& s : kSpawns)
+    {
+        Enemy e;
+        e.obj = std::make_unique<GameObject>("enemy");
+        e.obj->transform.x = s.x;
+
+        // 붙인 순서 = 실행 순서. 플레이어와 **같은 구성**이다.
+        e.obj->Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
+                                  kBodyCrouchHeight, kBodyProneHeight);
+        e.parts = &e.obj->Add<PartsComponent>(kGruntParts);
+        e.poise = &e.obj->Add<PoiseComponent>(kGruntPoise);
+        e.brain = &e.obj->Add<EnemyBrain>(m_playerObj.transform);
+
+        m_enemies.push_back(std::move(e));
+    }
+}
+
+
+const PlayScene::Enemy* PlayScene::NearestEnemy() const
+{
+    const Enemy* best = nullptr;
+    float bestDist = 0.0f;
+
+    for (const Enemy& e : m_enemies)
+    {
+        if (e.brain->IsDead()) continue;
+
+        const float d = std::abs(e.Tr().x - m_playerObj.transform.x);
+        if (!best || d < bestDist) { best = &e; bestDist = d; }
+    }
+    return best;
+}
+
+
 // ============================================================================
 //  ① 조립
 // ============================================================================
@@ -305,13 +362,9 @@ bool PlayScene::Enter(SceneContext& ctx)
         playerSprite.AddLayer(stumpFrontSheet, false),   // 상처는 잘린 뒤에만
         playerSprite.AddLayer(stumpBackSheet,  false));
 
-    // ★ 적도 떨어진다. 같은 컴포넌트, 같은 숫자다.
-    m_enemyObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
-                                  kBodyCrouchHeight, kBodyProneHeight);
-    m_enemyParts = &m_enemyObj.Add<PartsComponent>(kGruntParts);
-    m_enemyPoise = &m_enemyObj.Add<PoiseComponent>(kGruntPoise);
-    m_enemyBrain = &m_enemyObj.Add<EnemyBrain>(m_playerObj.transform);
-    m_enemyObj.Add<SpriteComponent>(enemySheet, kCellW, kCellH);
+    SpawnEnemies(ctx);
+    for (Enemy& e : m_enemies)
+        e.obj->Add<SpriteComponent>(enemySheet, kCellW, kCellH);
 
     // ★ 떨어진 무기도 GameObject 다. 위치가 있고 그려지므로 Transform 이 필요하고,
     //   플레이어·적과 같은 그릇에 담기면 「월드에 있는 것」이 한 종류가 된다 —
@@ -320,7 +373,8 @@ bool PlayScene::Enter(SceneContext& ctx)
 
     // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
     m_playerObj.Start(ctx);
-    m_enemyObj.Start(ctx);
+    for (Enemy& e : m_enemies)
+        e.obj->Start(ctx);
     m_weaponObj.Start(ctx);
 
     // ★ 첫 프레임부터 제자리를 비춘다. Update 가 돌기 전에 한 번 그려진다.
@@ -343,7 +397,8 @@ void PlayScene::Respawn(SceneContext& ctx)
     // ★ 무엇을 되돌릴지는 **각자가 안다.** Scene 은 「되돌려라」만 말한다.
     //   design.md §3.6.1 의 「되돌아간다 / 남는다」 표가 각 컴포넌트 안에 있다.
     m_player->Respawn(ctx);
-    m_enemyBrain->Reset(ctx);
+    for (Enemy& e : m_enemies)
+        e.brain->Reset(ctx);
 
     // ★ m_weaponObj 를 **건드리지 않는다.**
     //   떨어진 무기는 그 자리에 그대로 남고, 부활한 뒤 다시 주우러 간다.
@@ -377,27 +432,40 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
 {
     if (!m_player->AttackActive())   return;
     if (m_player->HitThisSwing())    return;   // active 3틱 = 데미지 3번을 막는다
-    if (m_enemyBrain->IsDead())      return;
 
-    const int part = m_enemyParts->PickHit(m_player->AttackHitbox(),
-                                           m_playerObj.transform.x);
-    if (part < 0)
+    // ---- ★ 한 번 휘두르면 **한 명**만 ----
+    //   전원을 때리게 두면 광역기가 공짜가 되고, 무리를 한 번에 정리할 수 있어
+    //   시야(6-f)도 지형(6-d)도 다시 무의미해진다.
+    //   ★ 그래서 맞은 순간 **빠져나간다** — `MarkHitThisSwing` 이 그 스윙을
+    //     끝내므로, 뒤쪽 적은 다음 공격을 기다려야 한다.
+    Enemy* target = nullptr;
+    int    part   = -1;
+
+    for (Enemy& e : m_enemies)
+    {
+        if (e.brain->IsDead()) continue;
+
+        const int p = e.parts->PickHit(m_player->AttackHitbox(),
+                                       m_playerObj.transform.x);
+        if (p >= 0) { target = &e; part = p; break; }
+    }
+    if (!target)
         return;
 
     const AttackData& atk = m_player->CurrentAttack();
 
     m_player->MarkHitThisSwing();
-    m_enemyParts->Flash(kFlashTicks);
-    m_enemyParts->Damage(part, atk.damage);
+    target->parts->Flash(kFlashTicks);
+    target->parts->Damage(part, atk.damage);
 
     // ★ 소리와 흔들림은 "맞는 순간" 에 낸다. 휘두르는 순간이 아니다.
     ctx.camera.Shake(kShakeStrength, kShakeTicks);
     ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f),
-                   PanFromWorldX(m_enemyObj.transform.x, ctx.camera.X()));
+                   PanFromWorldX(target->Tr().x, ctx.camera.X()));
 
     Log::Info("[play] {} 로 {} 명중  dmg {}  남은 HP {}",
-              atk.name, m_enemyParts->Name(part), atk.damage,
-              std::max(0, m_enemyParts->Hp(part)));
+              atk.name, target->parts->Name(part), atk.damage,
+              std::max(0, target->parts->Hp(part)));
 
     // ---- ★ 강인도 판정 : 적도 휘청인다 ----
     //   「휘청일지」는 두 몸 사이의 계산이므로 여기서 한다 —
@@ -405,27 +473,27 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
     //
     //   ★ 이것이 예고(`!`)에 두 번째 용도를 준다.
     //     구르면 흘리고, 강하게 치면 **끊는다.**
-    if (m_enemyPoise->WouldStagger(atk.impact))
+    if (target->poise->WouldStagger(atk.impact))
     {
-        const bool wasWindingUp = m_enemyBrain->Telegraph();
-        m_enemyBrain->Stagger(ctx, m_playerObj.transform.x, m_playerObj.transform.y);
+        const bool wasWindingUp = target->brain->Telegraph();
+        target->brain->Stagger(ctx, m_playerObj.transform.x, m_playerObj.transform.y);
         ctx.camera.Shake(kShakeStrength * 1.6f, kShakeTicks);
         Log::Info("[play] ★ 적 휘청임  impact {} > poise {}{}",
-                  atk.impact, m_enemyPoise->Value(),
+                  atk.impact, target->poise->Value(),
                   wasWindingUp ? "   — 공격을 끊었다!" : "");
     }
 
-    if (!m_enemyParts->IsBroken(part))
+    if (!target->parts->IsBroken(part))
         return;
 
-    Log::Info("[play] ★ {} 파괴!", m_enemyParts->Name(part));
+    Log::Info("[play] ★ {} 파괴!", target->parts->Name(part));
 
     // ★ 몸통과 머리는 격파. **다리는 부서져도 죽지 않는다** —
     //   기획서의 「다리만 베었는데 격파는 비현실적」이 여기서 해결된다.
-    if (m_enemyParts->Fatal())
+    if (target->parts->Fatal())
     {
-        m_enemyBrain->Kill(ctx);
-        Log::Info("[play] ★★ 적 격파 ({} 파괴)", m_enemyParts->Name(part));
+        target->brain->Kill(ctx);
+        Log::Info("[play] ★★ 적 격파 ({} 파괴)", target->parts->Name(part));
     }
 }
 
@@ -433,34 +501,42 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
 // ---- 적 → 플레이어 ----
 void PlayScene::TryEnemyHit(SceneContext& ctx)
 {
-    if (!m_enemyBrain->AttackActive())  return;
-    if (m_enemyBrain->HitThisSwing())   return;
-    if (m_player->IsDead())             return;
+    if (m_player->IsDead()) return;
 
-    // ★ TryPlayerHit 와 **같은 모양**이다. 이제 양쪽 다 부위 판정을 한다.
-    const int part = m_playerParts->PickHit(m_enemyBrain->AttackHitbox(),
-                                            m_enemyObj.transform.x);
-    if (part < 0)
-        return;
-
-    // ★★ 5-d 의 무적 프레임이 의미를 갖는 곳.
-    //
-    //   무적 처리 방식 (b) — 「무적인 틱은 없었던 일」.
-    //   휘두르기를 **소진시키지 않는다.** 그래서 무적이 풀린 다음 틱에
-    //   active 가 남아 있으면 그때 맞는다. 「무적 프레임」이 문자 그대로 동작한다.
-    //   (무적으로 흘린 것을 소진 처리하는 것은 별개 규칙 = 나중의 패링이다)
-    if (m_player->Invincible())
+    // ★ 적마다 따로 본다. 「한 번 휘두르면 한 명」은 **플레이어 쪽 규칙**이고,
+    //   적 둘이 같은 틱에 때리는 것은 막지 않는다 — 그건 몰려 있는 대가다.
+    for (Enemy& e : m_enemies)
     {
-        Log::Info("[play] ★ 회피 — {} 무적으로 흘렸다 (적 t{})",
-                  m_player->RollInvincible() ? "구르기" : "피격",
-                  m_enemyBrain->StateTicks());
-        return;
-    }
+        if (!e.brain->AttackActive()) continue;
+        if (e.brain->HitThisSwing())  continue;
 
-    m_enemyBrain->MarkHitThisSwing();
-    m_playerParts->Flash(kFlashTicks);
-    m_player->TakeHit(ctx, m_enemyBrain->CurrentAttack(), part,
-                      m_enemyObj.transform.x, m_enemyObj.transform.y);
+        // ★ TryPlayerHit 와 **같은 모양**이다. 이제 양쪽 다 부위 판정을 한다.
+        const int part = m_playerParts->PickHit(e.brain->AttackHitbox(), e.Tr().x);
+        if (part < 0)
+            continue;
+
+        // ★★ 5-d 의 무적 프레임이 의미를 갖는 곳.
+        //
+        //   무적 처리 방식 (b) — 「무적인 틱은 없었던 일」.
+        //   휘두르기를 **소진시키지 않는다.** 그래서 무적이 풀린 다음 틱에
+        //   active 가 남아 있으면 그때 맞는다. 「무적 프레임」이 문자 그대로 동작한다.
+        //   (무적으로 흘린 것을 소진 처리하는 것은 별개 규칙 = 나중의 패링이다)
+        //
+        //   ★ 적이 여럿이면 이 한 줄의 값어치가 커진다 — 구르기 한 번으로
+        //     **동시에 들어온 둘을 다** 흘린다. 무적은 공격마다가 아니라 틱마다다.
+        if (m_player->Invincible())
+        {
+            Log::Info("[play] ★ 회피 — {} 무적으로 흘렸다 (적 t{})",
+                      m_player->RollInvincible() ? "구르기" : "피격",
+                      e.brain->StateTicks());
+            continue;
+        }
+
+        e.brain->MarkHitThisSwing();
+        m_playerParts->Flash(kFlashTicks);
+        m_player->TakeHit(ctx, e.brain->CurrentAttack(), part,
+                          e.Tr().x, e.Tr().y);
+    }
 }
 
 
@@ -482,13 +558,25 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //   그리고 판정은 각자 움직인 **직후**에 한 번씩.
     // ★ 적이 플레이어의 부위 상태를 **직접 보지 않는다.** Scene 이 이어 준다.
     //   엎드린 상대에게 휘두르면 몸 위로 지나가므로, 적은 물기로 바꿔야 한다.
-    m_enemyBrain->SetTargetProne(m_playerParts->Prone());
+    //
+    // ★★ 「나보다 가까운 동료가 있는가」도 Scene 이 알려 준다.
+    //   적끼리 서로를 알 필요가 없다 — **둘 사이의 일은 둘을 다 아는 쪽이** 한다.
+    //   두 몸 사이의 판정을 Scene 이 하는 것과 같은 이유다.
+    {
+        const Enemy* front = NearestEnemy();
+        for (Enemy& e : m_enemies)
+        {
+            e.brain->SetTargetProne(m_playerParts->Prone());
+            e.brain->SetYieldRoom(front && front != &e);
+        }
+    }
 
     m_playerObj.Tick(ctx, consumeEdgeInput);
     UpdateWeaponPickup(ctx);
     TryPlayerHit(ctx);
 
-    m_enemyObj.Tick(ctx, consumeEdgeInput);
+    for (Enemy& e : m_enemies)
+        e.obj->Tick(ctx, consumeEdgeInput);
     TryEnemyHit(ctx);
 
     // ★ **전부 움직인 뒤**에 따라간다. 먼저 움직이면 한 틱 뒤처진 곳을 비춘다.
@@ -738,7 +826,8 @@ void PlayScene::Render(Renderer& renderer)
 
     // 바닥의 물건 -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
     m_weaponObj.Render(renderer);
-    m_enemyObj.Render(renderer);
+    for (Enemy& e : m_enemies)
+        e.obj->Render(renderer);
     m_playerObj.Render(renderer);
 
     // ---- ★ 어둠은 그림 위, 디버그 **아래** ----
@@ -751,7 +840,8 @@ void PlayScene::Render(Renderer& renderer)
     //   스프라이트가 덮어 「히트박스가 뒤에 있는」 상태가 된다.
     //   틱 순서와 그리기 순서의 요구가 다르므로 패스를 나눈다.
     m_weaponObj.RenderDebug(renderer);
-    m_enemyObj.RenderDebug(renderer);
+    for (Enemy& e : m_enemies)
+        e.obj->RenderDebug(renderer);
     m_playerObj.RenderDebug(renderer);
 }
 
@@ -761,7 +851,14 @@ void PlayScene::RenderUI(Renderer& renderer)
     // 각 컴포넌트가 자기 표시를 그린다. Scene 은 순서만 정한다.
     m_playerObj.RenderUI(renderer);
     DrawHandSlots(renderer);
-    m_enemyObj.RenderUI(renderer);
+    // ★ 상태 줄은 **가장 가까운 적** 하나만 그린다.
+    //   전부 그리면 화면이 덮이고, 안 그리면 확인할 수가 없다.
+    //   ※ 부위 HP 목록도 그 안에서 같이 그려진다.
+    //   ★ 변수 이름이 `near` 면 컴파일이 안 된다 — Windows 헤더에 남아 있는
+    //     16비트 시절의 매크로(`#define near`)와 부딪힌다. 이름 하나로
+    //     엉뚱한 구문 오류가 나는 자리라 적어 둔다.
+    if (const Enemy* closest = NearestEnemy())
+        closest->obj->RenderUI(renderer);
 
     if (renderer.DebugDraw())
     {
@@ -770,9 +867,11 @@ void PlayScene::RenderUI(Renderer& renderer)
                             DirectX::Colors::Lime, 1);
     }
 
-    if (m_enemyBrain->IsDead())
+    // 살아 있는 적이 하나도 없으면 알린다.
+    if (!NearestEnemy())
     {
-        renderer.DrawStringCentered("ENEMY DOWN", Config::kCanvasWidth * 0.5f, 60.0f,
+        renderer.DrawStringCentered("ALL ENEMIES DOWN",
+                                    Config::kCanvasWidth * 0.5f, 60.0f,
                                     DirectX::Colors::Gold, 2);
     }
 }
