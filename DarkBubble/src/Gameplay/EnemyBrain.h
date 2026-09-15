@@ -157,6 +157,11 @@ private:
 
     // 넉백 방향. 휘청인 시점에 고정된다.
     // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
+    // ★ 스폰 자리. Scene 이 놓아 준 곳을 Start 에서 기억해 둔다 —
+    //   좌표를 여기 적어 두면 적이 여럿일 때 전부 한 자리에 모인다.
+    float m_homeX      = 0.0f;
+    int   m_homeFacing = -1;
+
     bool  m_targetProne = false;
     bool  m_yieldRoom   = false;
 

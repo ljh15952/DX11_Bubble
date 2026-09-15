@@ -261,10 +261,12 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
 {
     (void)ctx;
 
+    //   ★ 방향을 섞어 둔다. 셋 다 왼쪽(플레이어 쪽)을 보고 있으면
+    //     6-f 에서 만든 「등 뒤로 다가간다」를 쓸 자리가 없다.
     constexpr EnemySpawn kSpawns[] = {
-        {  470.0f },
-        {  980.0f },
-        { 1480.0f },
+        {  470.0f, -1 },   // 마주 본다 — 정면으로 붙어야 한다
+        {  980.0f, +1 },   // 등을 보인다 — 몰래 붙을 수 있다
+        { 1480.0f, -1 },
     };
 
     m_enemies.clear();
@@ -274,7 +276,8 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
     {
         Enemy e;
         e.obj = std::make_unique<GameObject>("enemy");
-        e.obj->transform.x = s.x;
+        e.obj->transform.x      = s.x;
+        e.obj->transform.facing = s.facing;
 
         // 붙인 순서 = 실행 순서. 플레이어와 **같은 구성**이다.
         e.obj->Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,

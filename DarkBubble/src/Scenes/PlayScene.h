@@ -142,7 +142,10 @@ private:
     // ★ **이 목록이 곧 앞으로의 맵 파일이다.**
     //   지금은 코드에 적혀 있지만, 7단계에서 `Level` 의 사각형 목록과 함께
     //   map.json 으로 나간다. 그래서 지금부터 **데이터 모양**으로 둔다.
-    struct EnemySpawn { float x; };
+    //   ★ 바라보는 방향도 스폰 데이터다. 등을 보이고 선 적은 **몰래 접근**할
+    //     수 있고, 마주 보고 선 적은 정면으로 붙어야 한다 —
+    //     배치만으로 §3.9 B 의 시야가 전술이 된다.
+    struct EnemySpawn { float x; int facing; };
     void SpawnEnemies(SceneContext& ctx);
 
     // 가장 가까운 살아 있는 적. 디버그 표시가 쓴다(없으면 nullptr).

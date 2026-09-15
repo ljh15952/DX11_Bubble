@@ -163,6 +163,14 @@ void EnemyBrain::Start(SceneContext& ctx)
     m_poise  = &Owner().Require<PoiseComponent>();
     m_sprite = &Owner().Require<SpriteComponent>();
 
+    // ★★ **자기 자리를 여기서 기억한다.** Scene 이 놓아 준 그 자리가 집이다.
+    //   전에는 Reset 안에 좌표가 박혀 있었다(`tr.x = 470`). 적이 하나였을
+    //   때는 맞는 값이었는데, 셋이 되자 **Start 가 Reset 을 부르면서 전부
+    //   같은 자리로 모였다.** 스폰 좌표는 Scene 이 정하는 것이지
+    //   적이 아는 값이 아니다.
+    m_homeX      = Owner().transform.x;
+    m_homeFacing = Owner().transform.facing;
+
     Reset(ctx);
 }
 
@@ -285,8 +293,10 @@ AABB EnemyBrain::AttackHitbox() const
 void EnemyBrain::Reset(SceneContext& ctx)
 {
     Transform& tr = Owner().transform;
-    tr.x = 470.0f;
-    tr.facing = -1;
+
+    // ★ 집으로 돌아간다. 「어디가 집인가」는 Start 에서 받아 두었다.
+    tr.x      = m_homeX;
+    tr.facing = m_homeFacing;
 
     // ★ 세로는 바닥이 정한다. 전에는 270 이라고 적혀 있었는데,
     //   플레이어(260)와 **달랐다** — 벨트스크롤에서는 「깊이가 다른」 것이라
