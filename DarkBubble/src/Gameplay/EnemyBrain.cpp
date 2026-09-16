@@ -419,6 +419,18 @@ void EnemyBrain::ChangeState(SceneContext& ctx, EnemyState next)
         // ★ 이 소리가 **청각 예고**다. 시각 예고(팔을 젖히는 모션)와 이중으로 둔다.
         //   화면을 안 보고 있어도 반응할 수 있게 해 준다.
         ctx.audio.Play("swing", 0.4f, -0.55f, PanFromWorldX(Owner().transform.x, ctx.camera.X()));
+
+        // ★★ **플레이어에는 있는데 적에는 없던 로그.**
+        //   「무엇이 나갔는지」를 화면으로만 확인해야 하면, 판정이 이상할 때
+        //   그게 **고른 공격이 틀린 건지 상자가 틀린 건지**를 가를 수가 없다.
+        //   대칭인 쪽에 같은 도구가 없으면 진단도 반쪽이 된다.
+        {
+            const AttackData& a = CurrentAttack();
+            Log::Info("[enemy] {} 발동  [{} {} {}]  높이 {:.1f} ({:.1f}~{:.1f})",
+                      a.name, a.startup, a.active, a.recovery, a.heightFromFoot,
+                      a.heightFromFoot - a.height * 0.5f,
+                      a.heightFromFoot + a.height * 0.5f);
+        }
         break;
 
     case EnemyState::Dead:
@@ -686,6 +698,22 @@ void EnemyBrain::RenderDebug(Renderer& renderer)
             DirectX::XMVectorSet(0.9f, 0.9f, 0.4f, 0.40f), 1.0f);
     }
 
+    // ---- ★ 공격 상자 : **예고 때부터** 보여 준다 ----
+    //   판정이 켜져 있는 것은 3~4틱, 즉 50~67ms 다. 눈으로 잡을 수가 없다.
+    //   그래서 「하단 공격인데 상자가 안 바뀐다」 같은 것을 확인할 방법이
+    //   사실상 없었다 — 보이는 시간이 없으니까.
+    //
+    //   ★★ 예고 구간에는 **테두리만**, 판정 구간에는 **채워서** 그린다.
+    //     거짓말을 하지 않으면서(언제 맞는지는 채움으로 구분된다)
+    //     **어디에 떨어질지**를 미리 보여 준다.
+    //     프레임 정지(`,`) 없이도 높이 차이가 읽힌다.
+    if (Telegraph())
+    {
+        renderer.DrawRectOutline(AttackHitbox(),
+            DirectX::XMVectorSet(1.0f, 0.55f, 0.10f, 0.45f), 1.0f);
+        return;
+    }
+
     if (!AttackActive())
         return;
 
@@ -720,6 +748,11 @@ void EnemyBrain::RenderUI(Renderer& renderer)
 
     // ★ 「보고 있나 / 잊어가는 중인가」를 글자로도 남긴다.
     //   부채꼴은 F1 을 켜야 보이지만, 이 한 줄은 늘 보인다.
+    // ★ 번갈아가 실제로 도는지 **눈으로** 본다. 안 보이면 「안 나온다」와
+    //   「아직 차례가 아니다」를 구분할 수 없다.
+    const std::string nextAtk =
+        std::format("  next {}", WouldBite() ? "BITE" : "SWING");
+
     const std::string sight =
         CanSeeTarget()                ? std::string{ "  [SEES YOU]" }
       : (m_lostTicks < kForgetTicks)  ? std::format("  [losing {}]", kForgetTicks - m_lostTicks)
@@ -733,7 +766,7 @@ void EnemyBrain::RenderUI(Renderer& renderer)
             + std::format("  poise {}{}", m_poise->Value(),
                           m_poise->Immune() ? std::format(" (immune {})", m_poise->ImmuneTicks())
                                             : std::string{})
-            + sight,
+            + nextAtk + sight,
         6.0f, 34.0f,
         m_parts->LegsBroken() ? DirectX::Colors::Orange : DirectX::Colors::Gold, 1);
 }
