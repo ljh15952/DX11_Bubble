@@ -354,7 +354,9 @@ namespace
     //     발이 땅에 닿는다 — 「경직은 풀렸는데 아직 공중」이 생기지 않는다.
     constexpr float kHurtLift   = 2.0f;
 
-    constexpr float kStartX = 120.0f;
+    // ※ 시작 좌표는 **맵이 정한다**(entries.start). 여기 있던 kStartX 는
+    //   맵이 생기면서 사라졌다 — 좌표를 코드에 박아 두면 적이 셋이 되었을 때와
+    //   같은 일이 벌어진다(전부 한 자리에 모인다).
 
     float RandomPitch(float spread)
     {
@@ -542,6 +544,15 @@ void PlayerController::ReloadMoveset()
 }
 
 
+void PlayerController::PlaceAt(float x)
+{
+    // ★ 위치만 옮긴다. 체력도 무기도 부위도 그대로 가져간다 —
+    //   맵을 건너는 것은 **되돌아가는 것이 아니다**(design.md §3.6.1).
+    Owner().transform.x = x;
+    m_body->SnapToGround();
+}
+
+
 bool PlayerController::Crouched() const
 {
     // ★ 공격 중에도 웅크린 채다. 전에는 공격을 제외했는데, 그건 「공격 행에
@@ -616,7 +627,7 @@ void PlayerController::UpdateArmLayers()
 void PlayerController::Respawn(SceneContext& ctx)
 {
     Transform& tr = Owner().transform;
-    tr.x = kStartX;
+    tr.x = m_homeX;
     tr.facing = 1;
 
     // ★ 세로는 바닥이 정한다. 부활 좌표에 y 를 적어 두면

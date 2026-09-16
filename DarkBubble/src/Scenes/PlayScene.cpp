@@ -115,77 +115,88 @@ namespace
 
 
 // ============================================================================
-//  ⓪ 지형
+//  ⓪ 맵 (7-c)
 //
-//    ★ 발판은 **통과할 수 없다**(2026-09-14 결정). 위에서도 옆에서도 막힌다.
-//      「위에서 내려올 때만 밟히는」 통과형은 옆면 충돌이 필요 없어 싸지만,
-//      ↓ 로 내려가기와 묶이는 구조다. ↓ 는 나중에 **사다리**에 쓰기로 했으므로
-//      발판은 그냥 벽으로 둔다.
+//    ★ 지형이 **파일에서 온다.** 여기 있던 배열은 assets/data/maps/*.json 으로
+//      갔다 — 이미 「사각형 목록」이었기 때문에 형태가 하나도 안 바뀌었다.
+//      6-d 에서 `Level` 의 **질의 모양만** 고정해 둔 것이 여기서 값을 한다.
 //
-//    ★ 화면 좌우 끝도 **지형**이다. 전에는 이동 코드마다 clamp 를 걸었는데,
-//      벽으로 두면 걷기·구르기·넉백이 전부 같은 규칙으로 막힌다 —
-//      「예외를 없애려면 그것도 규칙 안에 넣는다」.
+//    ★★ 발판은 **통과할 수 없다**. 화면 좌우 끝도 지형이다 —
+//      벽으로 두면 걷기·구르기·넉백이 전부 같은 규칙으로 막힌다.
+//
+//    ★ 배치의 세 조건(design.md §4.0.3)은 그대로다. 파일로 나갔다고
+//      사라지는 규칙이 아니다:
+//        ① 세로 간격 56 < 점프 정점 66
+//        ② 세로 **틈**(간격-두께) 48 > 몸 높이 44   ← 놓치면 못 올라간다
+//        ③ 가로 간격 32 < 공중 이동 거리
 // ============================================================================
-void PlayScene::BuildLevel()
+bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
+                        const std::string& entry)
 {
-    const float w = Config::kWorldWidth;
-    const float h = Config::kWorldHeight;
-    const float g = Config::kGroundY;
+    const std::wstring path =
+        L"assets/data/maps/" + std::wstring(name.begin(), name.end()) + L".json";
 
-    m_level.Clear();
-
-    m_level.AddSolid({ 0.0f, g, w, h });                 // 바닥
-    m_level.AddSolid({ -32.0f, -h, 0.0f, h });           // 왼쪽 벽 (월드 밖)
-    m_level.AddSolid({ w, -h, w + 32.0f, h });           // 오른쪽 벽
-
-    // ---- 발판 ----
-    // ---- ★ 배치는 장식이 아니라 **세 개의 숫자에 묶여 있다** ----
-    //
-    //   ① 세로 간격 56  <  점프 정점 66
-    //      넘으면 영영 못 올라간다.
-    //
-    //   ② ★★ 세로 **틈** = 56 - 두께 8 = 48  >  **몸 높이 44**
-    //      이걸 놓쳐서 처음엔 못 올라갔다. 간격 40 / 두께 8 이면 틈이 32 인데
-    //      몸이 44 라 **그 사이에 설 수가 없다.** 그 자리는 강제 웅크리기가 되고,
-    //      웅크리면 점프가 막히므로 위로 갈 방법이 사라진다.
-    //      「올라갈 수 있는가」는 점프 높이만의 문제가 아니다 —
-    //      **올라가서 설 자리가 있는가**까지가 조건이다.
-    //
-    //   ③ 가로 간격 32.
-    //      공중 제어력 0.6 이라 틱당 1.5픽셀. 높이 56 을 넘는 것이 11틱째이고
-    //      그때 이미 16픽셀을 갔으므로, 건너야 할 거리(32 - 몸폭 18 = 14)를
-    //      **넘어서** 도착한다. 벌리면 보이는데 못 가는 발판이 된다.
-    //
-    //   ★ 스폰 자리(플레이어 120 · 적 470)를 비워 둔다.
-    //     몸 상자가 발판에 끼인 채 시작하면 밀려나면서 튄다.
-    //
-    //   ★ 세로로 224 를 오른다. 맵이 화면 두 장 높이라 카메라가 따라 올라간다.
-    constexpr float kStep  = 56.0f;
-    constexpr float kThick =  8.0f;
-
-    struct Plat { float x0, x1; int level; };   // level 1~4 = kStep 의 배수
-    constexpr Plat kPlats[] = {
-        // 왼쪽 — 계단으로 올라간다
-        {  180.0f,  300.0f, 1 },
-        {  332.0f,  452.0f, 2 },
-        {  260.0f,  380.0f, 3 },   // 위 발판과 x 가 겹친다 = 제자리 점프로 오른다
-        {  412.0f,  532.0f, 4 },
-        // 가운데 — 높은 길에서 내려온다
-        {  564.0f,  700.0f, 4 },
-        {  732.0f,  860.0f, 3 },
-        {  892.0f, 1020.0f, 2 },
-        { 1052.0f, 1180.0f, 1 },
-        // 오른쪽 — 다시 올라갔다 내려온다
-        { 1212.0f, 1340.0f, 2 },
-        { 1372.0f, 1500.0f, 3 },
-        { 1290.0f, 1410.0f, 4 },
-        { 1540.0f, 1700.0f, 1 },
-        { 1732.0f, 1860.0f, 2 },
-    };
-    for (const Plat& p : kPlats)
+    std::string err;
+    MapData loaded;
+    if (!MapIO::Load(path.c_str(), loaded, &err))
     {
-        const float top = g - kStep * static_cast<float>(p.level);
-        m_level.AddSolid({ p.x0, top, p.x1, top + kThick });
+        // ★ 읽기에 실패하면 **지금 맵을 그대로 둔다.** 다른 로더들과 같은 약속 —
+        //   포탈 하나에 오타가 났다고 게임이 멈추면 맵 만들기가 무서워진다.
+        Log::Info("[map] '{}' 를 못 읽었다 ({}) — 지금 맵 유지", name, err);
+        return false;
+    }
+
+    m_map     = std::move(loaded);
+    m_mapName = name;
+
+    // 지형을 다시 채운다.
+    m_level.Clear();
+    m_level.SetGroundY(m_map.groundY);
+    for (const AABB& s : m_map.solids)
+        m_level.AddSolid(s);
+
+    BuildBackdrop();
+    SpawnEnemies(ctx);
+
+    // ---- 플레이어를 입구에 놓는다 ----
+    //   ★ 부활 지점도 **이 맵의 start** 로 옮긴다. 안 옮기면 동굴에서 죽었는데
+    //     들판에서 되살아난다 — EnemyBrain 이 「자기 집」을 기억하게 만든 것과
+    //     같은 문제이고, 같은 해법이다.
+    m_player->SetHome(m_map.EntryX("start"));
+    m_player->PlaceAt(m_map.EntryX(entry));
+
+    UpdateCamera(ctx);
+
+    Log::Info("[map] '{}' 진입 ({} 입구)  지형 {}  적 {}  포탈 {}",
+              name, entry, m_map.solids.size(), m_map.enemies.size(),
+              m_map.portals.size());
+    return true;
+}
+
+
+// ----------------------------------------------------------------------------
+//  CheckPortals — 들어가면 **요청만** 적어 둔다
+//
+//    ★ 여기서 바로 맵을 갈아 끼우면, 판정이 순회 중인 적 목록과 지형이
+//      그 자리에서 사라진다. SceneManager 가 전환을 미루는 것과 같은 이유다.
+// ----------------------------------------------------------------------------
+void PlayScene::CheckPortals()
+{
+    if (m_portalPending || m_player->IsDead())
+        return;
+
+    // 몸통 상자로 본다 — 발끝 점으로 보면 뛰어넘을 때 그냥 지나친다.
+    const AABB body = m_playerParts->Box(Part_Torso);
+
+    for (const MapPortal& p : m_map.portals)
+    {
+        if (!Intersects(body, p.box))
+            continue;
+
+        m_portalPending = true;
+        m_portalTo      = p.to;
+        m_portalEntry   = p.entry;
+        return;
     }
 }
 
@@ -211,7 +222,7 @@ void PlayScene::BuildBackdrop()
 
     // 먼 층 — 거의 안 움직인다. 굵고 높다.
     int i = 0;
-    for (float x = -300.0f; x < Config::kWorldWidth + 400.0f; x += 214.0f, ++i)
+    for (float x = -300.0f; x < m_map.worldWidth + 400.0f; x += 214.0f, ++i)
         m_backdrop.push_back({ x, -80.0f + static_cast<float>((i * 5) % 4) * 74.0f,
                                54.0f, 0.22f });
 
@@ -219,7 +230,7 @@ void PlayScene::BuildBackdrop()
     //   ★ 간격을 먼 층과 **서로소에 가깝게** 둔다(214 vs 151).
     //     배수로 두면 두 층이 주기적으로 겹쳐 한 덩어리로 보인다.
     i = 0;
-    for (float x = -200.0f; x < Config::kWorldWidth + 400.0f; x += 151.0f, ++i)
+    for (float x = -200.0f; x < m_map.worldWidth + 400.0f; x += 151.0f, ++i)
         m_backdrop.push_back({ x, 80.0f + static_cast<float>((i * 3) % 5) * 58.0f,
                                30.0f, 0.55f });
 }
@@ -241,16 +252,10 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
 
     //   ★ 방향을 섞어 둔다. 셋 다 왼쪽(플레이어 쪽)을 보고 있으면
     //     6-f 에서 만든 「등 뒤로 다가간다」를 쓸 자리가 없다.
-    constexpr EnemySpawn kSpawns[] = {
-        {  470.0f, -1, "grunt" },   // 마주 본다 — 정면으로 붙어야 한다
-        {  980.0f, +1, "grunt" },   // 등을 보인다 — 몰래 붙을 수 있다
-        { 1480.0f, -1, "grunt" },
-    };
-
     m_enemies.clear();
-    m_enemies.reserve(std::size(kSpawns));
+    m_enemies.reserve(m_map.enemies.size());
 
-    for (const EnemySpawn& s : kSpawns)
+    for (const MapEnemySpawn& s : m_map.enemies)
     {
         // ★ 모르는 종류면 잡몹으로 만든다. 맵 데이터에 오타가 났다고
         //   게임이 죽으면 안 된다 — JSON 로더와 같은 태도다.
@@ -359,8 +364,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     //     Parts(번쩍임)   -> Brain(판단·이동)      -> Sprite
     //   Controller / Brain 이 Sprite 보다 먼저여야 이번 틱에 바꾼 클립이
     //   같은 틱에 반영된다.
-    BuildLevel();
-    BuildBackdrop();
+
 
     // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
     //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
@@ -395,12 +399,15 @@ bool PlayScene::Enter(SceneContext& ctx)
     //   나중에 상자·함정·투사체가 생겨도 같은 방식으로 붙는다.
     m_pickup = &m_weaponObj.Add<WeaponPickup>();
 
-    // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
+    // ★ 플레이어를 먼저 Start 한다 — LoadMap 이 SetHome/PlaceAt 을 부르는데
+    //   그때 컨트롤러의 컴포넌트 참조가 이미 채워져 있어야 한다.
     m_playerObj.Start(ctx);
     m_weaponObj.Start(ctx);
 
-    // ★ 첫 프레임부터 제자리를 비춘다. Update 가 돌기 전에 한 번 그려진다.
-    UpdateCamera(ctx);
+    if (!LoadMap(ctx, "field", "start"))
+        return false;   // 첫 맵도 못 읽으면 진행할 수가 없다
+
+    // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
     Log::Info("[play] LMB = 왼손   RMB = 오른손   — 무기가 있으면 휘두르고 없으면 문다");
@@ -604,6 +611,17 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     // ★ **전부 움직인 뒤**에 따라간다. 먼저 움직이면 한 틱 뒤처진 곳을 비춘다.
     UpdateCamera(ctx);
 
+    // ---- ★ 포탈 ----
+    //   판정이 다 끝난 뒤에 본다. 그리고 넘어가는 것은 **틱의 맨 끝**이다 —
+    //   순회 중에 적 목록과 지형을 갈아 끼우면 안 된다.
+    CheckPortals();
+    if (m_portalPending)
+    {
+        m_portalPending = false;
+        LoadMap(ctx, m_portalTo, m_portalEntry);
+        return;   // 이번 틱은 여기서 끝. 새 맵은 다음 틱부터 돈다
+    }
+
     // ---- Scene 전환 ----
     //   ★ 사망 화면을 PlayerController 가 직접 띄우지 않는 이유:
     //     Scene 전환은 Scene 의 일이고, Gameplay 가 Scenes 를 알기 시작하면
@@ -754,7 +772,7 @@ void PlayScene::UpdateCamera(SceneContext& ctx)
                       kDeadHalfW, kDeadHalfH,
                       Config::kCanvasWidth, Config::kCanvasHeight);
 
-    ctx.camera.ClampTo({ 0.0f, 0.0f, Config::kWorldWidth, Config::kWorldHeight },
+    ctx.camera.ClampTo({ 0.0f, 0.0f, m_map.worldWidth, m_map.worldHeight },
                        Config::kCanvasWidth, Config::kCanvasHeight);
 
     // Render 는 SceneContext 를 못 받으므로 여기에 적어 둔다.
@@ -830,7 +848,7 @@ void PlayScene::Render(Renderer& renderer)
         // 아래로는 **월드 밖까지** 뻗는다. 시차로 밀려 올라가도 바닥이 안 뚫린다.
         renderer.DrawFilledRect(
             { p.x + dx, p.top + dy,
-              p.x + p.width + dx, Config::kWorldHeight + 500.0f + dy },
+              p.x + p.width + dx, m_map.worldHeight + 500.0f + dy },
             DirectX::XMVectorSet(tone, tone, tone * 1.25f, 1.0f));
     }
 
@@ -861,6 +879,16 @@ void PlayScene::Render(Renderer& renderer)
     //   순서가 규칙이다. 디버그보다 위에 덮으면 어두워서 판정 상자를 못 본다.
     //   「보여야 하는 것」과 「가려야 하는 것」이 층으로 갈린다.
     DrawDarkness(renderer);
+
+    // ★ 포탈은 **항상 보인다.** 안 보이면 「여기가 출구인지」를 알 수가 없다 —
+    //   나중에 문·사다리 그림이 오면 이 자리를 대신한다.
+    for (const MapPortal& p : m_map.portals)
+    {
+        renderer.DrawFilledRect(p.box,
+            DirectX::XMVectorSet(0.55f, 0.75f, 1.0f, 0.22f));
+        renderer.DrawRectOutline(p.box,
+            DirectX::XMVectorSet(0.65f, 0.85f, 1.0f, 0.55f), 1.0f);
+    }
 
     // ★ 디버그는 **모든 그림이 끝난 뒤에** 그린다.
     //   붙인 순서가 곧 실행 순서라서, Parts 를 먼저 붙이면 판정 상자를

@@ -172,6 +172,14 @@ public:
                  float fromX, float fromY);
     void Respawn(SceneContext& ctx);
 
+    // ★ 맵을 옮기면 **부활 지점도 따라간다.** 안 그러면 동굴에서 죽었는데
+    //   들판에서 되살아난다 — EnemyBrain 이 「자기 집」을 기억하게 만든 것과
+    //   같은 문제이고, 같은 해법이다.
+    void SetHome(float x) { m_homeX = x; }
+
+    // 지금 위치만 옮긴다(HP·무기·부위는 그대로). 맵 이동이 쓴다.
+    void PlaceAt(float x);
+
     const ArmorData& Armor() const;
 
     // ★ 부위 상실이 행동을 막는다. 조건을 흩뿌리지 않고 이름을 붙여 모은다.
@@ -274,6 +282,8 @@ private:
     int m_flash = 0;   // 피격 번쩍임 남은 틱
 
     int m_invulnTicks = 0;
+
+    float m_homeX = 120.0f;   // 부활 지점. 맵이 정한다
 
     // 구르기 방향은 **시작 시점에 고정**된다. 중간에 방향키를 바꿔도 무시된다.
     //   ★ 세로 성분이 사라졌다 — 구르기도 넉백도 이제 수평 이동이다.

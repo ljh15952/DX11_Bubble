@@ -27,12 +27,26 @@
 #include <vector>
 
 #include "Core/AABB.h"
+#include "Core/Constants.h"
 
 class Level
 {
 public:
     void AddSolid(const AABB& box) { m_solids.push_back(box); }
     void Clear()                   { m_solids.clear(); }
+
+    // ------------------------------------------------------------------------
+    //  지면 — 부활·스폰이 놓이는 높이
+    //
+    //    ★ **맵마다 다르다.** 전에는 `Config::kGroundY` 하나였는데, 맵이
+    //      여러 장이 되자 동굴(지면 600)에서 들판의 지면(680)에 놓였다 —
+    //      바닥 속이다. 「하나뿐이라 괜찮았던 것」이 또 터진 자리다.
+    //
+    //    ※ 발밑 판정에는 안 쓴다. 그건 사각형 목록이 답한다 —
+    //      이 값은 **「어디에 놓을까」** 전용이다.
+    // ------------------------------------------------------------------------
+    void  SetGroundY(float y) { m_groundY = y; }
+    float GroundY() const     { return m_groundY; }
 
     // ------------------------------------------------------------------------
     //  ForEachOverlapping — 이 사각형과 겹치는 고체를 하나씩 넘겨준다
@@ -67,4 +81,5 @@ public:
 
 private:
     std::vector<AABB> m_solids;
+    float             m_groundY = Config::kGroundY;
 };

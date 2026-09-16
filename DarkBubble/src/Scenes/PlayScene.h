@@ -24,6 +24,7 @@
 #include "Core/GameObject.h"
 #include "Core/Level.h"
 #include "Gameplay/EnemyType.h"
+#include "Gameplay/MapData.h"
 
 #include <memory>
 #include <vector>
@@ -80,7 +81,22 @@ private:
     //   `Add<EnemyBrain>(m_playerObj.transform)` 과 같은 모양이다.
     //   SceneContext(엔진 표면적)에 올리는 것은 맵이 여러 장이 되는 6-e 에서.
     Level m_level;
-    void BuildLevel();
+
+    // ---- ★ 맵 (7-c) ----
+    //   지형·적 배치·포탈이 전부 여기서 온다. `BuildLevel` 이 하던 일은
+    //   **파일이 하게 되었다** — 이미 데이터 모양이라 형태가 안 바뀌었다.
+    MapData     m_map;
+    std::string m_mapName;
+
+    // 맵을 통째로 갈아 끼운다. entry = 그 맵의 어느 입구로 들어가는가.
+    bool LoadMap(SceneContext& ctx, const std::string& name, const std::string& entry);
+
+    // ★ 포탈은 **즉시 넘어가지 않는다.** 판정 도중에 적 목록과 지형을 갈아
+    //   끼우면 순회 중인 것이 사라진다. 요청만 적어 두고 틱 끝에서 처리한다 —
+    //   SceneManager 가 전환을 미루는 것과 같은 이유다.
+    bool        m_portalPending = false;
+    std::string m_portalTo, m_portalEntry;
+    void CheckPortals();
 
     // ---- ★ 시차(parallax) 배경 ----
     //   넓은 맵인데 배경이 단색이면 **카메라가 움직이는지 알 수 없다.**
@@ -147,10 +163,6 @@ private:
     //     수 있고, 마주 보고 선 적은 정면으로 붙어야 한다 —
     //     배치만으로 §3.9 B 의 시야가 전술이 된다.
     //
-    //   ★★ **종류**까지 들어간다. 지금은 하나뿐이지만, 스폰 목록에 종류가
-    //     들어가는 순간 이 구조체가 그대로 map.json 의 모양이 된다(7-c).
-    struct EnemySpawn { float x; int facing; const char* type; };
-
     // ★ 적 종류 카탈로그. **Scene 이 하나만** 들고 적들이 참조로 본다 —
     //   무기는 플레이어 하나가 쓰지만 적 데이터는 여럿이 공유하기 때문이다.
     EnemyCatalog m_enemyTypes;
