@@ -473,6 +473,12 @@ bool PlayerController::HandArmed(WeaponHand hand) const
 }
 
 
+bool PlayerController::Grounded() const
+{
+    return m_body->Grounded();
+}
+
+
 bool PlayerController::CanHold(WeaponHand hand) const
 {
     if (hand == WeaponHand::None)           return false;
@@ -481,19 +487,21 @@ bool PlayerController::CanHold(WeaponHand hand) const
 }
 
 
+WeaponHand PlayerController::PickupHand() const
+{
+    // ★ **주손부터** 묻는다. 손을 고르는 자유는 사라졌지만, 「팔이 잘려서
+    //   못 줍는다」는 남아야 한다 — 이 게임에서 팔은 실제로 잘린다.
+    if (CanHold(WeaponHand::Right)) return WeaponHand::Right;
+    if (CanHold(WeaponHand::Left))  return WeaponHand::Left;
+    return WeaponHand::None;
+}
+
+
 bool PlayerController::ConsumeWeaponDropRequest()
 {
     if (!m_weaponDropRequested) return false;
     m_weaponDropRequested = false;
     return true;
-}
-
-
-WeaponHand PlayerController::ConsumePickupRequest()
-{
-    if (!m_pickupRequested) return WeaponHand::None;
-    m_pickupRequested = false;
-    return m_pickupHand;
 }
 
 
@@ -647,9 +655,9 @@ void PlayerController::Respawn(SceneContext& ctx)
     tr.x = m_homeX;
     tr.facing = 1;
 
-    // ★ 세로는 바닥이 정한다. 부활 좌표에 y 를 적어 두면
-    //   지면 높이를 바꿀 때 여기만 옛 값으로 남는다.
-    m_body->SnapToGround();
+    // ★ 세로는 **부활 지점이 들고 온다.** 맵의 지면으로 정하면 발판 위
+    //   화톳불에서 쉬고 죽었을 때 아래 지면에서 일어난다.
+    m_body->PlaceOnFloor(m_homeY);
 
     m_parts->Reset();
     m_flash       = 0;
@@ -660,7 +668,6 @@ void PlayerController::Respawn(SceneContext& ctx)
 
     m_currentAttack = nullptr;
     m_pendingHand   = WeaponHand::None;
-    m_pickupHand    = WeaponHand::None;
     m_queuedHand    = WeaponHand::None;
     m_hitThisSwing  = false;
     m_crouchHeld    = false;
@@ -674,8 +681,6 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_poise->Reset();
     m_poise->SetValue(Armor().poise);   // ★ 값의 출처는 방어구다
 
-    m_pickupAvailable     = false;
-    m_pickupRequested     = false;
     m_weaponDropRequested = false;
 
     // ---- 남는다 ----
@@ -1245,18 +1250,9 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         {
             ChangeState(ctx, PlayerState::Roll);
         }
-        // ★ 발밑에 주울 것이 있으면 **그 버튼은 줍기**가 된다.
-        //   맥락이 같은 입력의 뜻을 바꾸는 것 — 무브셋에서 이미 쓴 방식이다.
-        //
-        //   ★★ **누른 버튼이 어느 손에 들지를 정한다.** 전에는 Scene 이
-        //     「남아 있는 팔」로 골라 줬는데, 이제 왼손으로 받을지 오른손으로
-        //     받을지가 플레이어의 선택이다 — §1.2 의 기회비용(왼손에 들면
-        //     나중에 횃불을 못 든다)이 그제야 **선택**이 된다.
-        else if (m_pickupAvailable && CanHold(handPressed))
-        {
-            m_pickupRequested = true;
-            m_pickupHand      = handPressed;
-        }
+        // ★ 여기에 **줍기 분기가 있었다.** 「발밑에 무기가 있으면 그 버튼은
+        //   줍기」였는데, 그러면 떨군 무기를 밟고 선 동안 손이 통째로 막힌다.
+        //   줍기는 E 로 옮겼고(Scene 이 받는다), 손 버튼은 **언제나 손**이다.
         else if (handPressed != WeaponHand::None)
         {
             m_pendingHand = handPressed;
@@ -1273,8 +1269,9 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     case PlayerState::Jump:
         UpdateMovement(ctx, moveX);   // 공중 제어력은 UpdateMovement 가 안다
 
-        // ★ 공중에서는 **줍기 갈래가 없다.** 그래서 발밑에 무기가 있어도
-        //   뛰어넘으며 주워지지 않는다 — Space 를 점프로 옮긴 대가를 여기서 치른다.
+        // ★ 공중에서는 손 버튼이 **언제나 공격**이다. 줍기는 E 로 옮겼고,
+        //   그 E 도 땅을 밟고 있을 때만 듣는다(PlayScene::UpdateFocus) —
+        //   「뛰어넘으며 주워지지 않는다」는 규칙은 자리를 옮겨 살아 있다.
         if (handPressed != WeaponHand::None)
         {
             m_pendingHand = handPressed;
@@ -1517,15 +1514,9 @@ void PlayerController::RenderUI(Renderer& renderer)
 
     // ★ 무기를 잃었다는 것은 **반드시 보여야 한다.**
     //   「왜 공격이 안 되지」를 플레이어가 추측하게 두면 안 된다.
-    if (m_pickupAvailable)
-    {
-        // 주울 수 있을 때만 뜬다. 항상 떠 있으면 아무도 안 읽는다.
-        //   ★ **어느 손으로 받을지를 고른다**는 것까지 알려 준다.
-        renderer.DrawString("LMB / RMB : PICK UP (L / R HAND)",
-                            12.0f, Config::kCanvasHeight - 92.0f,
-                            DirectX::Colors::Gold, 1);
-    }
-    else if (m_weaponHand == WeaponHand::None)
+    //   ★ 「주울 수 있다」는 이제 여기서 안 띄운다. 무기 **위에** `E : PICK UP`
+    //     이 뜨므로(Scene), 같은 말을 두 곳에서 하면 한쪽이 낡는다.
+    if (m_weaponHand == WeaponHand::None)
     {
         // ★ 「할 수 있는 것」을 같이 알려 준다. 못 하는 것만 말하면 막힌 느낌이 든다.
         renderer.DrawString("NO WEAPON - BOTH HANDS BITE",

@@ -162,7 +162,7 @@ bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
     //   ★ **부활 지점은 여기서 안 정한다.** 부활은 맵의 시작이 아니라
     //     「마지막으로 쉰 자리」다(세이브 포인트). 맵을 지나가는 것만으로
     //     부활 지점이 바뀌면 되돌아갈 이유가 사라진다.
-    m_focus = nullptr;   // 맵이 바뀌었으니 들고 있던 포인터는 무효다
+    m_focus = {};   // 맵이 바뀌었으니 들고 있던 포인터는 무효다
     m_player->PlaceAt(m_map.EntryX(entry));
 
     UpdateCamera(ctx);
@@ -182,16 +182,40 @@ bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
 // ----------------------------------------------------------------------------
 void PlayScene::UpdateFocus()
 {
-    m_focus = nullptr;
-    if (m_player->IsDead())
+    m_focus = {};
+
+    // ★ 죽었거나 **공중이면** 아무것도 가리키지 않는다.
+    //   공중을 막는 이유는 6-c-8 때와 같다 — 뛰어넘으며 주워지면 안 된다.
+    //   무기·포탈·화톳불에 **같은 조건**을 건다: 규칙이 하나면 예외도 없다.
+    if (m_player->IsDead() || !m_player->Grounded())
         return;
 
     // 몸통 상자로 본다 — 발끝 점으로 보면 뛰어넘을 때 그냥 지나친다.
     const AABB body = m_playerParts->Box(Part_Torso);
 
+    // ---- ★ 물건이 먼저다 ----
+    //   화톳불 위에 무기를 떨궜을 때 무엇이 우선인가. **무기다.**
+    //   화톳불은 도망 안 가지만, 쉬면 적이 되살아난다 — 주우려다 쉬면
+    //   되돌릴 수가 없다. 되돌릴 수 없는 쪽을 뒤로 민다.
+    if (m_pickup->Active() && m_player->PickupHand() != WeaponHand::None
+        && Intersects(body, m_pickup->PickupArea()))
+    {
+        m_focus.kind   = FocusKind::Weapon;
+        m_focus.box    = m_pickup->PickupArea();
+        m_focus.prompt = "E : PICK UP";
+        return;
+    }
+
     for (const MapInteract& it : m_map.interacts)
     {
-        if (Intersects(body, it.box)) { m_focus = &it; return; }
+        if (!Intersects(body, it.box))
+            continue;
+
+        m_focus.kind   = FocusKind::Map;
+        m_focus.box    = it.box;
+        m_focus.prompt = it.Prompt();
+        m_focus.map    = &it;
+        return;
     }
 }
 
@@ -204,30 +228,48 @@ void PlayScene::UpdateFocus()
 // ----------------------------------------------------------------------------
 void PlayScene::Interact(SceneContext& ctx)
 {
-    if (!m_focus)
+    // ---- 무기를 줍는다 ----
+    if (m_focus.kind == FocusKind::Weapon)
+    {
+        const WeaponHand hand = m_player->PickupHand();
+        if (hand == WeaponHand::None)
+            return;   // 초점을 잡은 뒤 팔이 잘렸을 수도 있다
+
+        m_pickup->PickedUp();
+        m_player->EquipWeapon(hand);
+        ctx.audio.Play("ui_confirm", 0.7f);
+        return;
+    }
+
+    if (m_focus.kind != FocusKind::Map)
         return;
 
-    switch (m_focus->kind)
+    const MapInteract& it = *m_focus.map;
+    switch (it.kind)
     {
     case InteractKind::Portal:
         // ★ 요청만 적어 둔다. 넘어가는 것은 틱의 맨 끝이다.
         m_portalPending = true;
-        m_portalTo      = m_focus->to;
-        m_portalEntry   = m_focus->entry;
+        m_portalTo      = it.to;
+        m_portalEntry   = it.entry;
         break;
 
     case InteractKind::SavePoint:
         // ★ 소울류의 화톳불이다 — **회복하고, 적이 되살아나고, 여기서 부활한다.**
         //   셋이 한 묶음이라 「쉬어 갈까」가 판단이 된다. 회복만 되면 공짜다.
         m_saveMap = m_mapName;
-        m_saveX   = (m_focus->box.left + m_focus->box.right) * 0.5f;
+        m_saveX   = (it.box.left + it.box.right) * 0.5f;
+
+        // ★★ 세로는 **상자의 아랫변**이다. 화톳불이 놓인 바닥이 곧 그 값이라
+        //   따로 적을 것이 없다 — 발판 위에 두면 상자도 같이 올라가 있다.
+        m_saveY   = it.box.bottom;
 
         m_player->Rest();
         SpawnEnemies(ctx);
 
         ctx.audio.Play("ui_confirm", 0.8f, 0.2f);
-        Log::Info("[play] 쉬었다 — 부활 지점 '{}' ({} {:.0f}) · 회복 · 적 부활",
-                  m_focus->name, m_saveMap, m_saveX);
+        Log::Info("[play] 쉬었다 — 부활 지점 '{}' ({} {:.0f},{:.0f}) · 회복 · 적 부활",
+                  it.name, m_saveMap, m_saveX, m_saveY);
         break;
     }
 }
@@ -443,12 +485,14 @@ bool PlayScene::Enter(SceneContext& ctx)
     //   전에 죽어도 갈 곳이 있어야 한다 — 값의 출처는 맵 파일 하나뿐이다.
     m_saveMap = m_mapName;
     m_saveX   = m_map.EntryX("start");
+    m_saveY   = m_map.groundY;   // 입구는 언제나 지면 위에 있다
 
     // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
     Log::Info("[play] LMB = 왼손   RMB = 오른손   — 무기가 있으면 휘두르고 없으면 문다");
-    Log::Info("[play] 발밑에 무기가 있으면 그 버튼이 **줍기**가 된다 (누른 손에 든다)");
+    Log::Info("[play] E = 상호작용 — 발밑에 있는 것이 무엇인지가 하는 일을 정한다");
+    Log::Info("[play]        무기 = 줍기(주손)   포탈 = 이동   화톳불 = 쉬기");
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -467,7 +511,7 @@ void PlayScene::Respawn(SceneContext& ctx)
     if (m_saveMap == m_mapName || !LoadMap(ctx, m_saveMap, "start"))
         SpawnEnemies(ctx);   // 같은 맵(또는 못 읽음) -> 적만 되살린다
 
-    m_player->SetHome(m_saveX);
+    m_player->SetHome(m_saveX, m_saveY);
 
     // ★ 무엇을 되돌릴지는 **각자가 안다.** Scene 은 「되돌려라」만 말한다.
     //   design.md §3.6.1 의 「되돌아간다 / 남는다」 표가 각 컴포넌트 안에 있다.
@@ -620,13 +664,10 @@ void PlayScene::TryEnemyHit(SceneContext& ctx)
 // ============================================================================
 void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 {
-    // ★ 틱 **전에** 알려 줘야 한다. 그래야 컨트롤러가 같은 Space 입력을
-    //   공격이 아니라 줍기로 쓸지 판단할 수 있다.
-    //   뒤에 알려 주면 「공격도 하고 줍기도 하는」 한 틱이 생긴다.
-    m_player->SetPickupAvailable(
-        m_pickup->Active()
-        && m_player->Hand() == WeaponHand::None
-        && Intersects(m_pickup->PickupArea(), m_playerParts->Box(Part_Torso)));
+    // ★ 「줍기가 가능한가」를 컨트롤러에 미리 알려 주던 줄이 여기 있었다.
+    //   손 버튼이 줍기를 겸하던 동안에는 **틱 전에** 알려 줘야 했지만,
+    //   줍기가 E 로 옮겨 가면서 그 왕복이 통째로 사라졌다.
+    //   ★ 기능을 옮기면 그 기능을 **떠받치던 것도 같이** 사라지는지 볼 것.
 
     // ★ 순서에 의미가 있다.
     //   플레이어를 먼저 굴리고, 그 결과(이번 틱의 위치·무적)를 보고 적이 움직인다.
@@ -647,7 +688,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     }
 
     m_playerObj.Tick(ctx, consumeEdgeInput);
-    UpdateWeaponPickup(ctx);
+    UpdateWeaponDrop(ctx);
     TryPlayerHit(ctx);
 
     for (Enemy& e : m_enemies)
@@ -833,11 +874,13 @@ void PlayScene::UpdateCamera(SceneContext& ctx)
 
 
 // ----------------------------------------------------------------------------
-//  UpdateWeaponPickup — 떨구기와 줍기
+//  UpdateWeaponDrop — 떨구기
+//
+//    ★ 줍기는 여기 없다. E 가 받아 `Interact()` 로 간다 — 「발밑에 있는
+//      것에 E」라는 규칙 하나에 무기도 들어갔기 때문이다.
 // ----------------------------------------------------------------------------
-void PlayScene::UpdateWeaponPickup(SceneContext& ctx)
+void PlayScene::UpdateWeaponDrop(SceneContext& ctx)
 {
-    // ---- 떨군다 ----
     if (m_player->ConsumeWeaponDropRequest())
     {
         const Transform& tr = m_playerObj.transform;
@@ -845,22 +888,6 @@ void PlayScene::UpdateWeaponPickup(SceneContext& ctx)
         ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromWorldX(tr.x, ctx.camera.X()));
         Log::Info("[play] 무기가 땅에 떨어졌다 ({:.0f}, {:.0f})", tr.x, tr.y);
     }
-
-    // ---- 줍는다 ----
-    //   ★ **어느 손에 드는가를 컨트롤러가 들고 온다.** 전에는 여기서
-    //     「남아 있는 팔」로 골랐는데, 버튼이 손을 가리키게 된 지금은
-    //     **누른 쪽 손**이 답이다 — 고르는 주체가 Scene 에서 플레이어로 옮겨 갔다.
-    //
-    //   ※ 「팔이 없어 못 줍는다」는 경우가 여기서 사라졌다.
-    //     그 판단은 컨트롤러의 CanHold 가 **요청을 내기 전에** 한다 —
-    //     못 하는 일을 요청했다가 되돌리는 것보다 애초에 요청을 안 하는 편이 낫다.
-    const WeaponHand hand = m_player->ConsumePickupRequest();
-    if (hand == WeaponHand::None)
-        return;
-
-    m_pickup->PickedUp();
-    m_player->EquipWeapon(hand);
-    ctx.audio.Play("ui_confirm", 0.7f);
 }
 
 
@@ -948,11 +975,11 @@ void PlayScene::Render(Renderer& renderer)
 
     // ★ 지금 누를 수 있는 것 위에만 안내를 띄운다. 항상 띄우면 아무도 안 읽는다 —
     //   「SPACE : PICK UP」과 같은 규칙이다.
-    if (m_focus)
+    if (m_focus.kind != FocusKind::None)
     {
-        renderer.DrawString(m_focus->Prompt(),
-            std::round((m_focus->box.left + m_focus->box.right) * 0.5f - 32.0f),
-            std::round(m_focus->box.top - 16.0f),
+        renderer.DrawString(m_focus.prompt,
+            std::round((m_focus.box.left + m_focus.box.right) * 0.5f - 32.0f),
+            std::round(m_focus.box.top - 16.0f),
             DirectX::Colors::Gold, 1);
     }
 

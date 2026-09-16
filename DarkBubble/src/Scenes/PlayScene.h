@@ -64,7 +64,9 @@ private:
     // ---- 월드에 떨어진 물건 ----
     //   ★ 컨트롤러는 월드를 모른다. 「떨궈야 한다」는 요청만 하고
     //     어디에 놓을지·주울 수 있는지는 Scene 이 정한다.
-    void UpdateWeaponPickup(SceneContext& ctx);
+    //   ★ 줍기가 여기서 빠졌다 — E 로 옮겨 `Interact()` 가 처리한다.
+    //     이름을 바꿔 옛 호출부를 드러냈다(§9.1).
+    void UpdateWeaponDrop(SceneContext& ctx);
 
     // ★ 초기화와 부활은 **같은 일**이다. 두 벌로 만들면 반드시 어긋난다 —
     //   나중에 필드를 하나 추가할 때 한쪽만 고치고, 「두 번째 판부터 뭔가
@@ -96,7 +98,20 @@ private:
     //   ★ **버튼은 하나다.** 무엇을 하는지는 그 자리에 무엇이 있는지가 정한다 —
     //     좌/우클릭이 손을 가리키는 것과 같은 구조다(§3.2.1.1).
     //     나중에 상자·사람이 오면 **종류만** 늘어난다.
-    const MapInteract* m_focus = nullptr;
+    //   ★★ 가리키는 것이 **맵의 것만이 아니다.** 땅에 떨어진 무기도 E 로
+    //     줍는다. 그래서 초점은 `MapInteract*` 가 아니라 **「상자 + 글자 +
+    //     종류」**다 — 그려 주는 쪽은 그것이 문인지 무기인지 알 필요가 없다.
+    enum class FocusKind { None, Weapon, Map };
+
+    struct Focus
+    {
+        FocusKind          kind   = FocusKind::None;
+        AABB               box{};              // 안내를 띄울 자리
+        const char*        prompt = "";
+        const MapInteract* map    = nullptr;   // Map 일 때만
+    };
+    Focus m_focus;
+
     void UpdateFocus();
     void Interact(SceneContext& ctx);
 
@@ -112,8 +127,11 @@ private:
     //   ★ 초기값을 **여기에 안 적는다.** 첫 맵 이름과 시작 좌표는 이미
     //     Enter 와 field.json 에 있다 — 여기에 또 적으면 맵을 옮길 때
     //     이 줄만 옛 값으로 남는다(늘 밟던 「같은 값이 두 곳에」다).
+    //   ★ **높이도 같이** 기억한다. 발판 위 화톳불에서 쉬고 죽었는데 아래
+    //     지면에서 일어나면, 쉰 자리로 돌아온 것이 아니다.
     std::string m_saveMap;
     float       m_saveX = 0.0f;
+    float       m_saveY = 0.0f;
 
     // ---- ★ 시차(parallax) 배경 ----
     //   넓은 맵인데 배경이 단색이면 **카메라가 움직이는지 알 수 없다.**

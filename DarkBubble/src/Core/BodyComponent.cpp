@@ -126,13 +126,19 @@ void BodyComponent::Lift(float speed)
 }
 
 
+void BodyComponent::PlaceOnFloor(float y)
+{
+    Owner().transform.y = y;
+    m_velocityY = 0.0f;   // 떨어지던 중이었어도 여기서 멎는다
+    m_grounded  = true;
+}
+
+
 void BodyComponent::SnapToGround()
 {
     // ★ 지면은 **맵이 정한다.** 전역 상수를 쓰면 지면이 다른 맵에서
     //   바닥 속에 놓인다(동굴 600 vs 들판 680).
-    Owner().transform.y = m_level.GroundY();
-    m_velocityY = 0.0f;
-    m_grounded  = true;
+    PlaceOnFloor(m_level.GroundY());
 }
 
 

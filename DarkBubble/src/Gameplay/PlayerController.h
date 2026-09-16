@@ -175,7 +175,12 @@ public:
     // ★ 맵을 옮기면 **부활 지점도 따라간다.** 안 그러면 동굴에서 죽었는데
     //   들판에서 되살아난다 — EnemyBrain 이 「자기 집」을 기억하게 만든 것과
     //   같은 문제이고, 같은 해법이다.
-    void SetHome(float x) { m_homeX = x; }
+    //   ★★ **높이도 같이 받는다.** 전에는 x 만 받고 바닥은 맵의 지면으로
+    //     정했는데, 발판 위 화톳불에서 쉬고 죽으면 **아래 지면에서** 일어났다.
+    //     부활 지점이 하나(맵 시작)일 때는 언제나 지면이라 맞았을 뿐이다 —
+    //     「하나뿐이라 괜찮았던 것이 둘이 되는 순간 터진다」를 또 밟았다.
+    //     ★ 인자를 늘려 옛 호출부가 전부 컴파일 에러가 되게 했다(§9.1).
+    void SetHome(float x, float y) { m_homeX = x; m_homeY = y; }
 
     // 지금 위치만 옮긴다(HP·무기·부위는 그대로). 맵 이동이 쓴다.
     void PlaceAt(float x);
@@ -192,6 +197,18 @@ public:
     //   대신 **손마다** 묻는다.
     bool HandArmed(WeaponHand hand) const;   // 그 손에 무기가 들려 있는가
     bool CanHold(WeaponHand hand)   const;   // 그 손으로 주울 수 있는가
+
+    // 지금 주우면 **어느 손에 들어가는가.** None = 못 줍는다.
+    //   ★ 손 선택이 줍기에서 사라졌으므로 규칙이 필요하다:
+    //     **주손(오른손) 우선, 그 팔이 부서졌으면 반대 손.**
+    //     §1.2 의 기회비용(왼손을 무기로 채우면 횃불을 못 든다)은
+    //     8단계 장비 화면으로 옮긴다 — 줍는 순간에 고르게 하면
+    //     「집어 든다」와 「장착한다」가 한 동작에 붙어 되돌릴 수가 없다.
+    WeaponHand PickupHand() const;
+    // 땅을 밟고 있는가. ★ E(상호작용)가 이것을 본다 —
+    //   공중에서는 줍지도, 쉬지도, 문을 넘지도 못한다.
+    bool Grounded() const;
+
     bool CanRoll()   const;   // 다리가 살아 있는가 + 땅을 밟고 있는가
     bool CanJump()   const;   // 다리가 살아 있는가 + 땅을 밟고 있는가 + 웅크리지 않았는가
 
@@ -210,15 +227,16 @@ public:
     //     말하고, 어디에 어떻게 놓을지는 Scene 이 정한다.
     //     사망 화면을 Scene 이 띄우는 것과 같은 구조다.
     bool ConsumeWeaponDropRequest();
-    // ★ **어느 손으로** 주울지까지 돌려준다. None = 요청 없음.
-    //   전에는 Scene 이 「남아 있는 팔」로 정했는데, 이제 **누른 버튼**이 정한다 —
-    //   왼손으로 주울지 오른손으로 주울지가 플레이어의 선택이 되었다.
-    WeaponHand ConsumePickupRequest();
 
-    // Scene 이 매 틱 알려 준다 — 「지금 발밑에 주울 것이 있다」.
-    //   ★ 틱 **전에** 알려 줘야 한다. 그래야 컨트롤러가 같은 버튼 입력을
-    //     공격이 아니라 줍기로 쓸지 판단할 수 있다.
-    void SetPickupAvailable(bool v) { m_pickupAvailable = v; }
+    // ★★ **줍기는 이제 E 다.** 손 버튼에서 떼어 냈다.
+    //   전에는 「발밑에 무기가 있으면 그 버튼이 줍기가 된다」였는데,
+    //   그러면 **무기 위에 서 있는 동안 휘두를 수가 없다** — 떨군 무기를
+    //   밟고 싸우는 상황에서 손이 통째로 막힌다.
+    //   E 로 옮기자 좌/우클릭은 **언제나 손**이 되었다(§3.2.1.1 이 더 깨끗해졌다).
+    //
+    //   ※ 줍기 요청 큐가 통째로 사라졌다. E 는 Scene 이 직접 받으므로
+    //     「컨트롤러가 요청하고 Scene 이 처리한다」는 왕복이 필요 없다.
+    //     떨구기(ConsumeWeaponDropRequest)는 남는다 — 그건 X 키에서 온다.
 
     // 무기를 손에 넣었다. Scene 이 줍기를 처리한 뒤 알려 준다.
     void EquipWeapon(WeaponHand hand);
@@ -287,7 +305,9 @@ private:
 
     int m_invulnTicks = 0;
 
-    float m_homeX = 120.0f;   // 부활 지점. 맵이 정한다
+    // 부활 지점. ★ 맵이 아니라 **세이브 포인트**가 정한다. 높이까지 기억한다.
+    float m_homeX = 120.0f;
+    float m_homeY = 680.0f;
 
     // 구르기 방향은 **시작 시점에 고정**된다. 중간에 방향키를 바꿔도 무시된다.
     //   ★ 세로 성분이 사라졌다 — 구르기도 넉백도 이제 수평 이동이다.
@@ -311,7 +331,6 @@ private:
     // ★ 물기 요청. 다른 키로 들어오므로 무브셋 선택에서 최우선이다.
     // 이번 공격을 **어느 손**이 냈는가. 무엇이 나갈지는 SelectAttack 이 정한다.
     WeaponHand m_pendingHand = WeaponHand::None;
-    WeaponHand m_pickupHand  = WeaponHand::None;
     bool m_hitThisSwing = false;
 
     // ★★ 이름이 `m_crouching` 이 아니라 `m_crouchHeld` 인 이유가 있다.
@@ -333,8 +352,6 @@ private:
     //   죽어도 무기는 떨어진 자리에 남고, 손은 빈 채로 부활한다.
     WeaponHand m_weaponHand = WeaponHand::Right;
     bool m_weaponDropRequested = false;
-    bool m_pickupRequested     = false;
-    bool m_pickupAvailable     = false;
 
     int  m_armorIndex = 0;       // F2 로 바뀐다(임시)
     bool m_deathScreenRequested = false;
