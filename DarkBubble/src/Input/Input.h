@@ -124,6 +124,15 @@ public:
     //   실제로 부러지려면 잡몹의 물기를 네 번 맞아야 해서 확인에만 한참 걸린다.
     bool LegBreakPressed() const { return m_edges.legBreak; }      // F4 (임시)
 
+    // ★ F7 — **주손(오른팔)**을 부러뜨렸다 되돌린다 (임시).
+    //   F4 와 같은 이유인데, 이쪽은 확인할 것이 하나 더 있다:
+    //   **팔이 잘리면 무기를 떨군다**(§3.2.2). 그래서 이 키 하나로
+    //   「떨군다 → E 로 다시 줍는다 → 반대 손에 들린다」가 전부 확인된다.
+    //
+    //   ★ 무기를 **일부러 버리는 키는 없다.** 버리기는 8단계 인벤토리의
+    //     몫이고, 지금 무기가 땅에 떨어지는 경우는 **팔이 잘렸을 때뿐**이다.
+    bool ArmBreakPressed() const { return m_edges.armBreak; }      // F7 (임시)
+
     // ★ F5 — 어둠 껐다 켜기.
     //   밝기는 **비교해 봐야** 정할 수 있다. 끄고 켤 수 없으면
     //   「지금이 어두운 건지 원래 그런 건지」를 알 수가 없다.
@@ -174,6 +183,7 @@ private:
         //   6단계에서 진짜 장비 시스템이 오면 버린다.
         bool armorSwap = false;
         bool legBreak  = false;
+        bool armBreak  = false;
         bool darkToggle = false;
         bool dataReload = false;
     };

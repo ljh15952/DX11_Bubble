@@ -172,6 +172,14 @@ public:
                  float fromX, float fromY);
     void Respawn(SceneContext& ctx);
 
+private:
+    // 부위 하나가 부서졌을 때 **몸에 일어나는 일**(무기를 떨군다 등).
+    //   ★ 피격과 디버그 키가 **같은 길**을 지나야 한다. 한쪽만 부위 HP 를
+    //     0 으로 만들면 「잘렸는데 무기는 들려 있는」 몸이 생긴다.
+    void OnPartBroken(int part);
+
+public:
+
     // ★ 맵을 옮기면 **부활 지점도 따라간다.** 안 그러면 동굴에서 죽었는데
     //   들판에서 되살아난다 — EnemyBrain 이 「자기 집」을 기억하게 만든 것과
     //   같은 문제이고, 같은 해법이다.
@@ -236,7 +244,8 @@ public:
     //
     //   ※ 줍기 요청 큐가 통째로 사라졌다. E 는 Scene 이 직접 받으므로
     //     「컨트롤러가 요청하고 Scene 이 처리한다」는 왕복이 필요 없다.
-    //     떨구기(ConsumeWeaponDropRequest)는 남는다 — 그건 X 키에서 온다.
+    //     떨구기(ConsumeWeaponDropRequest)는 남는다 — 그건 **팔이 잘릴 때**
+    //     온다(§3.2.2). 무기를 일부러 버리는 키는 **없다.**
 
     // 무기를 손에 넣었다. Scene 이 줍기를 처리한 뒤 알려 준다.
     void EquipWeapon(WeaponHand hand);

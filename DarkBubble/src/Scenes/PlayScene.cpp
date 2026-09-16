@@ -495,6 +495,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play]        무기 = 줍기(주손)   포탈 = 이동   화톳불 = 쉬기");
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
+    Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
     Log::Info("[play] TIP: 공격 -> 후딜 중에 다시 공격 = 2타(THRUST). 머리 높이다");
     Log::Info("[play] TIP: 적 머리 위 `!` 가 예고다. 그동안 Shift 로 구르면 흘린다");

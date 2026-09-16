@@ -473,6 +473,27 @@ bool PlayerController::HandArmed(WeaponHand hand) const
 }
 
 
+void PlayerController::OnPartBroken(int part)
+{
+    Log::Info("[play] ★ {} 절단!", m_parts->Name(part));
+
+    // ★ 팔이 잘리면 **그 손의** 무기를 떨군다(design.md §3.2.2).
+    //   다른 손이면 아무 일도 없다 — 어느 손인지가 결과를 바꾼다.
+    const bool lostHand =
+           (part == Part_RightArm && m_weaponHand == WeaponHand::Right)
+        || (part == Part_LeftArm  && m_weaponHand == WeaponHand::Left);
+
+    if (lostHand)
+    {
+        m_weaponHand          = WeaponHand::None;
+        m_weaponDropRequested = true;   // 어디에 떨어뜨릴지는 Scene 이 정한다
+        Log::Info("[play]   -> 무기를 떨궜다! 주우러 가야 한다");
+    }
+    else if (part == Part_Legs)
+        Log::Info("[play]   -> 다리 상실 : 이동 대폭 감소 + 구르기 불가");
+}
+
+
 bool PlayerController::Grounded() const
 {
     return m_body->Grounded();
@@ -1086,24 +1107,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
 
     // ---- 부위가 부서졌다 ----
     if (m_parts->IsBroken(part))
-    {
-        Log::Info("[play] ★ {} 절단!", m_parts->Name(part));
-
-        // ★ 팔이 잘리면 **그 손의** 무기를 떨군다(design.md §3.2.2).
-        //   다른 손이면 아무 일도 없다 — 어느 손인지가 결과를 바꾼다.
-        const bool lostHand =
-               (part == Part_RightArm && m_weaponHand == WeaponHand::Right)
-            || (part == Part_LeftArm  && m_weaponHand == WeaponHand::Left);
-
-        if (lostHand)
-        {
-            m_weaponHand          = WeaponHand::None;
-            m_weaponDropRequested = true;   // 어디에 떨어뜨릴지는 Scene 이 정한다
-            Log::Info("[play]   -> 무기를 떨궜다! 주우러 가야 한다");
-        }
-        else if (part == Part_Legs)
-            Log::Info("[play]   -> 다리 상실 : 이동 대폭 감소 + 구르기 불가");
-    }
+        OnPartBroken(part);
 
     // ---- 사망이 가장 먼저다. 강인도로 버텨도 부위는 깎였다 ----
     //   머리 또는 몸통이 부서지면 즉사.
@@ -1411,27 +1415,50 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     if (consumeEdgeInput && ctx.input.DataReloadPressed())
         ReloadMoveset();
 
-    // ★ 임시 디버그 키(F4) — 다리를 부러뜨렸다 되돌린다.
+    // ★ 임시 디버그 키 — 부위를 부러뜨렸다 되돌린다.
     //
-    //   엎드린 자세의 판정 상자와 「엎드리면 중단을 흘린다」를 **바로** 볼 수
-    //   있게 하려는 것이다. 실제로 부러뜨리려면 잡몹의 물기를 네 번 맞아야 해서
-    //   확인 한 번에 십수 초가 걸린다. 만든 사람이 확인하기 어려운 기능은
-    //   있어도 없는 것과 같다.
+    //     F4 다리    : 엎드린 자세의 판정 상자와 「중단을 흘린다」를 바로 본다.
+    //     F7 오른팔  : **무기를 떨구게** 한다. 줍기(E)를 확인하려면 땅에 무기가
+    //                 있어야 하는데, 무기가 떨어지는 경우는 **팔이 잘렸을 때뿐**
+    //                 이다(일부러 버리는 키는 없다 — 그건 8단계 인벤토리의 몫).
+    //
+    //   실제로 부러뜨리려면 잡몹의 공격을 네 번 맞아야 해서 확인 한 번에
+    //   십수 초가 걸린다. **만든 사람이 확인하기 어려운 기능은 있어도 없는 것과 같다.**
     //
     //   ※ 죽은 뒤에는 받지 않는다. RestingState 로 되돌리면 되살아나 버린다.
-    if (consumeEdgeInput && ctx.input.LegBreakPressed() && !IsDead())
+    const int breakPart =
+          (consumeEdgeInput && ctx.input.LegBreakPressed()) ? Part_Legs
+        : (consumeEdgeInput && ctx.input.ArmBreakPressed()) ? Part_RightArm
+        : Part_Count;   // 아무 키도 안 눌렸다
+
+    if (breakPart != Part_Count && !IsDead())
     {
-        if (m_parts->LegsBroken()) m_parts->Restore(Part_Legs);
-        else                       m_parts->Damage(Part_Legs, m_parts->MaxHp(Part_Legs));
+        const bool wasBroken = m_parts->IsBroken(breakPart);
+        if (wasBroken)
+        {
+            m_parts->Restore(breakPart);
+        }
+        else
+        {
+            m_parts->Damage(breakPart, m_parts->MaxHp(breakPart));
+
+            // ★★ **피격과 같은 길을 지난다.** 전에는 F4 가 Damage 만 불렀는데,
+            //   그러면 팔에 썼을 때 「잘렸는데 무기는 그대로 들려 있는」 몸이
+            //   만들어진다 — 디버그 키로만 재현되는 버그는 찾기가 제일 어렵다.
+            OnPartBroken(breakPart);
+        }
 
         // ★ 자세가 바뀌었으니 그림을 다시 건다.
         //   상자는 Prone() 을 매번 보므로 즉시 바뀌지만, 애니메이션은
         //   **전이할 때만** 갈린다 — 그래서 force 로 한 번 흔들어 준다.
         ChangeState(ctx, RestingState(moving), true);
 
-        Log::Info("[play] (F4) 다리 {} — 엎드림 {}",
-                  m_parts->LegsBroken() ? "파괴" : "복구",
-                  m_parts->Prone() ? "ON" : "OFF");
+        Log::Info("[play] (디버그) {} {} — 엎드림 {}  무기 {}",
+                  m_parts->Name(breakPart),
+                  wasBroken ? "복구" : "파괴",
+                  m_parts->Prone() ? "ON" : "OFF",
+                  m_weaponHand == WeaponHand::Right ? "R.HAND"
+                : m_weaponHand == WeaponHand::Left  ? "L.HAND" : "-none-");
     }
 }
 
