@@ -6,44 +6,6 @@
 namespace
 {
     // ------------------------------------------------------------------------
-    //  ReadAttack — 있는 키만 덮어쓴다
-    //
-    //    ★ 기본값을 **읽는 자리에** 적는다(`a.startup` 을 기본값으로 넘긴다).
-    //      그래서 JSON 에 키가 없으면 지금 값이 그대로 남는다 —
-    //      「기본값 표」를 따로 두지 않아도 되고, 두 곳이 어긋날 일도 없다.
-    // ------------------------------------------------------------------------
-    void ReadAttack(const JsonValue& v, AttackData& a)
-    {
-        if (v.IsNull())
-            return;   // 그 공격은 파일에 없다. 기본값 그대로 둔다.
-
-        a.startup  = v["startup"] .Int(a.startup);
-        a.active   = v["active"]  .Int(a.active);
-        a.recovery = v["recovery"].Int(a.recovery);
-
-        a.reach          = v["reach"]         .Flt(a.reach);
-        a.width          = v["width"]         .Flt(a.width);
-        a.height         = v["height"]        .Flt(a.height);
-        a.heightFromFoot = v["heightFromFoot"].Flt(a.heightFromFoot);
-
-        a.damage      = v["damage"]     .Int(a.damage);
-        a.staminaCost = v["staminaCost"].Int(a.staminaCost);
-        a.impact      = v["impact"]     .Int(a.impact);
-
-        const JsonValue& clip = v["clip"];
-        if (!clip.IsNull())
-        {
-            a.clip.row           = clip["row"]   .Int(a.clip.row);
-            a.clip.frameCount    = clip["frames"].Int(a.clip.frameCount);
-            a.clip.ticksPerFrame = clip["ticks"] .Int(a.clip.ticksPerFrame);
-            a.clip.loop          = clip["loop"]  .Bool(a.clip.loop);
-        }
-
-        // ※ name 은 일부러 안 읽는다. 이유는 Moveset.h 참조.
-    }
-
-
-    // ------------------------------------------------------------------------
     //  Validate — 문서에 적어 둔 함정을 **코드가 검사한다**
     //
     //    ★ handoff §8 에 두 번 적혀 있던 것이다:

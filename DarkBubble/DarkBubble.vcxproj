@@ -107,7 +107,9 @@
     <ClCompile Include="src\Core\GameObject.cpp" />
     <ClCompile Include="src\Core\SceneManager.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
+    <ClCompile Include="src\Gameplay\AttackData.cpp" />
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp" />
+    <ClCompile Include="src\Gameplay\EnemyType.cpp" />
     <ClCompile Include="src\Gameplay\Moveset.cpp" />
     <ClCompile Include="src\Gameplay\PartsComponent.cpp" />
     <ClCompile Include="src\Gameplay\PlayerController.cpp" />
@@ -145,6 +147,7 @@
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Gameplay\AttackData.h" />
     <ClInclude Include="src\Gameplay\EnemyBrain.h" />
+    <ClInclude Include="src\Gameplay\EnemyType.h" />
     <ClInclude Include="src\Gameplay\Moveset.h" />
     <ClInclude Include="src\Gameplay\PartsComponent.h" />
     <ClInclude Include="src\Gameplay\PlayerController.h" />

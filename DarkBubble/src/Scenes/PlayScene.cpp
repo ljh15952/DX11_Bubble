@@ -81,51 +81,29 @@ namespace
     constexpr int   kShakeTicks    = 8;
     constexpr int   kFlashTicks    = 9;
 
-    // ============================================================================
-    //  ★ 강인도 — 적 종류마다 다른 값을 갖는다
-    //
-    //    플레이어 공격의 impact 는 light 14 / crouch 14 / running 16 / thrust 18.
-    //    잡몹을 15 로 두면 이렇게 갈린다:
-    //
-    //        LIGHT  14  stam 28   ✗ 못 끊는다
-    //        CROUCH 14  stam 26   ✗
-    //        RUN    16  stam 34   ✓ 끊는다
-    //        THRUST 18  stam 34   ✓ (1타를 맞춰야 나온다)
-    //
-    //    ★ **끊을 수 있는 둘이 정확히 비싼 둘이다.**
-    //      「적을 끊으려면 스태미나를 더 낸다」가 데이터만으로 성립한다.
-    //      13 이면 전부 끊겨 선택이 사라지고, 20 이면 아무것도 못 끊어 죽는다.
-    //
-    //    6-g 에서 이 값이 enemies.json 으로 간다. 보스는 훨씬 높게 둔다.
-    // ============================================================================
-    constexpr int kGruntPoise = 15;
-    constexpr int kClothPoise = 10;   // 플레이어 초기값. 방어구가 곧 덮어쓴다
+    // ※ **적의** 부위·강인도·공격 숫자는 EnemyType 으로 옮겨 갔다(7-b).
+    //   왜 그 값인지도 같이 갔다 — Gameplay/EnemyType.cpp 참조.
 
     // ============================================================================
-    //  ★ 부위 설정 — 같은 컴포넌트, 다른 값 (design.md §3.2.2)
+    //  ★ 플레이어의 부위 (design.md §3.2.2)
     //
-    //    ★ 다리가 부서지면 **둘 다 쓰러져 기어간다.** 플레이어라고 예외가 아니다.
+    //    팔이 몸통의 **완충재**다. 적 swing(18) 기준으로
+    //    팔 2대 + 몸통 4대 = 6대에 죽는다.
+    //    성한 쪽 팔로 몸을 돌려 막으면 2대를 더 번다 —
+    //    대신 등을 보이는 대가를 치른다.
     //
-    //    플레이어 : 팔이 몸통의 완충재다.
-    //      적 swing(18) 기준 -> 팔 2대 + 몸통 4대 = 6대에 죽는다.
-    //      성한 쪽 팔로 몸을 돌려 막으면 2대를 더 번다 —
-    //      대신 등을 보이는 대가를 치른다.
+    //    ★ 다리가 부서지면 **쓰러져 기어간다.** 플레이어라고 예외가 아니다.
     //
-    //    잡몹 : 팔이 없다(maxHp 0). 스프라이트에 팔이 그려져 있지 않고,
-    //      팔을 주면 플레이어 공격 11대가 필요해져 너무 질겨진다.
-    //      보스에게는 숫자만 넣으면 팔이 생긴다.
-    //
-    //    6-g 에서 이 두 덩어리가 그대로 JSON 이 된다.
+    //    ※ 아직 파일로 안 나갔다. 적처럼 player.json 이 생기면 같이 나간다 —
+    //      지금 빼면 쓰지도 않을 스키마를 하나 더 만드는 셈이다.
     // ============================================================================
     constexpr PartsProfile kPlayerParts{
         /*maxHp*/ { /*head*/ 20, /*L.arm*/ 24, /*R.arm*/ 24, /*torso*/ 60, /*legs*/ 40 },
-        /*proneWhenLegsBroken*/ true,    // ★ 쓰러져 기어간다. 적과 같다
+        /*proneWhenLegsBroken*/ true,
     };
 
-    constexpr PartsProfile kGruntParts{
-        /*maxHp*/ { /*head*/ 20, /*L.arm*/  0, /*R.arm*/  0, /*torso*/ 100, /*legs*/ 40 },
-        /*proneWhenLegsBroken*/ true,    // 기어다닌다
-    };
+    //   플레이어의 초기 강인도. 방어구(F2)가 곧 덮어쓴다.
+    constexpr int kClothPoise = 10;
 
     float RandomPitch(float spread)
     {
@@ -264,9 +242,9 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
     //   ★ 방향을 섞어 둔다. 셋 다 왼쪽(플레이어 쪽)을 보고 있으면
     //     6-f 에서 만든 「등 뒤로 다가간다」를 쓸 자리가 없다.
     constexpr EnemySpawn kSpawns[] = {
-        {  470.0f, -1 },   // 마주 본다 — 정면으로 붙어야 한다
-        {  980.0f, +1 },   // 등을 보인다 — 몰래 붙을 수 있다
-        { 1480.0f, -1 },
+        {  470.0f, -1, "grunt" },   // 마주 본다 — 정면으로 붙어야 한다
+        {  980.0f, +1, "grunt" },   // 등을 보인다 — 몰래 붙을 수 있다
+        { 1480.0f, -1, "grunt" },
     };
 
     m_enemies.clear();
@@ -274,6 +252,16 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
 
     for (const EnemySpawn& s : kSpawns)
     {
+        // ★ 모르는 종류면 잡몹으로 만든다. 맵 데이터에 오타가 났다고
+        //   게임이 죽으면 안 된다 — JSON 로더와 같은 태도다.
+        auto it = m_enemyTypes.find(s.type);
+        if (it == m_enemyTypes.end())
+        {
+            Log::Info("[play] 모르는 적 종류 '{}' — grunt 로 대신한다", s.type);
+            it = m_enemyTypes.find("grunt");
+        }
+        const EnemyType& type = it->second;
+
         Enemy e;
         e.obj = std::make_unique<GameObject>("enemy");
         e.obj->transform.x      = s.x;
@@ -282,12 +270,42 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
         // 붙인 순서 = 실행 순서. 플레이어와 **같은 구성**이다.
         e.obj->Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
                                   kBodyCrouchHeight, kBodyProneHeight);
-        e.parts = &e.obj->Add<PartsComponent>(kGruntParts);
-        e.poise = &e.obj->Add<PoiseComponent>(kGruntPoise);
-        e.brain = &e.obj->Add<EnemyBrain>(m_playerObj.transform);
+        e.parts = &e.obj->Add<PartsComponent>(type.parts);
+        e.poise = &e.obj->Add<PoiseComponent>(type.poise);
+
+        // ★ 종류를 **참조로** 넘긴다. 카탈로그는 Scene 이 소유하고 리로드가
+        //   값만 덮어쓰므로, 이 참조는 계속 유효하다.
+        e.brain = &e.obj->Add<EnemyBrain>(m_playerObj.transform, type);
+
+        e.obj->Add<SpriteComponent>(m_enemySheet, kCellW, kCellH);
 
         m_enemies.push_back(std::move(e));
     }
+
+    // ★ 세우자마자 Start. 「만들고 나중에 Start」를 두 곳에 나눠 두면
+    //   리로드 경로에서만 빠뜨린다.
+    for (Enemy& e : m_enemies)
+        e.obj->Start(ctx);
+}
+
+
+// ----------------------------------------------------------------------------
+//  ReloadData — F6
+//
+//    ★ 적을 **다시 세운다.** 부위 HP 는 PartsComponent 를 만들 때 정해지므로,
+//      카탈로그만 갱신하면 「HP 만 안 바뀌는」 반쪽 리로드가 된다.
+//      밸런스를 만지는 중에는 리셋이 오히려 예측 가능하다.
+// ----------------------------------------------------------------------------
+void PlayScene::ReloadData(SceneContext& ctx)
+{
+    std::string err;
+    if (EnemyTypeIO::LoadInto(L"assets/data/enemies.json", m_enemyTypes, &err))
+        Log::Info("[enemy] enemies.json 적용");
+    else
+        Log::Info("[enemy] enemies.json 을 못 읽었다 ({}) — 이전 값 유지", err);
+
+    SpawnEnemies(ctx);
+    UpdateCamera(ctx);
 }
 
 
@@ -365,9 +383,12 @@ bool PlayScene::Enter(SceneContext& ctx)
         playerSprite.AddLayer(stumpFrontSheet, false),   // 상처는 잘린 뒤에만
         playerSprite.AddLayer(stumpBackSheet,  false));
 
-    SpawnEnemies(ctx);
-    for (Enemy& e : m_enemies)
-        e.obj->Add<SpriteComponent>(enemySheet, kCellW, kCellH);
+    m_enemySheet = enemySheet;
+
+    // ★ 기본값을 먼저 넣고 파일로 덮어쓴다. 무브셋과 같은 순서다 —
+    //   반대로 하면 파일에 없는 항목이 비어 버린다.
+    m_enemyTypes["grunt"] = DefaultGrunt();
+    ReloadData(ctx);
 
     // ★ 떨어진 무기도 GameObject 다. 위치가 있고 그려지므로 Transform 이 필요하고,
     //   플레이어·적과 같은 그릇에 담기면 「월드에 있는 것」이 한 종류가 된다 —
@@ -376,8 +397,6 @@ bool PlayScene::Enter(SceneContext& ctx)
 
     // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
     m_playerObj.Start(ctx);
-    for (Enemy& e : m_enemies)
-        e.obj->Start(ctx);
     m_weaponObj.Start(ctx);
 
     // ★ 첫 프레임부터 제자리를 비춘다. Update 가 돌기 전에 한 번 그려진다.
@@ -591,6 +610,11 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //     층이 뒤엉킨다. 컨트롤러는 「띄울 때가 됐다」까지만 말한다.
     if (m_player->ConsumeDeathScreenRequest())
         ctx.scenes.Push(std::make_unique<DeathScene>());
+
+    // ★ F6 — 데이터를 다시 읽는다. 무기는 컨트롤러가 스스로 읽고(같은 키),
+    //   적은 Scene 이 읽는다 — 카탈로그를 Scene 이 소유하기 때문이다.
+    if (consumeEdgeInput && ctx.input.DataReloadPressed())
+        ReloadData(ctx);
 
     // ★ 임시 키. 밝기는 **비교해 봐야** 정할 수 있다.
     if (consumeEdgeInput && ctx.input.DarkTogglePressed())

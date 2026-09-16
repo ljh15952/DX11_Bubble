@@ -39,125 +39,59 @@ namespace
     //   ★ 기어가기 행을 쓴다. 누운 그림이 곧 시체로 읽힌다 —
     //     전용 사망 그림이 없어도 「쓰러졌다」가 전달된다.
     constexpr AnimationClip kDeadClip  { /*row*/ 1, 1,  1, /*loop*/ false };
-    constexpr AnimationClip kSwingClip { /*row*/ 2, 5, 12, /*loop*/ false };
-    constexpr AnimationClip kBiteClip  { /*row*/ 3, 6,  9, /*loop*/ false };
 
-    // ---- 공격 ----
-    //   ★ startup 24틱은 일부러 길다. 예고를 보고 반응할 시간이다.
-    //     플레이어 구르기의 무적은 [t+4, t+16) 이고 판정은 [24, 28) 이므로
-    //     9틱(= invincible 12 − active 4 + 1)의 회피 창이 생긴다.
-    //   ★ 24 / 12 = 2 — 팔이 뻗는 프레임이 판정과 **같은 틱**에 시작한다.
-    //     어긋나면 플레이어가 아무리 연습해도 회피를 배울 수 없다.
-    constexpr AttackData kSwing{
-        /*name*/     "SWING",
-        /*startup*/  24,
-        /*active*/    4,
-        /*recovery*/ 32,            // 합계 60 = 5프레임 × 12틱
-        /*reach*/     8.0f,
-        /*width*/    26.0f,
-        // ★★ 발끝 26~36 의 **띠**다. 두껍게 만들면 안 된다 —
-        //   위아래 양쪽에 「맞지 않아야 하는 것」이 붙어 있기 때문이다:
-        //
-        //       37 ~ 55   서 있는 머리   ← 닿으면 평타 두 대에 죽는다
-        //     ★ 37
-        //       중단 띠 (28~37)          팔 20~36 · 몸통 18~37 에 닿는다
-        //     ★ 28
-        //       ~ 27      웅크린 몸 전체 ← 닿으면 웅크리기가 의미를 잃는다
-        //       ~ 25      엎드린 몸 전체
-        //
-        //   위쪽을 넘기면 잡몹의 평타가 머리에 닿아 두 대에 죽고,
-        //   아래쪽을 넘기면 「웅크려 흘린다」가 사라진다. 9픽셀이 그 사이다.
-        /*height*/    9.0f,
-        /*heightFromFoot*/ 32.5f,
-        /*damage*/   18,
-        /*staminaCost*/ 0,          // 적은 스태미나를 쓰지 않는다
-        /*impact*/   18,
-        /*clip*/     kSwingClip,
-    };
 
-    // 물어뜯기 — 다리가 부서져 기어다닐 때.
-    //   ★ 「다리 파괴 = 무해」로 만들지 않기 위한 데이터다.
-    //     그렇게 하면 항상 다리부터 노리는 것이 정답이 되어
-    //     기획서 §3.2 의 전술적 선택이 사라진다.
-    constexpr AttackData kBite{
-        /*name*/     "BITE",
-        /*startup*/  18,            // 예고가 짧다 (18 / 9 = 2)
-        /*active*/    3,
-        /*recovery*/ 33,            // 합계 54 = 6프레임 × 9틱
-        /*reach*/     4.0f,
-        /*width*/    20.0f,
-        /*height*/   16.0f,
-        /*heightFromFoot*/ 12.0f,   // 낮게 — 발밑을 노린다
-        /*damage*/   10,
-        /*staminaCost*/ 0,
-        /*impact*/   12,
-        /*clip*/     kBiteClip,
-    };
-
-    // ★ 물기는 **몸을 던지는** 그림이다(3행 실루엣 = 발끝 1~25, 서면 0~53).
-    //   그 동안은 낮은 표적이 되어야 그림과 판정이 같은 말을 한다.
-    //   ※ 값을 초기화 목록 뒤에 따로 얹는다 — AttackData 는 집합 초기화라
-    //     가운데 필드를 건너뛸 수 없고, 그렇다고 전부 적으면 기존 주석이 흩어진다.
-    constexpr AttackData kBiteLow = []{
-        AttackData a = kBite;
-        a.posture = Posture::Prone;
-        return a;
-    }();
-
-    constexpr int kAttackCooldown = 40;   // 0.67 초. 없으면 사거리 안에서 무한 공격
-
-    // 뒤에 선 적이 물러서는 거리. 몸 너비(18)보다 넉넉해야 안 겹친다.
-    constexpr float kPersonalSpace = 26.0f;
-
-    constexpr float kSightRange    = 220.0f;
-
-    // ---- ★ 시야 (design.md §3.9 B) ----
+    // ========================================================================
+    //  ★ 숫자는 **enemies.json 으로 나갔다** (7-b)
     //
-    //   전에는 거리 하나뿐이라 **등 뒤에 있어도 봤다.** 각도를 더하면
-    //   「뒤에서 다가간다」가 성립하고, 「어느 쪽에서 접근할까」가 판단이 된다.
+    //    여기 있던 상수들은 EnemyType 의 기본값이 되었고, 파일이 그 위에
+    //    덮어쓴다 — 무기(weapons.json)와 같은 구조다.
     //
-    //       ＼                    ／
-    //         ＼      적 ▶      ／      부채꼴 ±55도 · 220
-    //           ＼  ( · )     ／        청각 40 — 각도와 무관
+    //    ★★ 값은 나갔지만 **왜 그 값인지는 여기 남는다.** JSON 에는 주석을
+    //      못 달기 때문이다. 아래는 그 이유들이고, 지우면 다시 못 찾는다.
     //
-    //   ★ 청각이 없으면 **뒤에 붙어 무한히 때릴 수 있다.**
-    //     「붙기 전까지는 안전하지만, 때리려면 들킨다」가 되어야 거래가 성립한다.
-    //     플레이어의 공격 사거리(12~40)가 청각 반경 40 과 겹치는 것이 요점이다.
+    //  ---- 시야 (design.md §3.9 B) ----
+    //    전에는 거리 하나뿐이라 **등 뒤에 있어도 봤다.** 각도를 더하면
+    //    「뒤에서 다가간다」가 성립하고, 「어느 쪽에서 접근할까」가 판단이 된다.
     //
-    //   ★★ cos 으로 비교한다. 각도를 구하려면 atan2 가 필요하지만,
-    //     **비교만 할 거라면 cos 끼리 비교하면 된다** — 삼각함수 호출이 사라진다.
-    //     cos 은 0~180도에서 단조감소하므로 「각도가 작다」 = 「cos 이 크다」.
-    constexpr float kSightCos      = 0.5736f;   // cos(55도)
-    constexpr float kHearRange     =  40.0f;
+    //        ＼                    ／
+    //          ＼      적 ▶      ／      부채꼴 ±55도 · 220
+    //            ＼  ( · )     ／        청각 40 — 각도와 무관
+    //
+    //    ★ 청각이 없으면 **뒤에 붙어 무한히 때릴 수 있다.**
+    //      「붙기 전까지는 안전하지만, 때리려면 들킨다」가 되어야 거래가 성립한다.
+    //      플레이어의 공격 사거리(12~40)가 청각 반경 40 과 겹치는 것이 요점이다.
+    //
+    //    ★★ cos 으로 비교한다. 각도를 구하려면 atan2 가 필요하지만,
+    //      **비교만 할 거라면 cos 끼리 비교하면 된다** — 삼각함수 호출이 사라진다.
+    //      cos 은 0~180도에서 단조감소하므로 「각도가 작다」 = 「cos 이 크다」.
+    //      ※ 그래서 파일에는 **도(degree)**로 적고 읽을 때 cos 으로 바꾼다 —
+    //        0.5736 이 적혀 있으면 아무도 그게 55도인 줄 모른다.
+    //
+    //    forgetTicks 가 없으면 기습이 **첫 1회만** 의미 있다 — 한 번 들키면
+    //    영원히 쫓기므로 발판으로 도망치는 것도 소용없어진다(6-d).
+    //
+    //  ---- 공격 위치 ----
+    //    ★ 가로(사거리)와 세로(허용폭)를 따로 둔다. 히트박스가 가로로 뻗으므로
+    //      원형 거리로 판정하면 위아래로 떨어진 플레이어를 영원히 헛친다.
+    //    ★ 그리고 이 값들이 「멈추는 위치」와 「공격하는 위치」 양쪽에 쓰인다.
+    //      따로 두면 「멈췄는데 닿지 않는」 적이 생긴다.
+    //
+    //    personalSpace(26) 는 몸 너비(18)보다 넉넉해야 안 겹친다.
+    //    attackCooldown 이 없으면 사거리 안에서 무한 공격이 된다.
+    //
+    //  ---- 경직 ----
+    //    ★ hurtTicks(16)는 경직 내성(PoiseComponent 30틱)보다 **짧아야** 한다.
+    //      회복되는 그 틱에 다시 휘청이면 무한 루프가 된다.
+    //      플레이어(18)보다도 짧다 — 적이 더 무겁다.
+    // ========================================================================
 
-    //   눈높이. 표시용이고 판정은 발끝 기준이다 — 상수를 하나로 줄이려다
+    //   눈높이. **표시용이고 판정은 발끝 기준이다** — 상수를 하나로 줄이려다
     //   「그림과 판정이 다른」 상태를 만들지 않도록, 쓰는 곳을 표시로 한정한다.
-    constexpr float kEyeHeight     =  40.0f;
+    //   그래서 이것만 파일로 안 나갔다.
+    constexpr float kEyeHeight  = 40.0f;
 
-    //   시야에서 벗어나고 이만큼 지나면 잊는다.
-    //   ★ 없으면 기습이 **첫 1회만** 의미 있다 — 한 번 들키면 영원히 쫓기므로
-    //     발판으로 도망치는 것도 소용없어진다(6-d 의 「지형이 방패」).
-    constexpr int   kForgetTicks   = 120;       // 2초
-    constexpr float kWalkPerTick   = 60.0f / 60.0f;
-    constexpr float kCrawlPerTick  = 18.0f / 60.0f;
-
-    // ---- 공격 위치 ----
-    //   ★ 가로(사거리)와 세로(허용폭)를 따로 둔다. 히트박스가 가로로 뻗으므로
-    //     원형 거리로 판정하면 위아래로 떨어진 플레이어를 영원히 헛친다.
-    //   ★ 그리고 이 값들이 「멈추는 위치」와 「공격하는 위치」 양쪽에 쓰인다.
-    //     따로 두면 「멈췄는데 닿지 않는」 적이 생긴다.
-    constexpr float kSwingRange  = 34.0f;
-    constexpr float kBiteRange   = 20.0f;
-    constexpr float kYTolerance  = 14.0f;
-
-    constexpr int kFlashTicks = 9;
-
-    // ---- 경직 ----
-    //   ★ 경직 내성(PoiseComponent 30틱)보다 짧다. 회복되는 그 틱에 다시
-    //     휘청이면 무한 루프가 된다.
-    constexpr int   kHurtTicks     = 16;
-    constexpr float kHurtKnockback = 12.0f;
-    constexpr float kHurtLift      =  1.6f;   // 넉백에 섞는 상승. 플레이어(2.0)보다 작다   // 플레이어(22)보다 짧다 — 적이 더 무겁다
+    constexpr int   kFlashTicks = 9;
 }
 
 
@@ -202,7 +136,7 @@ const AttackData& EnemyBrain::CurrentAttack() const
 {
     // ★ latch 된 값을 본다. 매 틱 다시 고르면 휘두르는 도중에 다리가 부서지는
     //   순간 프레임 데이터가 통째로 바뀌어(60틱 -> 54틱) active 를 건너뛴다.
-    return m_attackIsBite ? kBiteLow : kSwing;
+    return m_attackIsBite ? m_type->bite : m_type->swing;
 }
 
 
@@ -224,11 +158,11 @@ bool EnemyBrain::CanSeeTarget() const
     const float dist2 = dx * dx + dy * dy;
 
     // ① 청각 — 각도와 무관하다. 바로 뒤에 붙으면 안다.
-    if (dist2 <= kHearRange * kHearRange)
+    if (dist2 <= m_type->hearRange * m_type->hearRange)
         return true;
 
     // ② 시야 — 거리부터. ★ 제곱끼리 비교해 sqrt 를 미룬다.
-    if (dist2 > kSightRange * kSightRange)
+    if (dist2 > m_type->sightRange * m_type->sightRange)
         return false;
 
     const float dist = std::sqrt(dist2);
@@ -239,7 +173,7 @@ bool EnemyBrain::CanSeeTarget() const
     //   ★ dx * facing 은 「바라보는 방향과의 내적」이다. dist 로 나누면 cos 이 된다.
     //   ★ 세로 차이가 크면 자동으로 cos 이 작아진다 — **머리 위는 잘 못 본다.**
     //     발판 위로 올라가면 숨을 수 있는 이유가 이 한 줄에서 나온다.
-    return (dx * static_cast<float>(tr.facing)) / dist >= kSightCos;
+    return (dx * static_cast<float>(tr.facing)) / dist >= m_type->sightCos;
 }
 
 
@@ -275,7 +209,7 @@ float EnemyBrain::AttackRange() const
     // 「지금 다가갈까 공격할까」를 판단하는 값이므로 최신이어야 한다.
     //   ★ 물기는 사거리가 짧다. 엎드린 상대에게는 **더 붙어야** 한다 —
     //     엎드리기가 거리를 벌어 주는 셈이다.
-    return WouldBite() ? kBiteRange : kSwingRange;
+    return WouldBite() ? m_type->biteRange : m_type->swingRange;
 }
 
 
@@ -284,7 +218,7 @@ bool EnemyBrain::InAttackPosition() const
     const Transform& tr = Owner().transform;
     const float dx = std::abs(m_target.x - tr.x);
     const float dy = std::abs(m_target.y - tr.y);
-    return dx <= AttackRange() && dy <= kYTolerance;
+    return dx <= AttackRange() && dy <= m_type->yTolerance;
 }
 
 
@@ -334,7 +268,7 @@ void EnemyBrain::Reset(SceneContext& ctx)
 
     // ★ 잊은 상태에서 시작한다. 부활 직후 적이 이미 노려보고 있으면
     //   「뒤로 돌아 들어간다」를 시도할 기회 자체가 없다.
-    m_lostTicks      = kForgetTicks;
+    m_lostTicks      = m_type->forgetTicks;
     m_proneLast      = false;
     m_yieldRoom      = false;
     m_hitThisSwing   = false;
@@ -374,7 +308,7 @@ void EnemyBrain::Stagger(SceneContext& ctx, float fromX, float /*fromY*/)
 
     // ★ 살짝 뜬다. 위에서 내려찍혔을 때 반응이 보이도록 —
     //   점프 공격(§3.8.2)의 타격감이 여기서 나온다.
-    m_body->Lift(kHurtLift);
+    m_body->Lift(m_type->hurtLift);
 
     m_poise->OnStaggered();
 
@@ -476,7 +410,7 @@ void EnemyBrain::MoveTowardTarget(float speedPerTick)
 
     // ★ 「멈추는 거리」는 공격 사거리와 **다를 수 있다.**
     //   나보다 가까운 동료가 있으면 한 칸 물러서서 기다린다(SetYieldRoom).
-    if (m_yieldRoom && std::abs(dx) <= AttackRange() + kPersonalSpace)
+    if (m_yieldRoom && std::abs(dx) <= AttackRange() + m_type->personalSpace)
         return;
 
     const float step = ((dx > 0.0f) ? 1.0f : -1.0f) * speedPerTick;
@@ -542,7 +476,7 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
         if (CanSeeTarget()) m_lostTicks = 0;
         else                ++m_lostTicks;
 
-        const bool alerted = (m_lostTicks < kForgetTicks);
+        const bool alerted = (m_lostTicks < m_type->forgetTicks);
 
         // 사거리 안 + 쿨다운 끝. Chase 와 Crawl 이 공유하는 조건.
         const bool canAttack = InAttackPosition() && (m_attackCooldown <= 0);
@@ -566,7 +500,7 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
             // ★ 잊으면 멈춘다. 발판 위로 도망치면 추격이 끊긴다.
             if (!alerted)  ChangeState(ctx, EnemyState::Idle);
             else if (canAttack) ChangeState(ctx, EnemyState::Attack);
-            else           MoveTowardTarget(kWalkPerTick);
+            else           MoveTowardTarget(m_type->walkPerTick);
             break;
 
         case EnemyState::Crawl:
@@ -574,7 +508,7 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
             // ★ 하지만 무해하지는 않다 — 사거리에 들어오면 물어뜯는다.
             if (!alerted)  ChangeState(ctx, EnemyState::Idle);
             else if (canAttack) ChangeState(ctx, EnemyState::Attack);
-            else           MoveTowardTarget(kCrawlPerTick);
+            else           MoveTowardTarget(m_type->crawlPerTick);
             break;
 
         case EnemyState::Hurt:
@@ -583,10 +517,10 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
                 // ★ 넉백도 몸을 거친다. 벽에 밀어붙이면 거기서 멈춘다.
                 //   낭떠러지 판정은 **하지 않는다** — 맞아서 밀려 떨어지는 것은
                 //   막을 이유가 없다. 「스스로 걸어 나가지 않는다」가 규칙이다.
-                const float step = DecayingStep(m_stateTicks, kHurtTicks, kHurtKnockback);
+                const float step = DecayingStep(m_stateTicks, m_type->hurtTicks, m_type->hurtKnockback);
                 m_body->MoveX(m_knockDirX * step);
             }
-            if (m_stateTicks >= kHurtTicks)
+            if (m_stateTicks >= m_type->hurtTicks)
             {
                 ChangeState(ctx, m_parts->Prone() ? EnemyState::Crawl
                                                        : EnemyState::Chase);
@@ -601,7 +535,7 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
             //   ※ 실제 피격 판정은 여기서 하지 않는다(헤더 주석 참조).
             if (m_stateTicks >= CurrentAttack().TotalTicks())
             {
-                m_attackCooldown = kAttackCooldown;
+                m_attackCooldown = m_type->attackCooldown;
                 ChangeState(ctx, m_parts->Prone() ? EnemyState::Crawl
                                                        : EnemyState::Chase);
             }
@@ -684,7 +618,7 @@ void EnemyBrain::RenderDebug(Renderer& renderer)
         const float f    = static_cast<float>(tr.facing);
 
         // cos 에서 sin 을 되찾는다. cos²+sin²=1.
-        const float sin55 = std::sqrt(1.0f - kSightCos * kSightCos);
+        const float sin55 = std::sqrt(1.0f - m_type->sightCos * m_type->sightCos);
 
         const bool sees = CanSeeTarget();
         const DirectX::XMVECTOR edge = sees
@@ -692,9 +626,9 @@ void EnemyBrain::RenderDebug(Renderer& renderer)
             : DirectX::XMVectorSet(0.45f, 0.75f, 1.00f, 0.45f); // 아직 안 보인다
 
         // 두 변
-        for (float r = 12.0f; r <= kSightRange; r += 9.0f)
+        for (float r = 12.0f; r <= m_type->sightRange; r += 9.0f)
         {
-            const float px = tr.x + f * kSightCos * r;
+            const float px = tr.x + f * m_type->sightCos * r;
             for (int s = -1; s <= 1; s += 2)
             {
                 const float py = eyeY + static_cast<float>(s) * sin55 * r;
@@ -705,16 +639,16 @@ void EnemyBrain::RenderDebug(Renderer& renderer)
         // 호 — 끝의 둥근 경계
         for (float a = -1.0f; a <= 1.0f; a += 0.08f)
         {
-            const float c = kSightCos + (1.0f - kSightCos) * (1.0f - std::abs(a));
+            const float c = m_type->sightCos + (1.0f - m_type->sightCos) * (1.0f - std::abs(a));
             const float s = sin55 * a;
-            const float px = tr.x + f * c * kSightRange;
-            const float py = eyeY + s * kSightRange;
+            const float px = tr.x + f * c * m_type->sightRange;
+            const float py = eyeY + s * m_type->sightRange;
             renderer.DrawFilledRect({ px - 1.0f, py - 1.0f, px + 1.0f, py + 1.0f }, edge);
         }
 
         // 청각 반경 — 각도와 무관하므로 사각형으로 충분히 읽힌다
         renderer.DrawRectOutline(
-            { tr.x - kHearRange, eyeY - kHearRange, tr.x + kHearRange, eyeY + kHearRange },
+            { tr.x - m_type->hearRange, eyeY - m_type->hearRange, tr.x + m_type->hearRange, eyeY + m_type->hearRange },
             DirectX::XMVectorSet(0.9f, 0.9f, 0.4f, 0.40f), 1.0f);
     }
 
@@ -775,7 +709,7 @@ void EnemyBrain::RenderUI(Renderer& renderer)
 
     const std::string sight =
         CanSeeTarget()                ? std::string{ "  [SEES YOU]" }
-      : (m_lostTicks < kForgetTicks)  ? std::format("  [losing {}]", kForgetTicks - m_lostTicks)
+      : (m_lostTicks < m_type->forgetTicks)  ? std::format("  [losing {}]", m_type->forgetTicks - m_lostTicks)
       :                                 std::string{ "  [unaware]" };
 
     renderer.DrawString(

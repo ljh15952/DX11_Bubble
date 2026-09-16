@@ -1383,7 +1383,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
 
     // ★ F6 — 무브셋을 파일에서 다시 읽는다.
     //   숫자 하나 고칠 때마다 빌드하지 않아도 되는 것이 이 단계의 전부다.
-    if (consumeEdgeInput && ctx.input.MovesetReloadPressed())
+    if (consumeEdgeInput && ctx.input.DataReloadPressed())
         ReloadMoveset();
 
     // ★ 임시 디버그 키(F4) — 다리를 부러뜨렸다 되돌린다.

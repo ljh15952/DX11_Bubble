@@ -23,6 +23,7 @@
 
 #include "Core/GameObject.h"
 #include "Core/Level.h"
+#include "Gameplay/EnemyType.h"
 
 #include <memory>
 #include <vector>
@@ -145,7 +146,21 @@ private:
     //   ★ 바라보는 방향도 스폰 데이터다. 등을 보이고 선 적은 **몰래 접근**할
     //     수 있고, 마주 보고 선 적은 정면으로 붙어야 한다 —
     //     배치만으로 §3.9 B 의 시야가 전술이 된다.
-    struct EnemySpawn { float x; int facing; };
+    //
+    //   ★★ **종류**까지 들어간다. 지금은 하나뿐이지만, 스폰 목록에 종류가
+    //     들어가는 순간 이 구조체가 그대로 map.json 의 모양이 된다(7-c).
+    struct EnemySpawn { float x; int facing; const char* type; };
+
+    // ★ 적 종류 카탈로그. **Scene 이 하나만** 들고 적들이 참조로 본다 —
+    //   무기는 플레이어 하나가 쓰지만 적 데이터는 여럿이 공유하기 때문이다.
+    EnemyCatalog m_enemyTypes;
+
+    // 적을 다시 세울 때 필요하므로 들고 있는다.
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_enemySheet;
+
+    // F6 — 무기와 적 데이터를 다시 읽고 **적을 다시 세운다.**
+    //   부위 HP 는 생성 시점에 정해지므로 다시 세우지 않으면 반영이 안 된다.
+    void ReloadData(SceneContext& ctx);
     void SpawnEnemies(SceneContext& ctx);
 
     // 가장 가까운 살아 있는 적. 디버그 표시가 쓴다(없으면 nullptr).

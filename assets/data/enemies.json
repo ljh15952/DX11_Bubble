@@ -1,0 +1,78 @@
+﻿{
+  "_note": "적 종류. 왜 그 값인지는 DarkBubble/src/Gameplay/EnemyType.cpp 의 주석에 있다. F6 으로 다시 읽고 적을 다시 세운다.",
+  "enemies": {
+    "grunt": {
+      "parts": {
+        "maxHp": {
+          "head": 20,
+          "lArm": 0,
+          "rArm": 0,
+          "torso": 100,
+          "legs": 40
+        },
+        "proneWhenLegsBroken": true
+      },
+      "poise": 15,
+      "attackCooldown": 40,
+      "swing": {
+        "startup": 24,
+        "active": 4,
+        "recovery": 32,
+        "reach": 8,
+        "width": 26,
+        "height": 9,
+        "heightFromFoot": 32.5,
+        "damage": 18,
+        "staminaCost": 0,
+        "impact": 18,
+        "posture": "stand",
+        "clip": {
+          "row": 2,
+          "frames": 5,
+          "ticks": 12,
+          "loop": false
+        }
+      },
+      "bite": {
+        "startup": 18,
+        "active": 3,
+        "recovery": 33,
+        "reach": 4,
+        "width": 20,
+        "height": 16,
+        "heightFromFoot": 12,
+        "damage": 10,
+        "staminaCost": 0,
+        "impact": 12,
+        "posture": "prone",
+        "clip": {
+          "row": 3,
+          "frames": 6,
+          "ticks": 9,
+          "loop": false
+        }
+      },
+      "move": {
+        "walk": 1.0,
+        "crawl": 0.3
+      },
+      "range": {
+        "swing": 34,
+        "bite": 20,
+        "yTolerance": 14,
+        "personalSpace": 26
+      },
+      "sight": {
+        "halfAngleDeg": 55,
+        "range": 220,
+        "hearRange": 40,
+        "forgetTicks": 120
+      },
+      "hurt": {
+        "ticks": 16,
+        "knockback": 12,
+        "lift": 1.6
+      }
+    }
+  }
+}

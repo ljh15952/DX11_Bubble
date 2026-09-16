@@ -26,6 +26,8 @@
 #include "Core/Transform.h"
 #include "Gameplay/AttackData.h"
 
+#include "Gameplay/EnemyType.h"
+
 class BodyComponent;
 class PartsComponent;
 class PoiseComponent;
@@ -68,7 +70,10 @@ class EnemyBrain final : public Component
 public:
     // 쫓아갈 대상. ★ GameObject 가 아니라 Transform 만 받는다 —
     //   필요한 것이 위치뿐이므로, 그 이상을 알면 결합만 늘어난다.
-    explicit EnemyBrain(const Transform& target) : m_target(target) {}
+    // ★ 종류를 **참조로** 받는다. 복사하면 F6 리로드가 이 적에게 안 닿는다 —
+    //   카탈로그는 Scene 이 소유하고 값만 덮어쓰므로 주소가 유지된다.
+    EnemyBrain(const Transform& target, const EnemyType& type)
+        : m_target(target), m_type(&type) {}
 
     const char* TypeName() const override { return "EnemyBrain"; }
 
@@ -161,6 +166,9 @@ private:
     //   좌표를 여기 적어 두면 적이 여럿일 때 전부 한 자리에 모인다.
     float m_homeX      = 0.0f;
     int   m_homeFacing = -1;
+
+    // 이 적이 어떤 종류인가. 숫자는 전부 여기서 온다(enemies.json).
+    const EnemyType* m_type = nullptr;
 
     bool  m_targetProne = false;
     bool  m_yieldRoom   = false;
