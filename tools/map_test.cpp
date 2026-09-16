@@ -17,7 +17,7 @@ static void Check(bool ok, const char* what)
     if (!ok) ++g_fail;
 }
 
-static void One(const wchar_t* path, const char* name, size_t portals)
+static void One(const wchar_t* path, const char* name, size_t portals, size_t saves)
 {
     std::string err;
     auto m = Json::ParseFile(path, &err);
@@ -32,12 +32,36 @@ static void One(const wchar_t* path, const char* name, size_t portals)
     Check((*m)["portals"].Size() == portals,        "포탈 수");
     Check(!(*m)["portals"][size_t(0)]["to"].Str().empty(), "포탈에 목적지가 있다");
     Check((*m)["enemies"][size_t(0)]["facing"].Int(0) != 0, "적에 facing 이 있다");
+
+    // ---- 세이브 포인트 ----
+    //   ★ 여기서 **부활한다.** 상자를 잘못 놓으면 「죽으면 바닥에 박혀
+    //     일어나는」 맵이 되고, 그건 게임을 돌려야만 보인다.
+    //     파일만 보고 알 수 있는 것은 파일만 보고 잡는다.
+    const JsonValue& sv = (*m)["savePoints"];
+    Check(sv.Size() == saves, "세이브 포인트 수");
+
+    const float groundY = (*m)["world"]["groundY"].Flt(0.0f);
+    const float worldW  = (*m)["world"]["w"]      .Flt(0.0f);
+    bool placed = true;
+    for (size_t i = 0; i < sv.Size(); ++i)
+    {
+        const JsonValue& b = sv[i]["box"];
+        if (b.Size() != 4) { placed = false; break; }
+
+        const float left   = b[size_t(0)].Flt();
+        const float right  = b[size_t(2)].Flt();
+        const float bottom = b[size_t(3)].Flt();
+
+        // 바닥보다 아래 = 지형 속. 맵 밖 = 카메라가 못 따라간다.
+        if (bottom > groundY || left < 0.0f || right > worldW) placed = false;
+    }
+    Check(placed, "세이브 포인트가 맵 안, 지면 위에 있다");
 }
 
 int main()
 {
-    One(L"assets/data/maps/field.json", "field", 1);
-    One(L"assets/data/maps/cave.json",  "cave",  1);
+    One(L"assets/data/maps/field.json", "field", 1, 2);
+    One(L"assets/data/maps/cave.json",  "cave",  1, 1);
 
     // 서로를 가리키는지 — 이름이 안 맞으면 못 돌아온다
     std::string e;

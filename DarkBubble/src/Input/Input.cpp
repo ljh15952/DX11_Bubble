@@ -56,6 +56,8 @@ void Input::Poll()
 
     // ★ Space 가 공격에서 점프로 옮겨 왔다. 같은 물리 키가 메뉴에서는
     //   여전히 Confirm 이다 — 의도로 번역해 두었기에 충돌하지 않는다.
+    m_edges.interact |= m_kbTracker.pressed.E;
+
     m_edges.jump    |= m_kbTracker.pressed.Space
                     || m_padTracker.a == PadTracker::PRESSED;
 

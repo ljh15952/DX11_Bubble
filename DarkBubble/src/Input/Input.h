@@ -101,6 +101,11 @@ public:
     bool LeftHandPressed()  const { return m_edges.leftHand;  }   // 좌클릭 / 패드 X
     bool RightHandPressed() const { return m_edges.rightHand; }   // 우클릭 / 패드 Y
     bool JumpPressed()      const { return m_edges.jump;      }   // Space / 패드 A
+
+    // ★ E — **상호작용.** 포탈로 넘어가고, 나중에 상자를 열고 사람과 말한다.
+    //   「무엇을 하는가」는 **발밑에 무엇이 있는가**가 정한다 — 버튼이 손을
+    //   가리키게 만든 것과 같은 발상이다(§3.2.1.1).
+    bool InteractPressed()  const { return m_edges.interact;  }   // E / 패드 A(길게)
     bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
     bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
 
@@ -160,6 +165,7 @@ private:
         bool leftHand  = false;
         bool rightHand = false;
         bool jump      = false;
+        bool interact  = false;
         bool roll      = false;
         bool pause   = false;
 

@@ -159,44 +159,76 @@ bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
     SpawnEnemies(ctx);
 
     // ---- 플레이어를 입구에 놓는다 ----
-    //   ★ 부활 지점도 **이 맵의 start** 로 옮긴다. 안 옮기면 동굴에서 죽었는데
-    //     들판에서 되살아난다 — EnemyBrain 이 「자기 집」을 기억하게 만든 것과
-    //     같은 문제이고, 같은 해법이다.
-    m_player->SetHome(m_map.EntryX("start"));
+    //   ★ **부활 지점은 여기서 안 정한다.** 부활은 맵의 시작이 아니라
+    //     「마지막으로 쉰 자리」다(세이브 포인트). 맵을 지나가는 것만으로
+    //     부활 지점이 바뀌면 되돌아갈 이유가 사라진다.
+    m_focus = nullptr;   // 맵이 바뀌었으니 들고 있던 포인터는 무효다
     m_player->PlaceAt(m_map.EntryX(entry));
 
     UpdateCamera(ctx);
 
-    Log::Info("[map] '{}' 진입 ({} 입구)  지형 {}  적 {}  포탈 {}",
+    Log::Info("[map] '{}' 진입 ({} 입구)  지형 {}  적 {}  상호작용 {}",
               name, entry, m_map.solids.size(), m_map.enemies.size(),
-              m_map.portals.size());
+              m_map.interacts.size());
     return true;
 }
 
 
 // ----------------------------------------------------------------------------
-//  CheckPortals — 들어가면 **요청만** 적어 둔다
+//  UpdateFocus — 지금 발밑에 무엇이 있는가
 //
-//    ★ 여기서 바로 맵을 갈아 끼우면, 판정이 순회 중인 적 목록과 지형이
-//      그 자리에서 사라진다. SceneManager 가 전환을 미루는 것과 같은 이유다.
+//    ★ **누르기 전에** 찾아 둔다. 그래야 「E 를 누를 수 있다」를 화면에
+//      보여 줄 수 있다 — 안 보여 주면 플레이어가 서 있어도 모른다.
 // ----------------------------------------------------------------------------
-void PlayScene::CheckPortals()
+void PlayScene::UpdateFocus()
 {
-    if (m_portalPending || m_player->IsDead())
+    m_focus = nullptr;
+    if (m_player->IsDead())
         return;
 
     // 몸통 상자로 본다 — 발끝 점으로 보면 뛰어넘을 때 그냥 지나친다.
     const AABB body = m_playerParts->Box(Part_Torso);
 
-    for (const MapPortal& p : m_map.portals)
+    for (const MapInteract& it : m_map.interacts)
     {
-        if (!Intersects(body, p.box))
-            continue;
+        if (Intersects(body, it.box)) { m_focus = &it; return; }
+    }
+}
 
-        m_portalPending = true;
-        m_portalTo      = p.to;
-        m_portalEntry   = p.entry;
+
+// ----------------------------------------------------------------------------
+//  Interact — E 를 눌렀다
+//
+//    ★ 여기가 **늘어나는 자리**다. 상자·사람·사다리가 오면 case 가 하나씩
+//      붙고, 찾는 코드(UpdateFocus)도 버튼도 그대로다.
+// ----------------------------------------------------------------------------
+void PlayScene::Interact(SceneContext& ctx)
+{
+    if (!m_focus)
         return;
+
+    switch (m_focus->kind)
+    {
+    case InteractKind::Portal:
+        // ★ 요청만 적어 둔다. 넘어가는 것은 틱의 맨 끝이다.
+        m_portalPending = true;
+        m_portalTo      = m_focus->to;
+        m_portalEntry   = m_focus->entry;
+        break;
+
+    case InteractKind::SavePoint:
+        // ★ 소울류의 화톳불이다 — **회복하고, 적이 되살아나고, 여기서 부활한다.**
+        //   셋이 한 묶음이라 「쉬어 갈까」가 판단이 된다. 회복만 되면 공짜다.
+        m_saveMap = m_mapName;
+        m_saveX   = (m_focus->box.left + m_focus->box.right) * 0.5f;
+
+        m_player->Rest();
+        SpawnEnemies(ctx);
+
+        ctx.audio.Play("ui_confirm", 0.8f, 0.2f);
+        Log::Info("[play] 쉬었다 — 부활 지점 '{}' ({} {:.0f}) · 회복 · 적 부활",
+                  m_focus->name, m_saveMap, m_saveX);
+        break;
     }
 }
 
@@ -407,6 +439,11 @@ bool PlayScene::Enter(SceneContext& ctx)
     if (!LoadMap(ctx, "field", "start"))
         return false;   // 첫 맵도 못 읽으면 진행할 수가 없다
 
+    // ★ 처음 부활 지점은 **방금 읽은 맵의 start** 다. 아직 화톳불을 만나기
+    //   전에 죽어도 갈 곳이 있어야 한다 — 값의 출처는 맵 파일 하나뿐이다.
+    m_saveMap = m_mapName;
+    m_saveX   = m_map.EntryX("start");
+
     // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
@@ -423,6 +460,15 @@ bool PlayScene::Enter(SceneContext& ctx)
 
 void PlayScene::Respawn(SceneContext& ctx)
 {
+    // ★ 부활은 **마지막으로 쉰 자리**다. 맵이 다르면 그 맵을 다시 읽는다 —
+    //   동굴에서 죽었어도 들판에서 쉬었으면 들판에서 일어난다.
+    //   ★ 맵 읽기가 실패해도 부활은 해야 한다 — 그래서 **반환값을 본다.**
+    //     실패하면 지금 맵이 그대로 남으므로 여기서 적을 되살린다.
+    if (m_saveMap == m_mapName || !LoadMap(ctx, m_saveMap, "start"))
+        SpawnEnemies(ctx);   // 같은 맵(또는 못 읽음) -> 적만 되살린다
+
+    m_player->SetHome(m_saveX);
+
     // ★ 무엇을 되돌릴지는 **각자가 안다.** Scene 은 「되돌려라」만 말한다.
     //   design.md §3.6.1 의 「되돌아간다 / 남는다」 표가 각 컴포넌트 안에 있다.
     m_player->Respawn(ctx);
@@ -611,10 +657,13 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     // ★ **전부 움직인 뒤**에 따라간다. 먼저 움직이면 한 틱 뒤처진 곳을 비춘다.
     UpdateCamera(ctx);
 
-    // ---- ★ 포탈 ----
-    //   판정이 다 끝난 뒤에 본다. 그리고 넘어가는 것은 **틱의 맨 끝**이다 —
+    // ---- ★ 상호작용 ----
+    //   판정이 다 끝난 뒤에 본다. 그리고 맵을 바꾸는 것은 **틱의 맨 끝**이다 —
     //   순회 중에 적 목록과 지형을 갈아 끼우면 안 된다.
-    CheckPortals();
+    UpdateFocus();
+    if (consumeEdgeInput && ctx.input.InteractPressed())
+        Interact(ctx);
+
     if (m_portalPending)
     {
         m_portalPending = false;
@@ -880,14 +929,31 @@ void PlayScene::Render(Renderer& renderer)
     //   「보여야 하는 것」과 「가려야 하는 것」이 층으로 갈린다.
     DrawDarkness(renderer);
 
-    // ★ 포탈은 **항상 보인다.** 안 보이면 「여기가 출구인지」를 알 수가 없다 —
-    //   나중에 문·사다리 그림이 오면 이 자리를 대신한다.
-    for (const MapPortal& p : m_map.portals)
+    // ★ 상호작용할 것은 **항상 보인다.** 안 보이면 「여기가 무엇인지」를
+    //   알 수가 없다 — 나중에 문·화톳불 그림이 오면 이 자리를 대신한다.
+    //   포탈은 푸르게, 세이브 포인트는 따뜻하게 — **색이 종류를 말한다.**
+    for (const MapInteract& it : m_map.interacts)
     {
-        renderer.DrawFilledRect(p.box,
-            DirectX::XMVectorSet(0.55f, 0.75f, 1.0f, 0.22f));
-        renderer.DrawRectOutline(p.box,
-            DirectX::XMVectorSet(0.65f, 0.85f, 1.0f, 0.55f), 1.0f);
+        const bool save = (it.kind == InteractKind::SavePoint);
+        const DirectX::XMVECTOR fill = save
+            ? DirectX::XMVectorSet(1.00f, 0.72f, 0.35f, 0.22f)
+            : DirectX::XMVectorSet(0.55f, 0.75f, 1.00f, 0.22f);
+        const DirectX::XMVECTOR edge = save
+            ? DirectX::XMVectorSet(1.00f, 0.80f, 0.45f, 0.65f)
+            : DirectX::XMVectorSet(0.65f, 0.85f, 1.00f, 0.55f);
+
+        renderer.DrawFilledRect(it.box, fill);
+        renderer.DrawRectOutline(it.box, edge, 1.0f);
+    }
+
+    // ★ 지금 누를 수 있는 것 위에만 안내를 띄운다. 항상 띄우면 아무도 안 읽는다 —
+    //   「SPACE : PICK UP」과 같은 규칙이다.
+    if (m_focus)
+    {
+        renderer.DrawString(m_focus->Prompt(),
+            std::round((m_focus->box.left + m_focus->box.right) * 0.5f - 32.0f),
+            std::round(m_focus->box.top - 16.0f),
+            DirectX::Colors::Gold, 1);
     }
 
     // ★ 디버그는 **모든 그림이 끝난 뒤에** 그린다.

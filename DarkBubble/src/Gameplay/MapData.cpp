@@ -72,21 +72,35 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
         m.enemies.push_back(std::move(s));
     }
 
+    // ★ 파일에서는 나뉘어 있고(읽기 좋다) 코드에서는 한 목록이다(찾기 좋다).
     const JsonValue& portals = (*root)["portals"];
     for (size_t i = 0; i < portals.Size(); ++i)
     {
         const JsonValue& p = portals[i];
-        MapPortal portal;
-        portal.box   = ReadBox(p["box"]);
-        portal.to    = p["to"]   .Str();
-        portal.entry = p["entry"].Str("start");
+        MapInteract it;
+        it.kind  = InteractKind::Portal;
+        it.box   = ReadBox(p["box"]);
+        it.to    = p["to"]   .Str();
+        it.entry = p["entry"].Str("start");
+        it.name  = p["name"] .Str();
 
-        if (portal.to.empty())
+        if (it.to.empty())
         {
             Log::Info("[map] 목적지 없는 포탈이 있다 — 건너뛴다");
             continue;
         }
-        m.portals.push_back(std::move(portal));
+        m.interacts.push_back(std::move(it));
+    }
+
+    const JsonValue& saves = (*root)["savePoints"];
+    for (size_t i = 0; i < saves.Size(); ++i)
+    {
+        const JsonValue& s = saves[i];
+        MapInteract it;
+        it.kind = InteractKind::SavePoint;
+        it.box  = ReadBox(s["box"]);
+        it.name = s["name"].Str("save");
+        m.interacts.push_back(std::move(it));
     }
 
     for (const auto& kv : (*root)["entries"].Members())

@@ -47,9 +47,12 @@ namespace
     //     맞았지만, 추격·대기처럼 **반복 클립** 중에 죽으면 시체가 영원히
     //     걸어 다녔다. 그리고 죽는 순간의 상태는 대부분 그쪽이다.
     //
-    //   ★ 기어가기 행을 쓴다. 누운 그림이 곧 시체로 읽힌다 —
-    //     전용 사망 그림이 없어도 「쓰러졌다」가 전달된다.
-    constexpr AnimationClip kDeadClip { /*row*/ 7, 1,  1, /*loop*/ false };
+    //   ★★ **전용 「쓰러짐」 행을 쓴다.** 전에는 기어가기 행을 빌려 썼는데,
+    //     기어가기는 **다리가 잘렸을 때의 자세**라 어떻게 죽든 다리가 잘린 채
+    //     죽은 것처럼 보였다.
+    //     빌려 쓴 그림은 **원래 뜻을 같이 가져온다** — 「형태가 비슷하다」가
+    //     아니라 **「그 그림이 무엇을 뜻하는가」**로 골라야 한다.
+    constexpr AnimationClip kDeadClip { /*row*/ 14, 1,  1, /*loop*/ false };
 
     // ★ 웅크린 자세. tools/gen_player_crouch.ps1 로 만든다.
     //   전에는 서 있는 그림을 세로로 눌러서(SetScale) 표현했는데, 그러면
@@ -541,6 +544,20 @@ void PlayerController::ReloadMoveset()
     // ※ 파일이 아예 없는 것도 여기로 온다. 그게 정상 동작이다 —
     //   기본값으로 굴러가고, 나중에 파일을 두면 그때부터 읽힌다.
     Log::Info("[moveset] weapons.json 을 못 읽었다 ({}) — 이전 값 유지", err);
+}
+
+
+void PlayerController::Rest()
+{
+    // ★ 되돌리는 것은 **몸**뿐이다. 무기를 어디에 떨궜는지, 어느 방어구를
+    //   입었는지는 그대로 간다 — §3.6.1 의 「되돌아간다 / 남는다」 표 그대로다.
+    m_parts->Reset();
+    m_stamina->Reset();
+    m_poise->Reset();
+    m_poise->SetValue(Armor().poise);
+
+    m_flash       = 0;
+    m_invulnTicks = 0;
 }
 
 

@@ -24,11 +24,38 @@
 
 #include "Core/AABB.h"
 
-struct MapPortal
+// ============================================================================
+//  MapInteract — **E 를 누르면 무언가 일어나는 것**
+//
+//    ★ 포탈과 세이브 포인트를 **한 목록**에 둔다. 「발밑에 무엇이 있나」를
+//      찾는 코드가 하나면 되고, 나중에 **상자·사람**이 종류 하나씩 늘어난다.
+//      목록을 종류마다 나누면 찾는 코드도 종류마다 늘어난다.
+//
+//    ★★ 안 쓰는 칸이 남는 것은 값이 싸다 — 세이브 포인트는 to/entry 를
+//      안 쓴다. AttackData 가 플레이어와 적의 칸을 같이 들고 있는 것과 같다.
+//
+//    ★ 그리고 이 구조가 §3.2.1.1 과 같다: **버튼은 하나이고, 무엇을 하는지는
+//      그 자리에 무엇이 있는지가 정한다.**
+// ============================================================================
+enum class InteractKind
 {
-    AABB        box;       // 들어가면 넘어간다
-    std::string to;        // 어느 맵으로
-    std::string entry;     // 그 맵의 어느 입구로
+    Portal,      // 다른 맵으로
+    SavePoint,   // 부활 지점을 여기로. 쉬면 회복하고 적이 되살아난다
+};
+
+struct MapInteract
+{
+    InteractKind kind = InteractKind::Portal;
+    AABB         box{};
+
+    std::string  to;      // 포탈 : 어느 맵으로
+    std::string  entry;   // 포탈 : 그 맵의 어느 입구로
+    std::string  name;    // 표시용
+
+    const char* Prompt() const
+    {
+        return (kind == InteractKind::SavePoint) ? "E : REST" : "E : ENTER";
+    }
 };
 
 struct MapEnemySpawn
@@ -49,7 +76,7 @@ struct MapData
 
     std::vector<AABB>          solids;    // 지형 (바닥·벽·발판)
     std::vector<MapEnemySpawn> enemies;
-    std::vector<MapPortal>     portals;
+    std::vector<MapInteract>   interacts;   // 포탈 + 세이브 포인트
 
     // 입구 이름 -> x. ★ 포탈이 **이 이름**을 가리킨다.
     //   "start" 는 특별하다 — 부활 지점이자 맵을 직접 열었을 때의 기본 입구다.

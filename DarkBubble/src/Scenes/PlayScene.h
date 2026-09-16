@@ -91,12 +91,29 @@ private:
     // 맵을 통째로 갈아 끼운다. entry = 그 맵의 어느 입구로 들어가는가.
     bool LoadMap(SceneContext& ctx, const std::string& name, const std::string& entry);
 
-    // ★ 포탈은 **즉시 넘어가지 않는다.** 판정 도중에 적 목록과 지형을 갈아
+    // ---- ★ 상호작용 (E) ----
+    //   발밑에 있는 것을 찾아 두고, E 를 누르면 그것이 하는 일을 한다.
+    //   ★ **버튼은 하나다.** 무엇을 하는지는 그 자리에 무엇이 있는지가 정한다 —
+    //     좌/우클릭이 손을 가리키는 것과 같은 구조다(§3.2.1.1).
+    //     나중에 상자·사람이 오면 **종류만** 늘어난다.
+    const MapInteract* m_focus = nullptr;
+    void UpdateFocus();
+    void Interact(SceneContext& ctx);
+
+    // ★ 맵 전환은 **즉시 하지 않는다.** 판정 도중에 적 목록과 지형을 갈아
     //   끼우면 순회 중인 것이 사라진다. 요청만 적어 두고 틱 끝에서 처리한다 —
     //   SceneManager 가 전환을 미루는 것과 같은 이유다.
     bool        m_portalPending = false;
     std::string m_portalTo, m_portalEntry;
-    void CheckPortals();
+
+    // ---- ★ 세이브 포인트 ----
+    //   부활은 **맵의 시작**이 아니라 **마지막으로 쉰 자리**다.
+    //   맵이 다를 수도 있으므로 맵 이름까지 같이 기억한다.
+    //   ★ 초기값을 **여기에 안 적는다.** 첫 맵 이름과 시작 좌표는 이미
+    //     Enter 와 field.json 에 있다 — 여기에 또 적으면 맵을 옮길 때
+    //     이 줄만 옛 값으로 남는다(늘 밟던 「같은 값이 두 곳에」다).
+    std::string m_saveMap;
+    float       m_saveX = 0.0f;
 
     // ---- ★ 시차(parallax) 배경 ----
     //   넓은 맵인데 배경이 단색이면 **카메라가 움직이는지 알 수 없다.**
