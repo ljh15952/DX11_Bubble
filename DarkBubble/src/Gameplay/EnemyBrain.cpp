@@ -94,6 +94,16 @@ namespace
         /*clip*/     kBiteClip,
     };
 
+    // ★ 물기는 **몸을 던지는** 그림이다(3행 실루엣 = 발끝 1~25, 서면 0~53).
+    //   그 동안은 낮은 표적이 되어야 그림과 판정이 같은 말을 한다.
+    //   ※ 값을 초기화 목록 뒤에 따로 얹는다 — AttackData 는 집합 초기화라
+    //     가운데 필드를 건너뛸 수 없고, 그렇다고 전부 적으면 기존 주석이 흩어진다.
+    constexpr AttackData kBiteLow = []{
+        AttackData a = kBite;
+        a.posture = Posture::Prone;
+        return a;
+    }();
+
     constexpr int kAttackCooldown = 40;   // 0.67 초. 없으면 사거리 안에서 무한 공격
 
     // 뒤에 선 적이 물러서는 거리. 몸 너비(18)보다 넉넉해야 안 겹친다.
@@ -192,7 +202,7 @@ const AttackData& EnemyBrain::CurrentAttack() const
 {
     // ★ latch 된 값을 본다. 매 틱 다시 고르면 휘두르는 도중에 다리가 부서지는
     //   순간 프레임 데이터가 통째로 바뀌어(60틱 -> 54틱) active 를 건너뛴다.
-    return m_attackIsBite ? kBite : kSwing;
+    return m_attackIsBite ? kBiteLow : kSwing;
 }
 
 
@@ -490,10 +500,20 @@ void EnemyBrain::Tick(SceneContext& ctx, bool)
 {
     ++m_stateTicks;
 
-    // ★ 자세를 몸에 알려 준다. 기어다니면 지형 상자도 낮아져야 한다 —
-    //   안 그러면 엎드린 적이 **선 키 그대로** 벽에 걸린다.
-    //   적은 웅크리지 않으므로 부위가 아는 자세가 곧 전부다.
-    m_body->SetPosture(m_parts->CurrentPosture());
+    // ---- ★ 자세를 알려 준다 ----
+    //   ★★ **공격 모션이 몸을 낮추는 것**까지 부위에 알려 준다.
+    //     잡몹의 물기는 덤벼들며 몸을 던지는 그림이라 실루엣이 발끝 25까지
+    //     내려가는데, 부위 상자는 그걸 몰라서 **서 있는 55 그대로**였다 —
+    //     낮게 무는 중인 적을 때리면 판정이 허공에 있었다.
+    m_parts->SetAttackPosture(m_state == EnemyState::Attack
+                                  ? CurrentAttack().posture
+                                  : Posture::Stand);
+
+    //   ★ 지형 상자에는 **StancePosture** 를 준다 — 공격 모션은 빼고.
+    //     공격 중에 지형 상자까지 줄이면 낮은 틈에서 공격이 끝나는 순간
+    //     몸이 커지며 천장에 박힌다. 「맞는 범위」와 「설 수 있는 자리」는
+    //     원래 다른 것이다.
+    m_body->SetPosture(m_parts->StancePosture());
 
     // ★ 자세가 바뀌면 **그림도** 바꾼다.
     //   다리가 부서지는 것은 상태 전이가 아니므로 ChangeState 가 안 불린다.

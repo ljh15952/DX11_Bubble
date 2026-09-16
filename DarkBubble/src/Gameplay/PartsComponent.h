@@ -147,12 +147,40 @@ public:
     //     그건 화면만 보고는 절대 못 찾는다(PlayerController::Crouched).
     void SetCrouching(bool v) { m_crouching = v; }
 
+    // ------------------------------------------------------------------------
+    //  SetAttackPosture — 지금 내는 공격이 몸을 낮추는가
+    //
+    //    ★ 공격 모션이 **맞는 범위**를 바꾼다. 덤벼들며 몸을 던지면 그동안은
+    //      낮은 표적이 되는 것이 맞다.
+    //
+    //    ★★ 그런데 **설 수 있는 자리는 안 바꾼다**(StancePosture 참조).
+    //      공격 중에 지형 상자까지 줄이면, 낮은 틈에서 공격을 끝내는 순간
+    //      몸이 커지며 천장에 박힌다 — 플레이어의 CanStandUp 이 막고 있는 바로
+    //      그 문제이고, 적에게는 그런 장치가 없다.
+    //      **「어디를 맞는가」와 「어디에 설 수 있는가」는 원래 다른 것이다.**
+    //
+    //    Stand = 강제 없음.
+    // ------------------------------------------------------------------------
+    void SetAttackPosture(Posture p) { m_attackPosture = p; }
+
     // 지금 자세. ★ 엎드리기가 웅크리기를 이긴다 —
     //   다리가 없으면 「일어설지 말지」에 선택의 여지가 없기 때문이다.
+    //  맞는 자세 — **공격 모션까지** 반영한다. 피격 상자와 그림이 이걸 본다.
     Posture CurrentPosture() const
     {
-        if (Prone())      return Posture::Prone;
-        if (m_crouching)  return Posture::Crouch;
+        if (Prone())                          return Posture::Prone;
+        if (m_attackPosture != Posture::Stand) return m_attackPosture;
+        if (m_crouching)                      return Posture::Crouch;
+        return Posture::Stand;
+    }
+
+    //  서 있는 자세 — **공격 모션은 뺀다.** 지형 상자가 이걸 본다.
+    //    ★ 둘을 하나로 합치고 싶어지지만 합치면 안 된다. 이유는
+    //      SetAttackPosture 의 주석 참조 — 천장에 박힌다.
+    Posture StancePosture() const
+    {
+        if (Prone())     return Posture::Prone;
+        if (m_crouching) return Posture::Crouch;
         return Posture::Stand;
     }
 
@@ -202,4 +230,5 @@ private:
     int m_hp[Part_Count]{};
     int m_flash = 0;
     bool m_crouching = false;
+    Posture m_attackPosture = Posture::Stand;
 };

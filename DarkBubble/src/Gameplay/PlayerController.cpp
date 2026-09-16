@@ -1127,7 +1127,17 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     //     선 크기(44)로 남아 있었다.
     //     엎드리기를 아는 것은 부위(다리가 부서졌다)이므로 거기서 받아 온다.
     m_parts->SetCrouching(Crouched());
-    m_body->SetPosture(m_parts->CurrentPosture());
+
+    // ★ 공격 모션이 몸을 낮추는가. 플레이어의 공격은 전부 Stand 이지만
+    //   **적과 같은 자리에 같은 줄**을 둔다 — 한쪽에만 있으면 나중에
+    //   몸을 던지는 무기(도약 찌르기 같은 것)를 넣을 때 여기만 빠진다.
+    m_parts->SetAttackPosture(m_state == PlayerState::Attack
+                                  ? CurrentAttack().posture
+                                  : Posture::Stand);
+
+    //   ★ 지형 상자는 **StancePosture** — 공격 모션은 빼고.
+    //     공격 중에 줄였다가 낮은 틈에서 끝나면 천장에 박힌다.
+    m_body->SetPosture(m_parts->StancePosture());
 
     // ★ 자세가 바뀌면 **그림도** 바꾼다.
     //   Ctrl 은 상태를 바꾸지 않으므로 ChangeState 가 안 불린다.

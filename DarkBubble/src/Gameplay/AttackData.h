@@ -17,6 +17,7 @@
 #pragma once
 
 #include "Core/AABB.h"
+#include "Core/Posture.h"
 #include "Graphics/Animation.h"
 
 // ============================================================================
@@ -60,6 +61,23 @@ struct AttackData
     // ★ 공격이 자기 그림 속도를 직접 들고 다닌다.
     //   frameCount × ticksPerFrame == TotalTicks() 가 되도록 짝을 맞춘다.
     AnimationClip clip{ /*row*/ 2, /*frames*/ 6, /*ticks*/ 4, /*loop*/ false };
+
+    // ★★ **이 공격을 내는 동안의 몸 자세.**
+    //
+    //   그림이 몸을 낮추는 공격이 있다. 잡몹의 물기가 그렇다 —
+    //   덤벼들며 몸을 던지므로 실루엣이 발끝 25까지 내려간다(서면 53).
+    //   그런데 피격 상자는 자세를 몰라서 **서 있는 55 그대로**였다.
+    //   그림은 낮아졌는데 판정은 서 있다.
+    //
+    //   ★ Stand 면 「이 공격은 자세를 안 바꾼다」는 뜻이다. 대부분이 그렇다.
+    //
+    //   ★★★ **맨 끝에 있는 것이 중요하다.** 이 구조체는 곳곳에서 위치 초기화
+    //     (`{ "LIGHT", 8, 3, 13, ... }`)로 만들어진다. 가운데에 필드를 끼우면
+    //     **그 뒤의 값이 전부 한 칸씩 밀린다** — 실제로 여기 넣었다가
+    //     clip 이 posture 로 들어가 컴파일이 깨졌다.
+    //     handoff §8 의 「공유 구조체에 필드 추가」가 바로 이것이다.
+    //     **새 필드는 끝에 붙이고 기본값을 준다.**
+    Posture posture = Posture::Stand;
 
     int TotalTicks() const { return startup + active + recovery; }
 };
