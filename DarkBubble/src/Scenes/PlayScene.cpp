@@ -78,6 +78,12 @@ namespace
     constexpr float kBodyCrouchHeight = 28.0f;
     constexpr float kBodyProneHeight  = 26.0f;   // 엎드린 그림(위끝 25)보다 1픽셀 넉넉히
 
+    // 떨어진 무기의 몸. ★ **그림(16)보다 작다** — 물건은 발판 끝에
+    //   아슬아슬하게 걸쳐야 「떨어질 뻔했다」가 보인다. 그림만큼 넓게 잡으면
+    //   가장자리에서 공중에 뜬 것처럼 보인다.
+    constexpr float kPickupHalfW  = 5.0f;
+    constexpr float kPickupHeight = 6.0f;
+
     constexpr float kShakeStrength = 2.0f;
     constexpr int   kShakeTicks    = 8;
     constexpr int   kFlashTicks    = 9;
@@ -475,6 +481,11 @@ bool PlayScene::Enter(SceneContext& ctx)
     // ★ 떨어진 무기도 GameObject 다. 위치가 있고 그려지므로 Transform 이 필요하고,
     //   플레이어·적과 같은 그릇에 담기면 「월드에 있는 것」이 한 종류가 된다 —
     //   나중에 상자·함정·투사체가 생겨도 같은 방식으로 붙는다.
+    //   ★ Body 를 **먼저** 붙인다 = 「물리 먼저, 판단 나중」. 플레이어와 같다.
+    //     이 한 줄이 「공중에서 떨군 무기가 떠 있다」를 고친다 — 중력도
+    //     발판 착지도 여기 이미 있다.
+    m_weaponObj.Add<BodyComponent>(m_level, kPickupHalfW,
+                                   kPickupHeight, kPickupHeight, kPickupHeight);
     m_pickup = &m_weaponObj.Add<WeaponPickup>();
     m_pickup->SetSheet(m_icons);   // 손 슬롯과 **같은 시트**를 쓴다
 
@@ -696,6 +707,11 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     m_playerObj.Tick(ctx, consumeEdgeInput);
     UpdateWeaponDrop(ctx);
+
+    // ★ 떨어진 무기도 **굴린다.** 여태 Tick 을 안 불렀다 — 안 움직이는
+    //   물건이었으니 필요가 없었고, 그래서 공중에서 떨궈도 아무도 몰랐다.
+    //   ★★ 떨구기 **뒤**다. 그래야 이번 틱에 떨어진 것이 같은 틱부터 낙하한다.
+    m_weaponObj.Tick(ctx, consumeEdgeInput);
     TryPlayerHit(ctx);
 
     for (Enemy& e : m_enemies)

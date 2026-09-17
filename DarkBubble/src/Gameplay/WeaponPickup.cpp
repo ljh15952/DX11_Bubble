@@ -17,11 +17,20 @@ namespace
 }
 
 
+void WeaponPickup::Start(SceneContext&)
+{
+    m_body = &Owner().Require<BodyComponent>();
+}
+
+
 void WeaponPickup::DropAt(float x, float y, std::string weaponId, int icon)
 {
-    Transform& tr = Owner().transform;
-    tr.x = x;
-    tr.y = y;
+    Owner().transform.x = x;
+
+    // ★ 세로는 **몸이 맡는다.** 여기서 y 를 적어 두면 그 자리에 떠 있는다 —
+    //   공중에서 팔이 잘렸을 때 실제로 그랬다.
+    m_body->PlaceInAir(y);
+
     m_weaponId = std::move(weaponId);
     m_icon     = icon;
     m_active   = true;
@@ -52,10 +61,15 @@ void WeaponPickup::Render(Renderer& renderer)
     const float cx = std::round(tr.x);
     const float cy = std::round(tr.y) - 4.0f + bob;
 
-    // 그림자 — 「땅에 있다」를 알려 준다
-    renderer.DrawFilledRect(
-        { cx - 7.0f, std::round(tr.y) - 2.0f, cx + 7.0f, std::round(tr.y) },
-        DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.35f));
+    // 그림자 — 「땅에 있다」를 알려 준다.
+    //   ★ **땅에 닿아 있을 때만** 그린다. 떨어지는 중에도 그리면 그림자가
+    //     물건을 따라 공중에 떠서, 「닿아 있다」는 말이 거짓이 된다.
+    if (m_body->Grounded())
+    {
+        renderer.DrawFilledRect(
+            { cx - 7.0f, std::round(tr.y) - 2.0f, cx + 7.0f, std::round(tr.y) },
+            DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.35f));
+    }
 
     // ★ 시트가 없으면 아무것도 안 그린다. 「없으면 대신 사각형」을 남겨 두면
     //   시트를 못 읽은 것을 **아무도 눈치채지 못한다** — 조용한 실패가 제일 나쁘다.

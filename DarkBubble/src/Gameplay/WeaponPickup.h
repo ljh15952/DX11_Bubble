@@ -17,12 +17,22 @@
 //    위치가 있고 그려지는 것이므로 Transform 이 필요하다.
 //    플레이어·적과 같은 그릇에 담기면 「월드에 있는 것」이 한 종류가 된다 —
 //    나중에 상자·함정·투사체가 생겨도 같은 방식으로 붙는다.
+//
+//    ★★ 그리고 그 값이 여기서 돌아왔다: **떨어지는 것**도 공짜다.
+//    공중에서 팔이 잘리면 무기가 **그 자리에 떠 있었다.** 지상에서만 떨궈
+//    보는 동안에는 안 보이던 버그다 — 「하나뿐이라 괜찮았던 것」의 친척으로,
+//    **한 가지 상황에서만 써 본 것은 확인된 것이 아니다.**
+//
+//    고치는 방법은 **BodyComponent 를 붙이는 것 하나**였다. 중력도 지형
+//    충돌도 발판 착지도 이미 거기 있다 — 「떨어지는 물건」을 위한 코드를
+//    새로 쓰면 플레이어와 두 벌이 되고, 발판이 늘 때 한쪽만 고치게 된다.
 // ============================================================================
 #pragma once
 
 #include <string>
 
 #include "Core/AABB.h"
+#include "Core/BodyComponent.h"
 #include "Core/Component.h"
 #include "Graphics/Assets.h"
 
@@ -31,6 +41,7 @@ class WeaponPickup final : public Component
 public:
     const char* TypeName() const override { return "WeaponPickup"; }
 
+    void Start(SceneContext& ctx) override;
     void Render(Renderer& renderer) override;
     void RenderDebug(Renderer& renderer) override;
 
@@ -58,6 +69,8 @@ public:
 private:
     bool m_active   = false;
     int  m_bobTicks = 0;   // 눈에 띄게 하려는 위아래 흔들림용
+
+    BodyComponent* m_body = nullptr;        // 중력·지형. Start 에서 캐시한다
 
     Assets::TextureHandle m_sheet;          // icons.png
     std::string           m_weaponId = "dagger";

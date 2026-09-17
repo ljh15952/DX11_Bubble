@@ -134,6 +134,14 @@ void BodyComponent::PlaceOnFloor(float y)
 }
 
 
+void BodyComponent::PlaceInAir(float y)
+{
+    Owner().transform.y = y;
+    m_velocityY = 0.0f;   // ★ 떨어뜨리기 전의 속도를 물려받지 않는다
+    m_grounded  = false;
+}
+
+
 void BodyComponent::SnapToGround()
 {
     // ★ 지면은 **맵이 정한다.** 전역 상수를 쓰면 지면이 다른 맵에서
