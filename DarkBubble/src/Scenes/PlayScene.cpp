@@ -170,6 +170,8 @@ bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
     //     「마지막으로 쉰 자리」다(세이브 포인트). 맵을 지나가는 것만으로
     //     부활 지점이 바뀌면 되돌아갈 이유가 사라진다.
     m_focus = {};   // 맵이 바뀌었으니 들고 있던 포인터는 무효다
+    // ※ m_drops 는 지우지 않는다. 각자 **어느 맵인지**를 들고 있어서
+    //   그 맵으로 돌아오면 그 자리에 그대로 있다(§3.6.1 의 「남는다」).
     m_player->PlaceAt(m_map.EntryX(entry));
 
     UpdateCamera(ctx);
@@ -200,17 +202,35 @@ void PlayScene::UpdateFocus()
     // 몸통 상자로 본다 — 발끝 점으로 보면 뛰어넘을 때 그냥 지나친다.
     const AABB body = m_playerParts->Box(Part_Torso);
 
-    // ---- ★ 물건이 먼저다 ----
-    //   화톳불 위에 무기를 떨궜을 때 무엇이 우선인가. **무기다.**
-    //   화톳불은 도망 안 가지만, 쉬면 적이 되살아난다 — 주우려다 쉬면
-    //   되돌릴 수가 없다. 되돌릴 수 없는 쪽을 뒤로 민다.
-    if (m_pickup->Active()
-        && m_player->PickupHand(m_pickup->WeaponId()) != WeaponHand::None
-        && Intersects(body, m_pickup->PickupArea()))
+    // ---- ★ 우선순위가 셋이다 ----
+    //     ① 주울 수 있는 물건
+    //     ② 맵의 것 (포탈 · 화톳불)
+    //     ③ **못 줍는** 물건 — 안내만
+    //
+    //   ★ ①이 ②보다 먼저인 이유: 화톳불은 도망 안 가지만 **쉬면 적이
+    //     되살아난다.** 주우려다 쉬면 되돌릴 수가 없다 —
+    //     **되돌릴 수 없는 쪽을 뒤로** 민다.
+    //
+    //   ★★ ③이 맨 뒤인 이유: 「손이 차서 못 줍는다」를 알려 주긴 해야 하지만,
+    //     그것 때문에 **화톳불을 못 쓰게 되면** 안 된다. 안내가 기능을
+    //     가로막으면 안내가 아니라 방해다.
+    Drop* blocked = nullptr;
+
+    for (Drop& d : m_drops)
     {
+        if (d.map != m_mapName || !Intersects(body, d.pickup->PickupArea()))
+            continue;
+
+        if (m_player->PickupHand(d.pickup->WeaponId()) == WeaponHand::None)
+        {
+            if (!blocked) blocked = &d;   // 뒤로 미뤄 둔다
+            continue;
+        }
+
         m_focus.kind   = FocusKind::Weapon;
-        m_focus.box    = m_pickup->PickupArea();
+        m_focus.box    = d.pickup->PickupArea();
         m_focus.prompt = "E : PICK UP";
+        m_focus.drop   = &d;
         return;
     }
 
@@ -224,6 +244,17 @@ void PlayScene::UpdateFocus()
         m_focus.prompt = it.Prompt();
         m_focus.map    = &it;
         return;
+    }
+
+    if (blocked)
+    {
+        // ★ 초점은 잡되 **E 는 아무것도 안 한다**(Interact 가 다시 묻는다).
+        //   말 없이 안 주워지면 「이건 못 줍는 물건인가?」로 읽힌다 —
+        //   못 하는 이유를 안 알려 주면 플레이어는 규칙을 못 배운다.
+        m_focus.kind   = FocusKind::Weapon;
+        m_focus.box    = blocked->pickup->PickupArea();
+        m_focus.prompt = "HANDS FULL";
+        m_focus.drop   = blocked;
     }
 }
 
@@ -239,15 +270,19 @@ void PlayScene::Interact(SceneContext& ctx)
     // ---- 무기를 줍는다 ----
     if (m_focus.kind == FocusKind::Weapon)
     {
-        const WeaponHand hand = m_player->PickupHand(m_pickup->WeaponId());
+        Drop* d = m_focus.drop;
+        const WeaponHand hand = m_player->PickupHand(d->pickup->WeaponId());
         if (hand == WeaponHand::None)
             return;   // 초점을 잡은 뒤 팔이 잘렸을 수도 있다
 
-        // ★ 순서가 중요하다. PickedUp 이 먼저면 WeaponId 를 읽을 수는 있지만
-        //   「무엇을 주웠는지」가 이미 지난 일이 된다 — 값을 먼저 옮긴다.
-        m_player->EquipWeapon(hand, m_pickup->WeaponId());
-        m_pickup->PickedUp();
+        m_player->EquipWeapon(hand, d->pickup->WeaponId());
         ctx.audio.Play("ui_confirm", 0.7f);
+
+        // ★★ 「주웠다」 = **목록에서 사라진다.** 숨김 플래그가 필요 없다.
+        //   ★ 지우면 m_focus.drop 이 끊기므로 **초점도 같이** 비운다 —
+        //     다음 틱의 UpdateFocus 가 다시 채운다.
+        m_drops.erase(m_drops.begin() + (d - m_drops.data()));
+        m_focus = {};
         return;
     }
 
@@ -481,18 +516,10 @@ bool PlayScene::Enter(SceneContext& ctx)
     // ★ 떨어진 무기도 GameObject 다. 위치가 있고 그려지므로 Transform 이 필요하고,
     //   플레이어·적과 같은 그릇에 담기면 「월드에 있는 것」이 한 종류가 된다 —
     //   나중에 상자·함정·투사체가 생겨도 같은 방식으로 붙는다.
-    //   ★ Body 를 **먼저** 붙인다 = 「물리 먼저, 판단 나중」. 플레이어와 같다.
-    //     이 한 줄이 「공중에서 떨군 무기가 떠 있다」를 고친다 — 중력도
-    //     발판 착지도 여기 이미 있다.
-    m_weaponObj.Add<BodyComponent>(m_level, kPickupHalfW,
-                                   kPickupHeight, kPickupHeight, kPickupHeight);
-    m_pickup = &m_weaponObj.Add<WeaponPickup>();
-    m_pickup->SetSheet(m_icons);   // 손 슬롯과 **같은 시트**를 쓴다
 
     // ★ 플레이어를 먼저 Start 한다 — LoadMap 이 SetHome/PlaceAt 을 부르는데
     //   그때 컨트롤러의 컴포넌트 참조가 이미 채워져 있어야 한다.
     m_playerObj.Start(ctx);
-    m_weaponObj.Start(ctx);
 
     if (!LoadMap(ctx, "field", "start"))
         return false;   // 첫 맵도 못 읽으면 진행할 수가 없다
@@ -512,7 +539,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
-    Log::Info("[play] F8 = 무기 바꾸기 — 대검은 **양손**이라 좌/우클릭이 같은 것을 휘두른다");
+    Log::Info("[play] F8 = 오른손 무기 바꾸기   F9 = 왼손 — 밀려난 것은 땅에 떨어진다");
+    Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
     Log::Info("[play] TIP: 공격 -> 후딜 중에 다시 공격 = 2타(THRUST). 머리 높이다");
     Log::Info("[play] TIP: 적 머리 위 `!` 가 예고다. 그동안 Shift 로 구르면 흘린다");
@@ -537,7 +565,7 @@ void PlayScene::Respawn(SceneContext& ctx)
     for (Enemy& e : m_enemies)
         e.brain->Reset(ctx);
 
-    // ★ m_weaponObj 를 **건드리지 않는다.**
+    // ★ m_drops 를 **건드리지 않는다.**
     //   떨어진 무기는 그 자리에 그대로 남고, 부활한 뒤 다시 주우러 간다.
     //   design.md §3.6.1 의 「남는다」 칸이 여기서 실체를 갖는다 —
     //   **아무것도 안 하는 것이 기능**인 드문 경우다.
@@ -708,10 +736,13 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     m_playerObj.Tick(ctx, consumeEdgeInput);
     UpdateWeaponDrop(ctx);
 
-    // ★ 떨어진 무기도 **굴린다.** 여태 Tick 을 안 불렀다 — 안 움직이는
-    //   물건이었으니 필요가 없었고, 그래서 공중에서 떨궈도 아무도 몰랐다.
+    // ★ 떨어진 무기도 **굴린다**(중력·발판 착지).
     //   ★★ 떨구기 **뒤**다. 그래야 이번 틱에 떨어진 것이 같은 틱부터 낙하한다.
-    m_weaponObj.Tick(ctx, consumeEdgeInput);
+    //   ★ **이 맵의 것만** 굴린다. 다른 맵의 물건을 여기 지형으로 떨어뜨리면
+    //     엉뚱한 높이에 착지한다 — 지형은 지금 맵의 것뿐이다.
+    for (Drop& d : m_drops)
+        if (d.map == m_mapName)
+            d.obj->Tick(ctx, consumeEdgeInput);
     TryPlayerHit(ctx);
 
     for (Enemy& e : m_enemies)
@@ -854,7 +885,7 @@ void PlayScene::DrawHandSlots(Renderer& renderer)
 
         // ★ **무기가 자기 아이콘을 들고 있다.** 여기에 `if (단검) … else if
         //   (대검) …` 을 쓰면 무기를 추가할 때마다 이 줄을 찾아 고쳐야 한다.
-        const int  icon    = armed ? m_player->Weapon().icon : kIconTeeth;
+        const int  icon    = armed ? m_player->Weapon(cells[i].hand).icon : kIconTeeth;
 
         const RECT src{ icon * kIconSize, 0, (icon + 1) * kIconSize, kIconSize };
 
@@ -907,14 +938,45 @@ void PlayScene::UpdateCamera(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 void PlayScene::UpdateWeaponDrop(SceneContext& ctx)
 {
-    if (m_player->ConsumeWeaponDropRequest())
-    {
-        const Transform& tr = m_playerObj.transform;
-        m_pickup->DropAt(tr.x, tr.y, m_player->WeaponId(), m_player->Weapon().icon);
-        ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromWorldX(tr.x, ctx.camera.X()));
-        Log::Info("[play] {} 가 땅에 떨어졌다 ({:.0f}, {:.0f})",
-                  m_player->Weapon().name, tr.x, tr.y);
-    }
+    const Transform& tr = m_playerObj.transform;
+    for (const std::string& id : m_player->ConsumeDrops())
+        DropItem(ctx, id, tr.x, tr.y);
+}
+
+
+// ----------------------------------------------------------------------------
+//  DropItem — 물건 하나를 월드에 놓는다
+//
+//    ★ 적 스폰(SpawnEnemies)과 **같은 모양**이다: GameObject 를 만들고,
+//      필요한 능력을 붙이고, 조립할 때 포인터를 받아 둔다.
+//      「월드에 있는 것」이 한 종류이므로 만드는 법도 한 종류다.
+// ----------------------------------------------------------------------------
+void PlayScene::DropItem(SceneContext& ctx, const std::string& weaponId, float x, float y)
+{
+    const WeaponCatalog& types = m_player->Weapons();
+    auto it = types.find(weaponId);
+    const int icon = (it != types.end()) ? it->second.icon : 1;
+
+    Drop d;
+    d.obj = std::make_unique<GameObject>("drop");
+    d.map = m_mapName;
+
+    // ★ Body 를 **먼저** 붙인다 = 「물리 먼저, 판단 나중」. 플레이어와 같다.
+    //   중력도 발판 착지도 여기 이미 있다 — 물건용 낙하 코드를 새로 쓰면
+    //   플레이어와 두 벌이 된다.
+    d.obj->Add<BodyComponent>(m_level, kPickupHalfW,
+                              kPickupHeight, kPickupHeight, kPickupHeight);
+    d.pickup = &d.obj->Add<WeaponPickup>();
+    d.pickup->SetSheet(m_icons);   // 손 슬롯과 **같은 시트**를 쓴다
+
+    d.obj->Start(ctx);
+    d.pickup->DropAt(x, y, weaponId, icon);
+
+    ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromWorldX(x, ctx.camera.X()));
+    Log::Info("[play] {} 가 땅에 떨어졌다 ({:.0f}, {:.0f})  바닥의 물건 {}개",
+              weaponId, x, y, m_drops.size() + 1);
+
+    m_drops.push_back(std::move(d));
 }
 
 
@@ -973,7 +1035,9 @@ void PlayScene::Render(Renderer& renderer)
     }
 
     // 바닥의 물건 -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
-    m_weaponObj.Render(renderer);
+    for (Drop& d : m_drops)
+        if (d.map == m_mapName)
+            d.obj->Render(renderer);
     for (Enemy& e : m_enemies)
         e.obj->Render(renderer);
     m_playerObj.Render(renderer);
@@ -1014,7 +1078,9 @@ void PlayScene::Render(Renderer& renderer)
     //   붙인 순서가 곧 실행 순서라서, Parts 를 먼저 붙이면 판정 상자를
     //   스프라이트가 덮어 「히트박스가 뒤에 있는」 상태가 된다.
     //   틱 순서와 그리기 순서의 요구가 다르므로 패스를 나눈다.
-    m_weaponObj.RenderDebug(renderer);
+    for (Drop& d : m_drops)
+        if (d.map == m_mapName)
+            d.obj->RenderDebug(renderer);
     for (Enemy& e : m_enemies)
         e.obj->RenderDebug(renderer);
     m_playerObj.RenderDebug(renderer);

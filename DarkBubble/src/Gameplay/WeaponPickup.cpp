@@ -33,7 +33,6 @@ void WeaponPickup::DropAt(float x, float y, std::string weaponId, int icon)
 
     m_weaponId = std::move(weaponId);
     m_icon     = icon;
-    m_active   = true;
 }
 
 
@@ -46,9 +45,6 @@ AABB WeaponPickup::PickupArea() const
 
 void WeaponPickup::Render(Renderer& renderer)
 {
-    if (!m_active)
-        return;
-
     const Transform& tr = Owner().transform;
 
     // ★ 위아래로 살짝 흔든다. 바닥에 놓인 물건은 배경에 묻히기 쉬운데,
@@ -88,7 +84,7 @@ void WeaponPickup::Render(Renderer& renderer)
 
 void WeaponPickup::RenderDebug(Renderer& renderer)
 {
-    if (!m_active || !renderer.DebugDraw())
+    if (!renderer.DebugDraw())
         return;
 
     renderer.DrawRectOutline(PickupArea(), DirectX::Colors::Aqua, 1.0f);

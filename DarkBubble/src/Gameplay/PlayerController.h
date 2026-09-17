@@ -13,6 +13,9 @@
 // ============================================================================
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "Core/AABB.h"
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
@@ -35,6 +38,20 @@ class PoiseComponent;
 //      §1.2 의 기회비용이 슬롯 구조만으로 또 성립한다. 새 규칙이 필요 없다.
 // ============================================================================
 enum class WeaponHand { None, Right, Left };
+
+// 손 -> 슬롯 번호. ★ enum 값에 기대는 유일한 곳으로 **모아 둔다** —
+//   흩어 놓으면 enum 에 값을 하나 더할 때 조용히 틀린다.
+constexpr int HandSlot(WeaponHand h) { return static_cast<int>(h) - 1; }
+
+// 반대 손. ★ `h == Right ? Left : Right` 를 네 군데에 흩어 놓았더니 그중
+//   하나에서 방향을 뒤집어 적어 놓고도 컴파일이 됐다 — 같은 타입이라
+//   컴파일러가 못 잡는다(handoff §9.1). 한 곳으로 모은다.
+constexpr WeaponHand OtherHand(WeaponHand h)
+{
+    return (h == WeaponHand::Right) ? WeaponHand::Left
+         : (h == WeaponHand::Left)  ? WeaponHand::Right
+         :                            WeaponHand::None;
+}
 class SpriteComponent;
 class StaminaComponent;
 
@@ -178,6 +195,10 @@ private:
     //     0 으로 만들면 「잘렸는데 무기는 들려 있는」 몸이 생긴다.
     void OnPartBroken(int part);
 
+    // 그 손을 비운다. ★ 비운 것은 **사라지지 않고 땅에 떨어진다** —
+    //   팔이 잘려서든 다른 것을 들어서든 「손에서 벗어난다」는 같은 일이다.
+    void Displace(WeaponHand hand);
+
 public:
 
     // ★ 맵을 옮기면 **부활 지점도 따라간다.** 안 그러면 동굴에서 죽었는데
@@ -229,13 +250,15 @@ public:
     //     없으면 낮은 틈에서 일어서는 순간 몸이 천장 속에 박힌다.
     bool Crouched() const;
 
-    WeaponHand Hand() const { return m_weaponHand; }
-
     // ---- Scene 과 주고받는 요청 ----
     //   ★ 컨트롤러는 **월드에 떨어진 물건을 모른다.** 「떨궈야 한다」까지만
     //     말하고, 어디에 어떻게 놓을지는 Scene 이 정한다.
     //     사망 화면을 Scene 이 띄우는 것과 같은 구조다.
-    bool ConsumeWeaponDropRequest();
+    //
+    //   ★★ **목록**이다(8-b). 손이 둘이 되면 한 틱에 둘이 떨어질 수 있다 —
+    //     지금은 한 대에 한 부위만 부서지므로 실제로는 하나뿐이지만,
+    //     「하나뿐이라 괜찮았던 것」을 이번에는 미리 접는다.
+    std::vector<std::string> ConsumeDrops();
 
     // ★★ **줍기는 이제 E 다.** 손 버튼에서 떼어 냈다.
     //   전에는 「발밑에 무기가 있으면 그 버튼이 줍기가 된다」였는데,
@@ -253,13 +276,28 @@ public:
     //     만으로는 부족하다 — 땅에 떨어진 것이 단검인지 대검인지가 결과를 바꾼다.
     void EquipWeapon(WeaponHand hand, const std::string& weaponId);
 
-    // 지금 들고 있는 무기. ★ 카탈로그에 없으면 **첫 무기**로 대신한다 —
+    // **그 손의** 무기. ★ 카탈로그에 없으면 첫 무기로 대신한다 —
     //   파일에서 무기 이름이 사라져도 게임은 돈다(로더들과 같은 태도).
-    const WeaponType& Weapon() const;
-    const std::string& WeaponId() const { return m_weaponId; }
+    //   ※ 빈손인지는 `HandArmed` 로 따로 묻는다. 여기서 널을 돌려주면
+    //     부르는 쪽마다 널 검사가 생긴다.
+    const WeaponType& Weapon(WeaponHand hand) const;
 
-    // 임시 디버그(F8) — 카탈로그의 다음 무기로. 8단계 장비 화면이 오면 버린다.
-    void CycleWeapon();
+    // 그 손에 든 것의 이름. 빈손이면 빈 문자열.
+    const std::string& HandItem(WeaponHand hand) const;
+
+    // 무기 카탈로그. Scene 이 **땅에 놓을 물건의 생김새**를 물을 때 쓴다.
+    //   ★ 「왜 플레이어에게 무기 종류를 묻지?」가 맞다 — 지금 무기를 쓰는 것이
+    //     플레이어뿐이라 여기 있을 뿐이다. 상자나 적이 무기를 내놓게 되는
+    //     순간 **적 카탈로그처럼 Scene 으로 올라간다**(design.md §9 의
+    //     「두 번째 사용자가 생겼을 때 올린다」).
+    const WeaponCatalog& Weapons() const { return m_weapons; }
+
+    // 임시 디버그(F8 오른손 / F9 왼손) — 그 손에 카탈로그의 다음 무기를 든다.
+    //   ★ 손마다 따로인 이유: 한 키뿐이면 **두 손에 서로 다른 것을 들 수가
+    //     없어서** 슬롯이 둘이라는 것을 확인할 방법이 없다. 8-a 에서
+    //     「무기가 하나뿐이면 바꾸는 것을 확인할 수 없다」와 같은 자리다.
+    //   8단계 장비 화면이 오면 버린다.
+    void CycleWeapon(WeaponHand hand);
 
     // ---- ★ 팔 레이어 (design.md §8.1) ----
     //   팔을 별도 시트로 겹쳐 두고, 잘리면 그 장을 숨기고 상처 장을 켠다.
@@ -313,10 +351,20 @@ private:
     //   무기의 성질이 아니다(WeaponType.h 주석).
     UnarmedSet    m_unarmed;
 
-    // 지금 들고 있는 무기의 **이름**. ★ 포인터가 아니라 이름인 이유는
-    //   적 스폰이 종류를 이름으로 가리키는 것과 같다 — 카탈로그가 바뀌어도
-    //   「무엇을 들고 있었는가」는 남는다.
-    std::string   m_weaponId = "dagger";
+    // ---- ★★ 손 슬롯 둘 (8-b) ----
+    //   전에는 `m_weaponHand`(한 자루를 어느 손에) + `m_weaponId`(그게 뭔지)
+    //   였다. 두 변수가 **하나의 「한 자루」를 나눠 들고** 있어서 두 자루를
+    //   표현할 수가 없었고, 그래서 `twoHanded` 의 대가가 실은 0 이었다 —
+    //   대검을 들든 단검을 들든 왼손은 똑같이 비어 있었다.
+    //
+    //   ★ 이제 「각 손에 무엇이 있는가」다. 빈 문자열 = 없음.
+    //     **양손 무기는 두 칸을 다 차지한다** — 그 한 가지 규칙으로
+    //     「좌/우클릭이 둘 다 같은 것을 휘두른다」와 「왼손이 막힌다」가
+    //     둘 다 나온다. `twoHanded` 분기가 오히려 줄었다.
+    //
+    //   ★ 포인터가 아니라 이름인 이유는 적 스폰이 종류를 이름으로 가리키는
+    //     것과 같다 — 카탈로그가 바뀌어도 「무엇을 들고 있었는가」는 남는다.
+    std::string   m_hand[2];   // [0] = 오른손, [1] = 왼손
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     BodyComponent*    m_body    = nullptr;
@@ -379,8 +427,12 @@ private:
 
     // ★ 장비는 **되돌아가지 않는다**(design.md §3.6.1 의 「남는다」 칸).
     //   죽어도 무기는 떨어진 자리에 남고, 손은 빈 채로 부활한다.
-    WeaponHand m_weaponHand = WeaponHand::Right;
-    bool m_weaponDropRequested = false;
+
+    // 이번 틱에 손에서 떨어진 것들. Scene 이 가져가 월드에 놓는다.
+    //   ★ 이름이 `m_dropRequests` 인 이유: Scene 에도 `m_drops` 가 있는데
+    //     **그쪽은 월드에 실제로 놓인 물건**이다. 같은 이름이면 두 개의 다른
+    //     것이 한 단어를 쓰게 되고, 읽는 사람이 반드시 한 번은 헷갈린다.
+    std::vector<std::string> m_dropRequests;
 
     int  m_armorIndex = 0;       // F2 로 바뀐다(임시)
     bool m_deathScreenRequested = false;

@@ -440,6 +440,12 @@ void PlayerController::Start(SceneContext& ctx)
     m_unarmed           = DefaultUnarmed();
     ReloadWeapons();
 
+    // ★ 손 슬롯은 **빈 채로 시작한다.** 전에는 기본값이 「오른손에 단검」
+    //   이었는데, 슬롯이 이름 문자열이 되면서 그 기본값이 사라졌다 —
+    //   여기서 명시적으로 들려 주지 않으면 빈손으로 시작한다.
+    //   ★★ 기본값에 숨어 있던 것을 **보이는 한 줄로** 끌어낸 셈이다.
+    EquipWeapon(WeaponHand::Right, "dagger");
+
     m_body    = &Owner().Require<BodyComponent>();
     m_sprite  = &Owner().Require<SpriteComponent>();
     m_poise   = &Owner().Require<PoiseComponent>();
@@ -477,14 +483,14 @@ namespace
 
 bool PlayerController::HandArmed(WeaponHand hand) const
 {
-    if (hand == WeaponHand::None || m_weaponHand == WeaponHand::None)
+    if (hand == WeaponHand::None)
         return false;
 
-    // ★★ **양손 무기는 두 손이 다 「들고 있다」**가 된다. 좌클릭도 우클릭도
-    //   같은 대검을 휘두른다 — 두 손으로 쥐고 있으니 당연하다.
-    //   그리고 그것이 곧 §1.2 의 기회비용이다: 왼손이 막혀 나중에 횃불도
-    //   방패도 못 든다. **규칙을 따로 쓰지 않고 이 한 줄로** 성립한다.
-    if (!Weapon().twoHanded && m_weaponHand != hand)
+    // ★★ `twoHanded` 분기가 **사라졌다.** 양손 무기는 두 칸을 다 차지하므로
+    //   「그 칸이 비었는가」만 물으면 된다 — 좌/우클릭이 둘 다 대검을
+    //   휘두르는 것도, 왼손이 막히는 것도 **같은 한 줄**에서 나온다.
+    //   ★ 규칙을 조건문으로 쓰는 대신 **자료 구조가 말하게** 만든 자리다.
+    if (m_hand[HandSlot(hand)].empty())
         return false;
 
     // ※ 팔이 잘리면 TakeHit 이 이미 무기를 떨구므로 여기 걸릴 일은 없다.
@@ -498,27 +504,29 @@ void PlayerController::OnPartBroken(int part)
 {
     Log::Info("[play] ★ {} 절단!", m_parts->Name(part));
 
-    // ★ 팔이 잘리면 **그 손의** 무기를 떨군다(design.md §3.2.2).
-    //   다른 손이면 아무 일도 없다 — 어느 손인지가 결과를 바꾼다.
-    //
-    //   ★★ 단, **양손 무기는 어느 팔이 잘려도** 떨어진다. 두 손으로 쥐고
-    //     있으니 한 손을 잃으면 들 수가 없다 — §3.2.2 가 무기에 따라
-    //     무거워진다. 새 규칙이 아니라 `twoHanded` 한 칸의 결과다.
-    const bool holding  = (m_weaponHand != WeaponHand::None);
-    const bool armPart  = (part == Part_RightArm || part == Part_LeftArm);
-    const bool lostHand = holding && armPart &&
-        (Weapon().twoHanded
-            || (part == Part_RightArm && m_weaponHand == WeaponHand::Right)
-            || (part == Part_LeftArm  && m_weaponHand == WeaponHand::Left));
-
-    if (lostHand)
+    if (part == Part_Legs)
     {
-        m_weaponHand          = WeaponHand::None;
-        m_weaponDropRequested = true;   // 어디에 떨어뜨릴지는 Scene 이 정한다
-        Log::Info("[play]   -> 무기를 떨궜다! 주우러 가야 한다");
-    }
-    else if (part == Part_Legs)
         Log::Info("[play]   -> 다리 상실 : 이동 대폭 감소 + 구르기 불가");
+        return;
+    }
+    if (part != Part_RightArm && part != Part_LeftArm)
+        return;
+
+    // ★ 팔이 잘리면 **그 손에 있던 것**을 떨군다(design.md §3.2.2).
+    //   다른 손이면 아무 일도 없다 — 어느 손인지가 결과를 바꾼다.
+    const WeaponHand lost =
+        (part == Part_RightArm) ? WeaponHand::Right : WeaponHand::Left;
+
+    if (m_hand[HandSlot(lost)].empty())
+        return;
+
+    //   ★★ 양손 무기는 **어느 팔이 잘려도** 떨어진다. 두 칸을 차지하고 있으니
+    //     한 칸이 무너지면 나머지 칸도 비어야 한다 — 새 규칙이 아니라
+    //     「두 칸을 차지한다」의 결과다.
+    //   ★ 「밀려난 것을 땅에 떨어뜨린다」와 **같은 일**이므로 같은 함수를 쓴다.
+    const std::string dropped = m_hand[HandSlot(lost)];
+    Displace(lost);
+    Log::Info("[play]   -> {} 를 떨궜다! 주우러 가야 한다", dropped);
 }
 
 
@@ -530,8 +538,8 @@ bool PlayerController::Grounded() const
 
 bool PlayerController::CanHold(WeaponHand hand) const
 {
-    if (hand == WeaponHand::None)           return false;
-    if (m_weaponHand != WeaponHand::None)   return false;   // 이미 들고 있다
+    if (hand == WeaponHand::None)        return false;
+    if (!m_hand[HandSlot(hand)].empty()) return false;   // 그 손이 차 있다
     return !m_parts->IsBroken(ArmOf(hand));
 }
 
@@ -540,10 +548,12 @@ WeaponHand PlayerController::PickupHand(const std::string& weaponId) const
 {
     // ★★ **양손 무기는 두 팔이 다 성해야 한다.** 한 팔을 잃으면 대검은
     //   못 든다 — 「팔을 잃으면 무기를 바꿔야 한다」가 규칙 없이 성립한다.
+    //   ★ 두 칸을 차지하므로 **두 칸이 다 비어 있어야** 한다 — 왼손에 단검을
+    //     들고 있으면 대검을 못 줍는다. 「무엇을 내려놓을까」가 생긴다.
     auto it = m_weapons.find(weaponId);
     if (it != m_weapons.end() && it->second.twoHanded)
     {
-        return (CanHold(WeaponHand::Right) && !m_parts->IsBroken(Part_LeftArm))
+        return (CanHold(WeaponHand::Right) && CanHold(WeaponHand::Left))
              ? WeaponHand::Right : WeaponHand::None;
     }
 
@@ -555,52 +565,96 @@ WeaponHand PlayerController::PickupHand(const std::string& weaponId) const
 }
 
 
-bool PlayerController::ConsumeWeaponDropRequest()
+std::vector<std::string> PlayerController::ConsumeDrops()
 {
-    if (!m_weaponDropRequested) return false;
-    m_weaponDropRequested = false;
-    return true;
+    return std::exchange(m_dropRequests, {});
+}
+
+
+void PlayerController::Displace(WeaponHand hand)
+{
+    std::string& slot = m_hand[HandSlot(hand)];
+    if (slot.empty())
+        return;
+
+    // ★ 양손 무기는 두 칸에 **같은 이름**이 적혀 있다. 한 칸만 비우면
+    //   반대 칸에 유령이 남는다.
+    //   ★★ 「두 칸이 같다」로 판정하면 **한손 무기 두 자루를 같은 종류로**
+    //     들었을 때도 둘 다 사라진다. 판정은 `twoHanded` 로 한다 —
+    //     **같아 보이는 것과 같은 것은 다르다.**
+    const bool both = Weapon(hand).twoHanded;
+
+    m_dropRequests.push_back(slot);   // 밀려난 것은 땅에 떨어진다
+    slot.clear();
+    if (both)
+        m_hand[HandSlot(OtherHand(hand))].clear();
 }
 
 
 void PlayerController::EquipWeapon(WeaponHand hand, const std::string& weaponId)
 {
-    m_weaponHand = hand;
-    m_weaponId   = weaponId;
-    Log::Info("[play] {} 를 {} 손에 들었다{}", Weapon().name,
+    if (hand == WeaponHand::None)
+        return;
+
+    auto it = m_weapons.find(weaponId);
+    const bool both = (it != m_weapons.end()) && it->second.twoHanded;
+
+    // ★ 자리를 비운다. **밀려난 것은 사라지지 않고 땅에 떨어진다** —
+    //   장비를 바꾸는 것이 물건을 없애는 일이 되면 안 된다.
+    //   그리고 이것이 양손 무기의 대가를 눈에 보이게 만든다:
+    //   **대검을 들면 왼손에 있던 것이 바닥에 떨어진다.**
+    Displace(hand);
+    if (both)
+        Displace(OtherHand(hand));
+
+    m_hand[HandSlot(hand)] = weaponId;
+
+    // ★★ **양손 무기는 두 칸을 차지한다.** 이 한 줄이 「좌/우클릭이 둘 다
+    //   휘두른다」와 「왼손이 막힌다」를 **둘 다** 만든다 — 규칙을 조건문으로
+    //   쓰지 않고 자료 구조가 말하게 하는 자리다(§1.2 의 기회비용).
+    if (both)
+        m_hand[HandSlot(OtherHand(hand))] = weaponId;
+
+    Log::Info("[play] {} 를 {} 손에 들었다{}", Weapon(hand).name,
               hand == WeaponHand::Right ? "오른" : "왼",
-              Weapon().twoHanded ? " (양손)" : "");
+              both ? " (양손 — 반대 손이 막혔다)" : "");
 }
 
 
-const WeaponType& PlayerController::Weapon() const
+const std::string& PlayerController::HandItem(WeaponHand hand) const
 {
-    auto it = m_weapons.find(m_weaponId);
+    static const std::string kNone;
+    return (hand == WeaponHand::None) ? kNone : m_hand[HandSlot(hand)];
+}
+
+
+const WeaponType& PlayerController::Weapon(WeaponHand hand) const
+{
+    auto it = m_weapons.find(HandItem(hand));
     if (it != m_weapons.end())
         return it->second;
 
     // ★ 없으면 죽지 않는다. 카탈로그는 비어 있을 수 없다 —
     //   Start 가 기본 단검을 먼저 넣고 파일로 덮어쓴다.
+    //   ※ 빈손일 때도 여기로 온다. 「빈손인가」는 HandArmed 가 따로 답한다 —
+    //     여기서 널을 돌려주면 부르는 쪽마다 널 검사가 생긴다.
     return m_weapons.begin()->second;
 }
 
 
-void PlayerController::CycleWeapon()
+void PlayerController::CycleWeapon(WeaponHand hand)
 {
     // ★ 임시. 아직 무기를 얻을 길이 「떨어진 것을 줍는다」뿐이라
     //   두 번째 무기를 손에 넣을 방법이 없다. 8단계 장비 화면이 답이다.
-    auto it = m_weapons.find(m_weaponId);
+    //
+    //   ★ 비우는 일은 EquipWeapon 이 한다 — 그리고 밀려난 것은 **땅에
+    //     떨어진다.** 디버그 키가 물건을 없애 버리면, 그걸로 확인한 결과도
+    //     못 믿게 된다.
+    auto it = m_weapons.find(m_hand[HandSlot(hand)]);
     if (it == m_weapons.end() || ++it == m_weapons.end())
         it = m_weapons.begin();
 
-    m_weaponId = it->first;
-
-    // ★ 손에 아무것도 없으면 들려 준다. 없으면 「바꿨는데 안 나간다」가 된다.
-    if (m_weaponHand == WeaponHand::None)
-        m_weaponHand = WeaponHand::Right;
-
-    Log::Info("[play] (F8) 무기 -> {}{}", Weapon().name,
-              Weapon().twoHanded ? " (양손 — 왼손이 막힌다)" : "");
+    EquipWeapon(hand, it->first);
 }
 
 
@@ -775,10 +829,10 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_poise->Reset();
     m_poise->SetValue(Armor().poise);   // ★ 값의 출처는 방어구다
 
-    m_weaponDropRequested = false;
+    m_dropRequests.clear();   // 아직 Scene 이 안 가져간 요청은 버린다
 
     // ---- 남는다 ----
-    //   ★ m_weaponHand 도 되돌리지 않는다. 무기를 떨군 채 죽었다면
+    //   ★ 손 슬롯(m_hand)도 되돌리지 않는다. 무기를 떨군 채 죽었다면
     //     **빈손으로 부활**하고, 무기는 떨어진 그 자리에 그대로 있다.
     //     되돌리면 「죽으면 무기가 손으로 돌아오는」 게임이 되어
     //     §3.6.1 의 「남는다」가 무의미해진다.
@@ -833,7 +887,9 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
 
     // ★ 공중이면 무조건 내려찍기다. 아래의 선택지(웅크리기·콤보·달리기)는
     //   전부 **발이 땅에 있다**는 전제 위에 있다.
-    const WeaponType& w = Weapon();
+    // ★★ **누른 손**의 무기다. 손 슬롯이 둘이 된 뒤로 「내 무기」라는 것이
+    //   없다 — 왼손에 단검, 오른손에 대검이면 버튼마다 다른 것이 나간다.
+    const WeaponType& w = Weapon(m_pendingHand);
 
     if (!m_body->Grounded())             return w.jump;
 
@@ -870,7 +926,7 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
 
 const AttackData& PlayerController::CurrentAttack() const
 {
-    return m_currentAttack ? *m_currentAttack : Weapon().light;
+    return m_currentAttack ? *m_currentAttack : Weapon(m_pendingHand).light;
 }
 
 
@@ -1385,7 +1441,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //   ★ 예약에 **손까지** 담는다. 왼손으로 1타를 내고 오른손으로 이어치는
         //     것도 성립해야 하기 때문이다 — 「이어친다」는 무기의 성질이지
         //     손의 성질이 아니다.
-        if (handPressed != WeaponHand::None && m_currentAttack == &Weapon().light
+        if (handPressed != WeaponHand::None && m_currentAttack == &Weapon(m_pendingHand).light
             && m_stateTicks >= atk.startup + atk.active)
         {
             m_queuedHand = handPressed;
@@ -1492,8 +1548,11 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
 
     // ★ 임시 디버그 키(F8) — 카탈로그의 다음 무기로. 8단계 장비 화면이 답이다.
     //   ※ 죽은 뒤에는 받지 않는다 — F4/F7 과 같은 이유다.
-    if (consumeEdgeInput && ctx.input.WeaponSwapPressed() && !IsDead())
-        CycleWeapon();
+    if (consumeEdgeInput && !IsDead())
+    {
+        if (ctx.input.WeaponSwapRightPressed()) CycleWeapon(WeaponHand::Right);
+        if (ctx.input.WeaponSwapLeftPressed())  CycleWeapon(WeaponHand::Left);
+    }
 
     // ★ 임시 디버그 키 — 부위를 부러뜨렸다 되돌린다.
     //
@@ -1533,12 +1592,11 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //   **전이할 때만** 갈린다 — 그래서 force 로 한 번 흔들어 준다.
         ChangeState(ctx, RestingState(moving), true);
 
-        Log::Info("[play] (디버그) {} {} — 엎드림 {}  무기 {}",
+        Log::Info("[play] (디버그) {} {} — 엎드림 {}  손 L[{}] R[{}]",
                   m_parts->Name(breakPart),
                   wasBroken ? "복구" : "파괴",
                   m_parts->Prone() ? "ON" : "OFF",
-                  m_weaponHand == WeaponHand::Right ? "R.HAND"
-                : m_weaponHand == WeaponHand::Left  ? "L.HAND" : "-none-");
+                  HandItem(WeaponHand::Left), HandItem(WeaponHand::Right));
     }
 }
 
@@ -1623,7 +1681,7 @@ void PlayerController::RenderUI(Renderer& renderer)
     //   「왜 공격이 안 되지」를 플레이어가 추측하게 두면 안 된다.
     //   ★ 「주울 수 있다」는 이제 여기서 안 띄운다. 무기 **위에** `E : PICK UP`
     //     이 뜨므로(Scene), 같은 말을 두 곳에서 하면 한쪽이 낡는다.
-    if (m_weaponHand == WeaponHand::None)
+    if (!HandArmed(WeaponHand::Right) && !HandArmed(WeaponHand::Left))
     {
         // ★ 「할 수 있는 것」을 같이 알려 준다. 못 하는 것만 말하면 막힌 느낌이 든다.
         renderer.DrawString("NO WEAPON - BOTH HANDS BITE",
@@ -1634,13 +1692,24 @@ void PlayerController::RenderUI(Renderer& renderer)
     // ---- 방어구 ----
     //   ★ F2 로 바뀌는 값이므로 **항상** 보여야 한다.
     //     안 보이면 「같은 공격에 왜 이번엔 안 밀렸지?」를 확인할 수 없다.
+    //   ★★ **두 손을 다** 적는다. 한 줄로 「내 무기」를 적던 때는 손이
+    //     하나뿐인 셈이라 맞았지만, 이제 어느 손에 무엇이 있는지가 전부다.
+    //     양손 무기는 두 칸이 같은 것이므로 `L=R` 이 곧 「양손」이다.
+    const bool twoH = HandArmed(WeaponHand::Right)
+                   && m_hand[HandSlot(WeaponHand::Right)]
+                      == m_hand[HandSlot(WeaponHand::Left)];
+
+    auto label = [this](WeaponHand h) -> const char*
+    {
+        return HandArmed(h) ? Weapon(h).name.c_str() : "-";
+    };
+
     renderer.DrawString(
-        std::format("ARMOR {} (poise {})  WEAPON {} {}",
-                    Armor().name, Armor().poise,
-                    m_weaponHand == WeaponHand::None ? "-none-" : Weapon().name.c_str(),
-                    m_weaponHand == WeaponHand::None ? ""
-                  : Weapon().twoHanded               ? "[2H]"
-                  : m_weaponHand == WeaponHand::Right ? "[R]" : "[L]"),
+        twoH ? std::format("ARMOR {} (poise {})  BOTH HANDS {}",
+                           Armor().name, Armor().poise, label(WeaponHand::Right))
+             : std::format("ARMOR {} (poise {})  L {}  R {}",
+                           Armor().name, Armor().poise,
+                           label(WeaponHand::Left), label(WeaponHand::Right)),
         12.0f, Config::kCanvasHeight - 52.0f, DirectX::Colors::SlateGray, 1);
 
     // ---- 상태 ----
@@ -1651,7 +1720,7 @@ void PlayerController::RenderUI(Renderer& renderer)
         const AttackData& a = CurrentAttack();
         renderer.DrawString(
             std::format("{}{}  t{:<3}{}   [{} {} {}]  h{:.0f}{}",
-                        a.name, (m_currentAttack == &Weapon().thrust) ? " (2nd)" : "",
+                        a.name, (m_currentAttack == &Weapon(m_pendingHand).thrust) ? " (2nd)" : "",
                         m_stateTicks, AttackPhase(m_stateTicks, a),
                         a.startup, a.active, a.recovery, a.heightFromFoot,
                         (m_queuedHand != WeaponHand::None) ? "  >> NEXT" : ""),

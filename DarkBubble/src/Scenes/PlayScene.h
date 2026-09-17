@@ -101,6 +101,7 @@ private:
     //   ★★ 가리키는 것이 **맵의 것만이 아니다.** 땅에 떨어진 무기도 E 로
     //     줍는다. 그래서 초점은 `MapInteract*` 가 아니라 **「상자 + 글자 +
     //     종류」**다 — 그려 주는 쪽은 그것이 문인지 무기인지 알 필요가 없다.
+    struct Drop;   // 아래에 있다. 여기서는 가리키기만 한다
     enum class FocusKind { None, Weapon, Map };
 
     struct Focus
@@ -109,6 +110,7 @@ private:
         AABB               box{};              // 안내를 띄울 자리
         const char*        prompt = "";
         const MapInteract* map    = nullptr;   // Map 일 때만
+        Drop*              drop   = nullptr;   // Weapon 일 때만
     };
     Focus m_focus;
 
@@ -166,7 +168,33 @@ private:
     float m_viewY = 0.0f;
 
     GameObject m_playerObj{ "player" };
-    GameObject m_weaponObj{ "weapon" };   // 땅에 떨어진 무기
+
+    // ========================================================================
+    //  ★ 땅에 떨어진 물건도 **여럿이다** (8-b)
+    //
+    //    손이 둘이 되면 두 자루를 들 수 있고, 그러면 두 자루가 떨어질 수 있다.
+    //    하나짜리(`m_weaponObj`)로 두면 **한 자루가 조용히 사라진다.**
+    //
+    //    ★ 적이 여럿이 될 때와 **완전히 같은 이동**이다(7-a): `unique_ptr` 담은
+    //      `vector` + 조립할 때 받아 둔 포인터. `vector<GameObject>` 이면 안 되는
+    //      이유도 같다 — 재배치할 때 `component.m_owner` 가 옛 주소를 가리킨다.
+    //
+    //    ★★ 「있다/없다」가 **목록에 있는가**가 되면서 `m_active` 플래그가
+    //      사라졌다. 하나뿐일 때는 숨겼다 보였다 해야 했지만, 여럿이면
+    //      **지우면 된다.** 상태가 하나 줄었다.
+    // ========================================================================
+    struct Drop
+    {
+        std::unique_ptr<GameObject> obj;
+        WeaponPickup*               pickup = nullptr;
+
+        // ★ **어느 맵에 떨어져 있는가.** 없으면 동굴에 떨군 무기가 들판의
+        //   같은 좌표에 나타난다 — 맵이 하나일 때만 안 틀렸던 것이다.
+        std::string                 map;
+    };
+    std::vector<Drop> m_drops;
+
+    void DropItem(SceneContext& ctx, const std::string& weaponId, float x, float y);
 
     // ========================================================================
     //  ★ 적은 여럿이다
@@ -220,5 +248,4 @@ private:
     //   ※ 적 쪽 포인터는 여기 없다 — Enemy 구조체가 들고 있다.
     PlayerController* m_player      = nullptr;
     PartsComponent*   m_playerParts = nullptr;
-    WeaponPickup*     m_pickup      = nullptr;
 };
