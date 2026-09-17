@@ -65,6 +65,12 @@ int main()
 
     const char* kMoves[] = { "light", "crouch", "dash", "thrust", "jump", "prone" };
 
+    // 막는 띠가 있으면 방패다 — WeaponType::IsShield() 와 같은 판정.
+    auto isShield = [](const JsonValue& w)
+    {
+        return w["guardTop"].Flt(0.0f) > w["guardBottom"].Flt(0.0f);
+    };
+
     for (const auto& kv : list.Members())
     {
         const std::string& id = kv.first;
@@ -72,6 +78,23 @@ int main()
 
         Check(!w["name"].Str().empty(), id + " : name 이 있다");
         Check(w["icon"].Int(-1) >= 0,   id + " : icon 이 있다");
+
+        // ---- 방패 ----
+        if (isShield(w))
+        {
+            const int def  = w["defense"]  .Int(-1);
+            const int cost = w["guardCost"].Int(-1);
+            Check(def > 0 && def <= 100, id + " : defense 가 1~100%");
+            Check(cost > 0,              id + " : guardCost 가 있다");
+
+            // ★ 방패는 **휘두르지 않는다.** 공격 데이터는 base(단검)에서
+            //   물려받은 채 남아 있고 아무도 안 읽는다 — 그래서 아래의
+            //   「무기마다 다른 그림 행」 검사에서 빼야 한다. 안 그러면
+            //   단검과 같은 행을 쓴다고 실패한다.
+            Check(w["guardClip"]["row"].Int(-1) >= 0,       id + " : guardClip 이 있다");
+            Check(w["guardCrouchClip"]["row"].Int(-1) >= 0, id + " : guardCrouchClip 이 있다");
+            continue;
+        }
 
         for (const char* k : kMoves)
             One(id + "." + k, w[k]);
@@ -81,7 +104,7 @@ int main()
         //   6-a·b 에서 무브셋 4종이 전부 같은 행이던 것과 똑같은 실수다.
         for (const auto& other : list.Members())
         {
-            if (other.first == id) continue;
+            if (other.first == id || isShield(other.second)) continue;
             bool same = true;
             for (const char* k : kMoves)
             {
@@ -89,6 +112,21 @@ int main()
                 { same = false; break; }
             }
             Check(!same, id + " 와 " + other.first + " 가 다른 그림 행을 쓴다");
+        }
+    }
+
+    // ---- ★★ 방패끼리도 **다른 그림**이어야 한다 ----
+    //   방패의 성격은 덮는 띠의 높이다. 그림이 같으면 「이게 어디까지 막는지」를
+    //   화면에서 알 수 없고, 고르는 일이 숫자 읽기가 된다.
+    for (const auto& a : list.Members())
+    {
+        if (!isShield(a.second)) continue;
+        for (const auto& b : list.Members())
+        {
+            if (b.first == a.first || !isShield(b.second)) continue;
+            Check(a.second["guardClip"]["row"].Int(-1)
+                    != b.second["guardClip"]["row"].Int(-2),
+                  a.first + " 와 " + b.first + " 가 다른 방어 그림을 쓴다");
         }
     }
 

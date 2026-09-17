@@ -7,6 +7,8 @@
 #      2  잘림      — 붉은 X
 #      3  이빨      — 무기가 없어도 쓸 수 있는 것(물기)
 #      4  대검      — 두껍고 긴 날 + 넓은 날밑   ★ 8-a 에서 추가
+#      5  작은 방패 — 짧은 판                     ★ §3.11 에서 추가
+#      6  큰 방패   — 긴 판 (덮는 띠가 곧 크기다)
 #
 #  ---- ★ 아이콘 번호는 **무기 데이터가 들고 있다** ----
 #    `WeaponType::icon`. 코드에 `if (단검) … else if (대검) …` 을 쓰면
@@ -37,7 +39,7 @@ $dir  = Join-Path $root "assets\textures"
 $out  = Join-Path $dir "icons.png"
 
 $CELL   = 16
-$CELLS  = 5
+$CELLS  = 7
 
 $colFrame = [System.Drawing.Color]::FromArgb(255,  92,  96, 112)
 $colSteel = [System.Drawing.Color]::FromArgb(255, 206, 210, 220)
@@ -49,6 +51,11 @@ $colTooth = [System.Drawing.Color]::FromArgb(255, 240, 240, 246)
 #   색이 한 단 어두우면 **무겁다**가 같이 읽힌다 — 도트에서 무게는 명도다.
 $colHeavy = [System.Drawing.Color]::FromArgb(255, 158, 166, 186)
 $colEdge  = [System.Drawing.Color]::FromArgb(255, 222, 226, 236)
+
+# 방패 — 플레이어 시트의 방패와 **같은 색**이어야 「저게 그거다」가 읽힌다
+$colBoard = [System.Drawing.Color]::FromArgb(255,  96,  74,  52)
+$colRim   = [System.Drawing.Color]::FromArgb(255, 176, 182, 196)
+$colBoss  = [System.Drawing.Color]::FromArgb(255, 214, 218, 228)
 
 $bm = New-Object System.Drawing.Bitmap(($CELL * $CELLS), $CELL,
         [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -134,6 +141,29 @@ Px $ox 3 13 $colGrip
 Px $ox 3 12 $colGrip
 Px $ox 4 12 $colGrip
 Px $ox 4 13 $colGrip
+
+# ---- 5 / 6 : 방패 ----
+#   ★ 둘의 차이는 **세로 길이 하나**다. 그것이 곧 덮는 띠의 높이이므로
+#     아이콘만 보고 「이게 어디까지 막는지」가 읽혀야 한다 — 모양을 바꾸면
+#     「큰 방패」가 아니라 「다른 물건」이 된다.
+$shields = @(
+    @{ cell = 5; top = 5;  bottom = 11 },   # 작은 방패
+    @{ cell = 6; top = 2;  bottom = 14 }    # 큰 방패
+)
+foreach ($s in $shields) {
+    $ox = $CELL * $s.cell
+    $mid = [int](($s.top + $s.bottom) / 2)
+    for ($y = $s.top; $y -le $s.bottom; $y++) {
+        for ($x = 6; $x -le 10; $x++) { Px $ox $x $y $colBoard }
+    }
+    for ($x = 6; $x -le 10; $x++) {
+        Px $ox $x $s.top    $colRim
+        Px $ox $x $s.bottom $colRim
+    }
+    for ($y = $mid - 1; $y -le $mid + 1; $y++) {
+        for ($x = 7; $x -le 9; $x++) { Px $ox $x $y $colBoss }
+    }
+}
 
 $bm.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bm.Dispose()

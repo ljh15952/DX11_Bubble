@@ -107,6 +107,11 @@ struct AttackData
 class JsonValue;
 void ReadAttack(const JsonValue& v, AttackData& a);
 
+// 클립 하나만 읽는다. ★ 방패의 방어 자세처럼 **공격이 아닌 것**도 그림을
+//   들고 다니므로, ReadAttack 안에 묻어 두면 두 번째 사용자가 못 쓴다
+//   (design.md §9 의 「두 번째 사용자가 생겼을 때 올린다」).
+void ReadClip(const JsonValue& v, AnimationClip& c);
+
 
 inline AABB MakeAttackBox(float x, float y, int facing, const AttackData& a)
 {

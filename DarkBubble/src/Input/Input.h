@@ -99,6 +99,12 @@ public:
     //   이제 버튼이 손이고, **그 손에 무엇이 들려 있는지가 결과를 정한다** —
     //   무기가 있으면 휘두르고, 없으면(빈손이든 잘렸든) 문다.
     //   「무엇을 하는 버튼인가」를 Input 이 정하지 않는다.
+    // ★ **누르고 있는가**. 방어가 홀드이기 때문에 필요해졌다(§3.11) —
+    //   「좌클릭 = 왼손」이 이미 있으므로 **누르고 있으면 그 손을 쓰고 있다**가
+    //   자연스럽다. 엣지(아래)는 「그 순간 눌렀다」라 방어에는 못 쓴다.
+    bool LeftHandHeld()  const;
+    bool RightHandHeld() const;
+
     bool LeftHandPressed()  const { return m_edges.leftHand;  }   // 좌클릭 / 패드 X
     bool RightHandPressed() const { return m_edges.rightHand; }   // 우클릭 / 패드 Y
     bool JumpPressed()      const { return m_edges.jump;      }   // Space / 패드 A

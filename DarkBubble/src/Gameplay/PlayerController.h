@@ -185,8 +185,11 @@ public:
     //     그래서 적이 몇 종이 되든, 나중에 함정이나 투사체가 생겨도 그대로다.
     //   part = 맞은 부위. **누가 어디를 때렸는지는 Scene 이 정한다** —
     //   두 몸 사이의 계산이기 때문이다(TryPlayerHit 와 대칭).
-    void TakeHit(SceneContext& ctx, const AttackData& atk, int part,
-                 float fromX, float fromY);
+    //   ★★ 공격 **상자**까지 받는다. 「막았는가」는 상자끼리 겹치는지로
+    //     정해지고, 그 판단은 **맞는 쪽**이 해야 한다 — Scene 이 대신 판단해
+    //     결과만 넘기면 「막았는데 왜 경직이지?」 같은 어긋남이 둘로 갈린다.
+    void TakeHit(SceneContext& ctx, const AttackData& atk, const AABB& atkBox,
+                 int part, float fromX, float fromY);
     void Respawn(SceneContext& ctx);
 
 private:
@@ -194,6 +197,14 @@ private:
     //   ★ 피격과 디버그 키가 **같은 길**을 지나야 한다. 한쪽만 부위 HP 를
     //     0 으로 만들면 「잘렸는데 무기는 들려 있는」 몸이 생긴다.
     void OnPartBroken(int part);
+
+    // 막았다 — 스태미나를 치르고 소리를 낸다.
+    //   ★ 데미지를 **계산하지 않는다.** 줄이는 비율이 데미지와 impact 를
+    //     같이 정하므로, 그 계산은 둘을 다 아는 TakeHit 한 곳에 둔다.
+    void PayGuard(SceneContext& ctx, const AttackData& atk, int damage);
+
+    // 그 손에 든 것이 방패인가.
+    bool IsShieldHand(WeaponHand hand) const;
 
     // 그 손을 비운다. ★ 비운 것은 **사라지지 않고 땅에 떨어진다** —
     //   팔이 잘려서든 다른 것을 들어서든 「손에서 벗어난다」는 같은 일이다.
@@ -249,6 +260,26 @@ public:
     //   ★ Ctrl 을 떼어도 **천장이 낮으면 웅크린 채**다(m_crouchForced).
     //     없으면 낮은 틈에서 일어서는 순간 몸이 천장 속에 박힌다.
     bool Crouched() const;
+
+    // ========================================================================
+    //  ★★ 방어 — **상태가 아니라 수식자**다 (design.md §3.11)
+    //
+    //    웅크리기와 같은 판단이다. 상태로 만들면 「방어하며 걷기」
+    //    「방어하며 앉기」처럼 **경우의 수가 곱해진다.**
+    //    수식자로 두면 이동·그림·판정이 각자 이 하나를 보면 된다.
+    //
+    //    ★ 조작을 새로 만들지 않았다: 왼손에 방패가 있으면 **좌클릭이 곧
+    //      방어**다. 「버튼은 손이고, 그 손에 든 것이 무엇을 할지 정한다」
+    //      (§3.2.1.1) 가 여기서 또 값을 한다.
+    // ========================================================================
+    bool Guarding() const;
+
+    // 막는 상자. ★ **자세를 따라 내려간다** — 그래서 「앉으면 하단을 막는다」에
+    //   특수 규칙이 없다. 방패가 없거나 방어 중이 아니면 빈 상자.
+    AABB GuardBox() const;
+
+    // 방어 중인 손. 없으면 None. ★ 왼손 우선 — 보조 슬롯이 방패 자리다.
+    WeaponHand GuardHand() const;
 
     // ---- Scene 과 주고받는 요청 ----
     //   ★ 컨트롤러는 **월드에 떨어진 물건을 모른다.** 「떨궈야 한다」까지만
@@ -420,9 +451,18 @@ private:
     //   이름을 바꾸자 그 네 곳이 전부 컴파일 에러가 되었다.
     //   ★ 파생된 답을 만들면 **원본의 이름을 바꿔** 옛 사용처를 드러낸다.
     //     눈으로 훑는 것과 달리 빠뜨릴 수가 없다.
+    // ★ 방패를 든 손의 버튼을 누르고 있는가. **입력 그 자체**다 —
+    //   「막고 있는가」는 Guarding() 이 답한다(공중·행동 중을 같이 본다).
+    //   `m_crouchHeld` 와 **같은 이유로 같은 이름 규칙**을 쓴다.
+    bool m_guardHeld    = false;
+
     bool m_crouchHeld   = false; // 키를 누르고 있는가 (입력 그 자체)
     bool m_crouchForced = false; // 천장이 낮아 못 일어선다
-    bool m_crouchedLast = false; // 자세가 바뀌는 순간을 잡기 위한 것
+    // ★ 「쉬는 자세의 그림이 바뀌었는가」를 **그림 자체로** 묻는다.
+    //   전에는 `m_crouchedLast`(웅크렸었나) 였는데, 방어가 붙으면서 자세는
+    //   그대로인데 그림만 바뀌는 경우가 생겼다 — **원인을 세는 대신
+    //   답을 비교한다.** 무엇이 그림을 바꾸든 이 줄은 안 바뀐다.
+    const AnimationClip* m_restingClipLast = nullptr;
     int  m_stepCooldown = 0;
 
     // ★ 장비는 **되돌아가지 않는다**(design.md §3.6.1 의 「남는다」 칸).

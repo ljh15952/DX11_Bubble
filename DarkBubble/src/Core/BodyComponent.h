@@ -68,6 +68,12 @@ public:
     //     상태로 물으면 상태를 하나 늘릴 때마다 조건을 다시 고쳐야 한다 —
     //     이 프로젝트가 이미 밟은 함정이다(handoff §8, 「조건을 상태 목록으로 쓰기」).
     bool  Grounded()  const { return m_grounded; }
+
+    // 지금 자세의 몸 높이 / 선 자세의 몸 높이.
+    //   ★ 방패 상자가 이 둘의 **비율**로 내려간다(§3.11) — 「앉으면 하단을
+    //     막는다」에 특수 규칙이 필요 없게 만드는 자리다.
+    float Height()      const;
+    float StandHeight() const { return m_standHeight; }
     float VelocityY() const { return m_velocityY; }
 
     AABB Box() const;   // 지금 지형 충돌 상자 (자세에 따라 높이가 다르다)

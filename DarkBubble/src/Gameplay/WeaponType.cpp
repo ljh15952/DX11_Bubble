@@ -48,6 +48,15 @@ namespace
         w.icon      = v["icon"]     .Int(w.icon);
         w.twoHanded = v["twoHanded"].Bool(w.twoHanded);
 
+        // ---- 방패 (§3.11) ----
+        w.guardTop    = v["guardTop"]   .Flt(w.guardTop);
+        w.guardBottom = v["guardBottom"].Flt(w.guardBottom);
+        w.guardReach  = v["guardReach"] .Flt(w.guardReach);
+        w.defense     = v["defense"]    .Int(w.defense);
+        w.guardCost   = v["guardCost"]  .Int(w.guardCost);
+        ReadClip(v["guardClip"],       w.guardClip);
+        ReadClip(v["guardCrouchClip"], w.guardCrouchClip);
+
         struct Entry { const char* key; AttackData* target; };
         const Entry entries[] = {
             { "light",  &w.light  },

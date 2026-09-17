@@ -541,6 +541,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
     Log::Info("[play] F8 = 오른손 무기 바꾸기   F9 = 왼손 — 밀려난 것은 땅에 떨어진다");
     Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
+    Log::Info("[play] 방패: 그 손의 버튼을 **누르고 있으면** 막는다. 앉으면 띠가 내려간다");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
     Log::Info("[play] TIP: 공격 -> 후딜 중에 다시 공격 = 2타(THRUST). 머리 높이다");
     Log::Info("[play] TIP: 적 머리 위 `!` 가 예고다. 그동안 Shift 로 구르면 흘린다");
@@ -676,7 +677,8 @@ void PlayScene::TryEnemyHit(SceneContext& ctx)
         if (e.brain->HitThisSwing())  continue;
 
         // ★ TryPlayerHit 와 **같은 모양**이다. 이제 양쪽 다 부위 판정을 한다.
-        const int part = m_playerParts->PickHit(e.brain->AttackHitbox(), e.Tr().x);
+        const AABB atkBox = e.brain->AttackHitbox();
+        const int  part   = m_playerParts->PickHit(atkBox, e.Tr().x);
         if (part < 0)
             continue;
 
@@ -699,7 +701,8 @@ void PlayScene::TryEnemyHit(SceneContext& ctx)
 
         e.brain->MarkHitThisSwing();
         m_playerParts->Flash(kFlashTicks);
-        m_player->TakeHit(ctx, e.brain->CurrentAttack(), part,
+        // ★ 상자를 같이 넘긴다 — 「막았는가」는 **맞는 쪽**이 판단한다(§3.11).
+        m_player->TakeHit(ctx, e.brain->CurrentAttack(), atkBox, part,
                           e.Tr().x, e.Tr().y);
     }
 }
@@ -1084,6 +1087,12 @@ void PlayScene::Render(Renderer& renderer)
     for (Enemy& e : m_enemies)
         e.obj->RenderDebug(renderer);
     m_playerObj.RenderDebug(renderer);
+
+    // ★ 방패 상자. 부위(금색)·몸(청록)과 **또 다른 색**이다 —
+    //   「막히는 높이」는 눈으로 봐야 이해된다(§3.11 의 띠 표).
+    if (renderer.DebugDraw() && m_player->Guarding())
+        renderer.DrawRectOutline(m_player->GuardBox(),
+                                 DirectX::Colors::DeepSkyBlue, 1.0f);
 }
 
 

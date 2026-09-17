@@ -285,6 +285,51 @@
           "loop": false
         }
       }
+    },
+    "buckler": {
+      "name": "BUCKLER",
+      "icon": 5,
+      "twoHanded": false,
+      "guardTop": 36,
+      "guardBottom": 24,
+      "guardReach": 14,
+      "defense": 55,
+      "guardCost": 70,
+      "guardClip": {
+        "row": 21,
+        "frames": 2,
+        "ticks": 12,
+        "loop": true
+      },
+      "guardCrouchClip": {
+        "row": 22,
+        "frames": 2,
+        "ticks": 12,
+        "loop": true
+      }
+    },
+    "kite": {
+      "name": "KITE",
+      "icon": 6,
+      "twoHanded": false,
+      "guardTop": 52,
+      "guardBottom": 22,
+      "guardReach": 16,
+      "defense": 80,
+      "guardCost": 130,
+      "guardClip": {
+        "row": 23,
+        "frames": 2,
+        "ticks": 12,
+        "loop": true
+      },
+      "guardCrouchClip": {
+        "row": 24,
+        "frames": 2,
+        "ticks": 12,
+        "loop": true
+      }
     }
-  }
+  },
+  "_note5": "방패: guardTop/guardBottom 이 덮는 띠다(발끝 기준, 선 자세). 앉으면 몸 높이 비율로 같이 내려간다 — 「앉아서 하단을 막는다」에 특수 규칙이 없다. defense 는 막아 내는 비율(%), guardCost 는 스태미나 = impact * guardCost / 100. ★ guardClip 의 행과 tools/gen_player_guard.ps1 의 표는 같은 숫자여야 한다."
 }

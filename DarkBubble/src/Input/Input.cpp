@@ -104,6 +104,20 @@ float Input::MoveX() const
 }
 
 
+bool Input::LeftHandHeld() const
+{
+    return m_ms.leftButton
+        || (m_pad.IsConnected() && m_pad.IsXPressed());
+}
+
+
+bool Input::RightHandHeld() const
+{
+    return m_ms.rightButton
+        || (m_pad.IsConnected() && m_pad.IsYPressed());
+}
+
+
 bool Input::CrouchHeld() const
 {
     // 좌우 Ctrl 을 모두 받는다. 어느 손으로 잡든 되게 하는 편이 낫다.

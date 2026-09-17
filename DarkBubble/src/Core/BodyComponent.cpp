@@ -38,19 +38,24 @@ BodyComponent::BodyComponent(const Level& level, float halfWidth,
 }
 
 
+float BodyComponent::Height() const
+{
+    // ★ 자세마다의 높이를 **한 곳에서** 답한다. 전에는 Box() 안에만 있어서
+    //   높이를 알고 싶은 쪽이 상자를 만들어 빼야 했다(§9.1 의 사촌).
+    switch (m_posture)
+    {
+    case Posture::Crouch: return m_crouchHeight;
+    case Posture::Prone:  return m_proneHeight;
+    case Posture::Stand:  break;
+    }
+    return m_standHeight;
+}
+
+
 AABB BodyComponent::Box() const
 {
     const Transform& tr = Owner().transform;
-
-    float h = m_standHeight;
-    switch (m_posture)
-    {
-    case Posture::Crouch: h = m_crouchHeight; break;
-    case Posture::Prone:  h = m_proneHeight;  break;
-    case Posture::Stand:  break;
-    }
-
-    return { tr.x - m_halfWidth, tr.y - h,
+    return { tr.x - m_halfWidth, tr.y - Height(),
              tr.x + m_halfWidth, tr.y };
 }
 

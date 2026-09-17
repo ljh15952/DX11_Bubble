@@ -336,6 +336,10 @@ namespace
     constexpr float kCrouchSpeedScale     = 0.45f;        // 조준의 대가
     constexpr float kProneSpeedScale      = 0.30f;        // 다리 파괴 = 기어간다
 
+    // ★ 막으면서 걷는 속도. 웅크리기(0.45)보다는 빠르고 평소보다는 느리다 —
+    //   「막으면서 붙는다」가 되긴 하되 공짜는 아니어야 한다.
+    constexpr float kGuardSpeedScale      = 0.55f;
+
     constexpr float kOriginX = kCellW * 0.5f;
     constexpr float kOriginY = static_cast<float>(kCellH);
 
@@ -420,6 +424,17 @@ const char* PlayerStateName(PlayerState s)
 // ----------------------------------------------------------------------------
 const AnimationClip& PlayerController::PostureClip(bool moving) const
 {
+    // ★★ 방어 자세가 **자세보다 먼저**다. 막고 있으면 걷든 서 있든
+    //   방패를 들고 있는 그림이어야 한다 — 그림을 고르는 곳이 여기 하나뿐이라
+    //   한 줄만 더하면 걷기·서기·앉기가 전부 따라온다.
+    //   ★ 그림 행은 **방패가 들고 있다**(guardClip). 방패를 추가할 때
+    //     여기를 고칠 일이 없다 — 무기가 자기 공격 그림을 드는 것과 같다.
+    if (Guarding())
+    {
+        const WeaponType& s = Weapon(GuardHand());
+        return Crouched() ? s.guardCrouchClip : s.guardClip;
+    }
+
     switch (m_parts->CurrentPosture())
     {
     case Posture::Prone:  return kCrawlClip;
@@ -527,6 +542,97 @@ void PlayerController::OnPartBroken(int part)
     const std::string dropped = m_hand[HandSlot(lost)];
     Displace(lost);
     Log::Info("[play]   -> {} 를 떨궜다! 주우러 가야 한다", dropped);
+}
+
+
+bool PlayerController::IsShieldHand(WeaponHand hand) const
+{
+    return HandArmed(hand) && Weapon(hand).IsShield();
+}
+
+
+WeaponHand PlayerController::GuardHand() const
+{
+    // ★ 왼손 우선 — 보조 슬롯이 방패 자리다(§3.10). 오른손에 방패를 들어도
+    //   되지만, 그러면 휘두를 것이 없어지는 것이 대가다.
+    for (WeaponHand h : { WeaponHand::Left, WeaponHand::Right })
+        if (IsShieldHand(h))
+            return h;
+
+    return WeaponHand::None;
+}
+
+
+bool PlayerController::Guarding() const
+{
+    const WeaponHand h = GuardHand();
+    if (h == WeaponHand::None)
+        return false;
+
+    // ★ 공중에서는 못 막는다. 구르기·상호작용과 **같은 조건**이다 —
+    //   「공중은 무방비」가 §3.1 과 맞는다(design.md 의 조작 결정표).
+    if (!m_body->Grounded())
+        return false;
+
+    // ★★ **행동 중에는 못 막는다.** 휘두르는 중에 방패가 서 있으면
+    //   「공격하면서 막는」 무적이 된다. 구르기·피격도 마찬가지다.
+    switch (m_state)
+    {
+    case PlayerState::Idle:
+    case PlayerState::Run:
+        break;
+    default:
+        return false;
+    }
+
+    return m_guardHeld;
+}
+
+
+AABB PlayerController::GuardBox() const
+{
+    const WeaponHand h = GuardHand();
+    if (h == WeaponHand::None)
+        return {};
+
+    const WeaponType& s  = Weapon(h);
+    const Transform&  tr = Owner().transform;
+
+    // ★★ **자세가 상자를 내린다.** 몸이 낮아진 비율만큼 띠도 내려간다 —
+    //   그래서 「앉으면 하단을 막고 상단이 빈다」에 특수 규칙이 없다.
+    //   §3.8 에서 판정 상자를 자세에 붙여 둔 것이 여기서 또 값을 한다.
+    const float scale = m_body->Height() / m_body->StandHeight();
+
+    const float top    = tr.y - s.guardTop    * scale;
+    const float bottom = tr.y - s.guardBottom * scale;
+
+    // 바라보는 쪽으로 내민다. 등 뒤는 못 막는다 — 상자가 거기 없으니까.
+    const float front = tr.x + tr.facing * s.guardReach;
+    const float back  = tr.x;
+
+    return { std::min(front, back), top, std::max(front, back), bottom };
+}
+
+
+void PlayerController::PayGuard(SceneContext& ctx, const AttackData& atk, int damage)
+{
+    const WeaponType& s    = Weapon(GuardHand());
+    const int         cost = atk.impact * s.guardCost / 100;
+
+    // ★ 스태미나가 모자라도 **막기는 한다.** 「부족하면 안 나감」이 아니라
+    //   「나가고 대가를 치름」이 이 게임의 규칙이고(§3.1 방식 B),
+    //   그 대가가 곧 **가드 브레이크**다 — Depleted -> Exhausted 로 경직한다.
+    //   ★★ 따로 만든 규칙이 아니라 **이미 있던 것이 그렇게 읽히는** 것이다.
+    m_stamina->Spend(cost);
+
+    // 막는 소리는 맞는 소리와 **달라야 한다.** 같으면 막았는지를 귀로 모른다.
+    ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks / 2);
+    ctx.audio.Play("hit", 0.55f, 0.45f,
+                   PanFromWorldX(Owner().transform.x, ctx.camera.X()));
+
+    Log::Info("[play] ★ 막았다 — {} (방어 {}%)  dmg {} -> {}  스태미나 -{}{}",
+              s.name, s.defense, atk.damage, damage, cost,
+              m_stamina->Depleted() ? "  ** 가드 브레이크 **" : "");
 }
 
 
@@ -820,7 +926,8 @@ void PlayerController::Respawn(SceneContext& ctx)
     m_hitThisSwing  = false;
     m_crouchHeld    = false;
     m_crouchForced  = false;
-    m_crouchedLast  = false;
+    m_guardHeld       = false;
+    m_restingClipLast = nullptr;
     m_stepCooldown  = 0;
 
     m_deathScreenRequested = false;
@@ -1081,6 +1188,12 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
         case Posture::Prone:  speed *= kProneSpeedScale;  break;
         case Posture::Stand:  break;
         }
+
+        // ★ 방어는 자세와 **곱해진다.** 위의 switch 와 달리 `if` 인 이유:
+        //   방어는 자세가 아니라 **수식자**라서 앉은 채로도 막을 수 있다.
+        //   (엎드려 Ctrl 로 두 번 깎이던 것과는 다른 경우다)
+        if (Guarding())
+            speed *= kGuardSpeedScale;
     }
 
     // ★ 가로 이동도 **몸을 거친다.** 전에는 여기서 tr.x 를 직접 썼는데,
@@ -1222,18 +1335,37 @@ bool PlayerController::ConsumeDeathScreenRequest()
 //
 //    ※ 무적 판정은 이 함수에 오기 전에 끝나 있다(PlayScene::TryEnemyHit).
 // ----------------------------------------------------------------------------
-void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int part,
+void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
+                               const AABB& atkBox, int part,
                                float fromX, float /*fromY*/)
 {
     // ※ fromY 는 지금 쓰이지 않지만 인자에 남겨 둔다 —
     //   「위에서 맞으면 더 세게 눕는다」 같은 규칙이 오면 여기서 쓴다.
     const Transform& tr = Owner().transform;
 
-    m_parts->Damage(part, atk.damage);
+    // ---- ★★ 막았는가 (§3.11) ----
+    //   **상자끼리 겹치는지**로 정한다. 「상단/중단/하단」이라는 이름도,
+    //   「앉으면 하단을 막는다」는 규칙도 코드에 없다 — 방패 상자가 자세를
+    //   따라 내려가므로 **좌표만으로** 성립한다.
+    //   ★ 등 뒤도 자동으로 못 막는다. 상자가 바라보는 쪽에만 있으니까.
+    const bool blocked = Guarding() && Intersects(atkBox, GuardBox());
+
+    // ★★ 막아 낸 비율이 **데미지와 impact 를 같이** 줄인다. 데미지만 줄이면
+    //   막아도 매번 휘청여서 「막는 의미」가 없어진다 — 방패가 받아 내는 것은
+    //   아픔이 아니라 **충격**이고, 데미지는 그 결과일 뿐이다.
+    //   ★ 비율 하나가 두 값을 정하므로 **어긋날 수가 없다.**
+    const int soak   = blocked ? Weapon(GuardHand()).defense : 0;
+    const int damage = atk.damage * (100 - soak) / 100;
+    const int impact = atk.impact * (100 - soak) / 100;
+
+    if (blocked)
+        PayGuard(ctx, atk, damage);
+
+    m_parts->Damage(part, damage);
     m_flash = kFlashTicks;
 
     Log::Info("[play] {} 피격  dmg {}  남은 {}/{}",
-              m_parts->Name(part), atk.damage,
+              m_parts->Name(part), damage,
               std::max(0, m_parts->Hp(part)), m_parts->MaxHp(part));
 
     // ---- 부위가 부서졌다 ----
@@ -1253,7 +1385,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
     // ---- ★ 경직 여부를 강인도가 정한다 ----
     //   판정 자체는 PoiseComponent 로 옮겼다 — 적도 같은 규칙을 쓰기 때문이다.
     //   나중에 게이지 방식으로 바꾸면 이 줄은 그대로 두고 그쪽만 고친다.
-    if (!m_poise->WouldStagger(atk.impact))
+    if (!m_poise->WouldStagger(impact))
     {
         // 버텨냈다 — **상태를 바꾸지 않는다.** 공격 중이었다면 그대로 이어진다.
         // ★ 피격 무적을 주지 않는다. 못 움직이는 구간이 없으므로 스턴락 위험이
@@ -1261,7 +1393,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
         //   대신 맞을 때마다 HP 가 확실히 깎인다 — 이것이 버티기의 비용이다.
         ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks);
         ctx.audio.Play("hit", 0.5f, -0.75f, PanFromWorldX(tr.x, ctx.camera.X()));   // 둔탁하게
-        Log::Info("[play] 버텨냄  poise {} >= impact {}", m_poise->Value(), atk.impact);
+        Log::Info("[play] 버텨냄  poise {} >= impact {}", m_poise->Value(), impact);
         return;
     }
 
@@ -1286,7 +1418,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk, int par
     ctx.camera.Shake(kShakeStrength * 1.8f, kShakeTicks * 2);
     ctx.audio.Play("hit", 0.95f, -0.25f, PanFromWorldX(tr.x, ctx.camera.X()));
     Log::Info("[play] 휘청  poise {} < impact {}   경직 {}틱 / 무적 {}틱",
-              m_poise->Value(), atk.impact, kHurt.ticks, kHurt.invuln);
+              m_poise->Value(), impact, kHurt.ticks, kHurt.invuln);
 
     ChangeState(ctx, PlayerState::Hurt);
 }
@@ -1307,6 +1439,15 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
 
     // 웅크리기는 **지속 입력**이라 엣지가 아니다. 매 틱 물어봐도 된다.
     m_crouchHeld = ctx.input.CrouchHeld();
+
+    // ★ 방어도 지속 입력이다(§3.11 ③ 홀드). **방패를 든 손의 버튼**을
+    //   보므로, 어느 손에 들었는지가 조작을 정한다 — 새 키가 없다.
+    switch (GuardHand())
+    {
+    case WeaponHand::Left:  m_guardHeld = ctx.input.LeftHandHeld();  break;
+    case WeaponHand::Right: m_guardHeld = ctx.input.RightHandHeld(); break;
+    case WeaponHand::None:  m_guardHeld = false;                     break;
+    }
 
     // ★ 천장이 낮으면 Ctrl 을 떼어도 못 일어선다.
     //   ★★ **묻는 순서가 중요하다.** 일어설 수 있는지를 먼저 묻고,
@@ -1335,18 +1476,23 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     //     공격 중에 줄였다가 낮은 틈에서 끝나면 천장에 박힌다.
     m_body->SetPosture(m_parts->StancePosture());
 
-    // ★ 자세가 바뀌면 **그림도** 바꾼다.
-    //   Ctrl 은 상태를 바꾸지 않으므로 ChangeState 가 안 불린다.
-    //   그냥 두면 「웅크렸는데 서 있는 그림」이 되어, 방금 고친 것과
-    //   똑같은 어긋남이 반대 방향으로 생긴다.
-    if (Crouched() != m_crouchedLast)
+    // ★ 쉬는 자세의 그림이 바뀌면 **다시 건다.** Ctrl 도 방어도 상태를
+    //   바꾸지 않으므로 ChangeState 가 안 불린다 — 그냥 두면 「웅크렸는데
+    //   서 있는 그림」이 된다.
+    //
+    //   ★★ 전에는 `Crouched() != m_crouchedLast` 였다. 방어가 붙으면서
+    //     **자세는 그대로인데 그림만 바뀌는** 경우가 생겼고, 조건을 하나 더
+    //     얹으면 다음에 또 얹어야 한다. 그래서 **답을 직접 비교**한다 —
+    //     무엇이 그림을 바꾸든 여기는 안 고친다(handoff §9.1 의 응용).
+    const AnimationClip* resting = &PostureClip(m_state == PlayerState::Run);
+    if (resting != m_restingClipLast)
     {
-        m_crouchedLast = Crouched();
+        m_restingClipLast = resting;
 
         // 서 있거나 걷는 중에만. 공격·구르기 도중에 그림을 갈아치우면
         // 프레임 데이터와 그림이 어긋난다.
         if (m_state == PlayerState::Idle || m_state == PlayerState::Run)
-            m_sprite->Play(PostureClip(m_state == PlayerState::Run), true);
+            m_sprite->Play(*resting, true);
     }
 
     const bool jumpPressed = (consumeEdgeInput && ctx.input.JumpPressed());
@@ -1356,10 +1502,15 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     //   보면 되고, 「무엇이 나가는가」는 SelectAttack 한 곳이 정한다.
     //   둘이 같은 틱에 눌리면 왼손이 이긴다 — 순서를 정해 두지 않으면
     //   프레임마다 다른 쪽이 이기는 것처럼 보인다.
-    const WeaponHand handPressed =
+    const WeaponHand pressed =
           (consumeEdgeInput && ctx.input.LeftHandPressed())  ? WeaponHand::Left
         : (consumeEdgeInput && ctx.input.RightHandPressed()) ? WeaponHand::Right
         :                                                      WeaponHand::None;
+
+    // ★★ **방패를 든 손은 공격 버튼이 아니다.** 그 손은 막는 손이다 —
+    //   「버튼은 손이고, 그 손에 든 것이 무엇을 할지 정한다」(§3.2.1.1).
+    //   방어를 위한 새 키도, 「방어 중이면 공격 금지」라는 규칙도 없다.
+    const WeaponHand handPressed = IsShieldHand(pressed) ? WeaponHand::None : pressed;
 
     switch (m_state)
     {
