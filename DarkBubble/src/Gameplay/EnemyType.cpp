@@ -145,7 +145,7 @@ namespace
     }
 
 
-    // 문서에 적어 둔 함정을 코드가 검사한다(Moveset.cpp 와 같은 규칙).
+    // 문서에 적어 둔 함정을 코드가 검사한다(WeaponType.cpp 와 같은 규칙).
     void Validate(const char* who, const char* what, const AttackData& a)
     {
         const int total = a.TotalTicks();

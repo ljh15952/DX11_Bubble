@@ -1,114 +1,9 @@
 ﻿{
   "_note": "AttackData 의 숫자만 여기 있다. 왜 그 값인지는 PlayerController.cpp 의 주석에 있다. F6 으로 다시 읽는다.",
-  "dagger": {
-    "light": {
-      "startup": 8,
-      "active": 3,
-      "recovery": 13,
-      "reach": 12,
-      "width": 28,
-      "height": 10,
-      "heightFromFoot": 31,
-      "damage": 12,
-      "staminaCost": 28,
-      "impact": 14,
-      "clip": {
-        "row": 2,
-        "frames": 6,
-        "ticks": 4,
-        "loop": false
-      }
-    },
-    "crouch": {
-      "startup": 10,
-      "active": 3,
-      "recovery": 17,
-      "reach": 10,
-      "width": 26,
-      "height": 16,
-      "heightFromFoot": 10,
-      "damage": 10,
-      "staminaCost": 26,
-      "impact": 14,
-      "clip": {
-        "row": 4,
-        "frames": 6,
-        "ticks": 5,
-        "loop": false
-      }
-    },
-    "dash": {
-      "startup": 8,
-      "active": 4,
-      "recovery": 12,
-      "reach": 18,
-      "width": 34,
-      "height": 10,
-      "heightFromFoot": 31,
-      "damage": 14,
-      "staminaCost": 34,
-      "impact": 16,
-      "clip": {
-        "row": 6,
-        "frames": 6,
-        "ticks": 4,
-        "loop": false
-      }
-    },
-    "thrust": {
-      "startup": 8,
-      "active": 3,
-      "recovery": 13,
-      "reach": 12,
-      "width": 26,
-      "height": 22,
-      "heightFromFoot": 48,
-      "damage": 15,
-      "staminaCost": 34,
-      "impact": 18,
-      "clip": {
-        "row": 5,
-        "frames": 6,
-        "ticks": 4,
-        "loop": false
-      }
-    },
-    "jump": {
-      "startup": 8,
-      "active": 4,
-      "recovery": 12,
-      "reach": 10,
-      "width": 26,
-      "height": 30,
-      "heightFromFoot": 6,
-      "damage": 16,
-      "staminaCost": 30,
-      "impact": 20,
-      "clip": {
-        "row": 9,
-        "frames": 6,
-        "ticks": 4,
-        "loop": false
-      }
-    },
-    "prone": {
-      "startup": 10,
-      "active": 3,
-      "recovery": 17,
-      "reach": 18,
-      "width": 22,
-      "height": 16,
-      "heightFromFoot": 8,
-      "damage": 10,
-      "staminaCost": 26,
-      "impact": 14,
-      "clip": {
-        "row": 11,
-        "frames": 6,
-        "ticks": 5,
-        "loop": false
-      }
-    },
+  "_note2": "맨손(unarmed)은 무기 바깥에 있다 — 「무기가 없을 때」는 몸의 성질이지 무기의 성질이 아니다. 무기 안에 두면 무기마다 이빨이 한 벌씩 생긴다.",
+  "_note3": "없던 무기는 단검에서 출발한다. 그래서 대검은 단검과 다른 것만 적으면 된다.",
+  "_note4": "규칙: startup % clip.ticks == 0,  clip.frames * clip.ticks == startup + active + recovery,  clip.frames <= 6 (시트가 6칸이다). 어기면 로더가 경고만 남기고 그대로 굴린다.",
+  "unarmed": {
     "bite": {
       "startup": 8,
       "active": 3,
@@ -161,6 +56,234 @@
         "frames": 6,
         "ticks": 4,
         "loop": false
+      }
+    }
+  },
+  "weapons": {
+    "dagger": {
+      "name": "DAGGER",
+      "icon": 1,
+      "twoHanded": false,
+      "light": {
+        "startup": 8,
+        "active": 3,
+        "recovery": 13,
+        "reach": 12,
+        "width": 28,
+        "height": 10,
+        "heightFromFoot": 31,
+        "damage": 12,
+        "staminaCost": 28,
+        "impact": 14,
+        "clip": {
+          "row": 2,
+          "frames": 6,
+          "ticks": 4,
+          "loop": false
+        }
+      },
+      "crouch": {
+        "startup": 10,
+        "active": 3,
+        "recovery": 17,
+        "reach": 10,
+        "width": 26,
+        "height": 16,
+        "heightFromFoot": 10,
+        "damage": 10,
+        "staminaCost": 26,
+        "impact": 14,
+        "clip": {
+          "row": 4,
+          "frames": 6,
+          "ticks": 5,
+          "loop": false
+        }
+      },
+      "dash": {
+        "startup": 8,
+        "active": 4,
+        "recovery": 12,
+        "reach": 18,
+        "width": 34,
+        "height": 10,
+        "heightFromFoot": 31,
+        "damage": 14,
+        "staminaCost": 34,
+        "impact": 16,
+        "clip": {
+          "row": 6,
+          "frames": 6,
+          "ticks": 4,
+          "loop": false
+        }
+      },
+      "thrust": {
+        "startup": 8,
+        "active": 3,
+        "recovery": 13,
+        "reach": 12,
+        "width": 26,
+        "height": 22,
+        "heightFromFoot": 48,
+        "damage": 15,
+        "staminaCost": 34,
+        "impact": 18,
+        "clip": {
+          "row": 5,
+          "frames": 6,
+          "ticks": 4,
+          "loop": false
+        }
+      },
+      "jump": {
+        "startup": 8,
+        "active": 4,
+        "recovery": 12,
+        "reach": 10,
+        "width": 26,
+        "height": 30,
+        "heightFromFoot": 6,
+        "damage": 16,
+        "staminaCost": 30,
+        "impact": 20,
+        "clip": {
+          "row": 9,
+          "frames": 6,
+          "ticks": 4,
+          "loop": false
+        }
+      },
+      "prone": {
+        "startup": 10,
+        "active": 3,
+        "recovery": 17,
+        "reach": 18,
+        "width": 22,
+        "height": 16,
+        "heightFromFoot": 8,
+        "damage": 10,
+        "staminaCost": 26,
+        "impact": 14,
+        "clip": {
+          "row": 11,
+          "frames": 6,
+          "ticks": 5,
+          "loop": false
+        }
+      }
+    },
+    "greatsword": {
+      "name": "GREATSWORD",
+      "icon": 4,
+      "twoHanded": true,
+      "light": {
+        "startup": 20,
+        "active": 6,
+        "recovery": 34,
+        "reach": 18,
+        "width": 46,
+        "height": 18,
+        "heightFromFoot": 31,
+        "damage": 30,
+        "staminaCost": 52,
+        "impact": 30,
+        "clip": {
+          "row": 15,
+          "frames": 6,
+          "ticks": 10,
+          "loop": false
+        }
+      },
+      "crouch": {
+        "startup": 20,
+        "active": 6,
+        "recovery": 34,
+        "reach": 16,
+        "width": 42,
+        "height": 20,
+        "heightFromFoot": 10,
+        "damage": 26,
+        "staminaCost": 50,
+        "impact": 28,
+        "clip": {
+          "row": 16,
+          "frames": 6,
+          "ticks": 10,
+          "loop": false
+        }
+      },
+      "dash": {
+        "startup": 18,
+        "active": 8,
+        "recovery": 28,
+        "reach": 26,
+        "width": 54,
+        "height": 18,
+        "heightFromFoot": 31,
+        "damage": 34,
+        "staminaCost": 60,
+        "impact": 34,
+        "clip": {
+          "row": 18,
+          "frames": 6,
+          "ticks": 9,
+          "loop": false
+        }
+      },
+      "thrust": {
+        "startup": 20,
+        "active": 6,
+        "recovery": 34,
+        "reach": 18,
+        "width": 42,
+        "height": 26,
+        "heightFromFoot": 48,
+        "damage": 36,
+        "staminaCost": 58,
+        "impact": 36,
+        "clip": {
+          "row": 17,
+          "frames": 6,
+          "ticks": 10,
+          "loop": false
+        }
+      },
+      "jump": {
+        "startup": 16,
+        "active": 8,
+        "recovery": 24,
+        "reach": 14,
+        "width": 40,
+        "height": 40,
+        "heightFromFoot": 6,
+        "damage": 40,
+        "staminaCost": 56,
+        "impact": 40,
+        "clip": {
+          "row": 19,
+          "frames": 6,
+          "ticks": 8,
+          "loop": false
+        }
+      },
+      "prone": {
+        "startup": 20,
+        "active": 6,
+        "recovery": 34,
+        "reach": 22,
+        "width": 34,
+        "height": 18,
+        "heightFromFoot": 8,
+        "damage": 24,
+        "staminaCost": 50,
+        "impact": 26,
+        "clip": {
+          "row": 20,
+          "frames": 6,
+          "ticks": 10,
+          "loop": false
+        }
       }
     }
   }

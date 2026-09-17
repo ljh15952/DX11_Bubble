@@ -133,6 +133,11 @@ public:
     //     몫이고, 지금 무기가 땅에 떨어지는 경우는 **팔이 잘렸을 때뿐**이다.
     bool ArmBreakPressed() const { return m_edges.armBreak; }      // F7 (임시)
 
+    // ★ F8 — 카탈로그의 **다음 무기로** (임시).
+    //   무기를 얻는 길이 아직 「떨어진 것을 줍기」뿐이라, 두 번째 무기를
+    //   손에 넣을 방법이 없다. 8단계 장비 화면이 오면 버린다 — F2(갑옷)와 같다.
+    bool WeaponSwapPressed() const { return m_edges.weaponSwap; }  // F8 (임시)
+
     // ★ F5 — 어둠 껐다 켜기.
     //   밝기는 **비교해 봐야** 정할 수 있다. 끄고 켤 수 없으면
     //   「지금이 어두운 건지 원래 그런 건지」를 알 수가 없다.
@@ -184,6 +189,7 @@ private:
         bool armorSwap = false;
         bool legBreak  = false;
         bool armBreak  = false;
+        bool weaponSwap = false;
         bool darkToggle = false;
         bool dataReload = false;
     };

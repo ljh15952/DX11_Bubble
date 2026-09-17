@@ -74,6 +74,7 @@ void Input::Poll()
     m_edges.armorSwap |= m_kbTracker.pressed.F2;
     m_edges.legBreak  |= m_kbTracker.pressed.F4;
     m_edges.armBreak  |= m_kbTracker.pressed.F7;
+    m_edges.weaponSwap |= m_kbTracker.pressed.F8;
     m_edges.darkToggle |= m_kbTracker.pressed.F5;
     m_edges.dataReload |= m_kbTracker.pressed.F6;
 }

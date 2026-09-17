@@ -59,7 +59,8 @@ namespace
     constexpr float kHandSlotX = 48.0f;
     constexpr int   kIconSize  = 16;
     constexpr int   kIconEmpty = 0;    // ※ 지금은 안 쓴다. 빈손도 「문다」이므로
-    constexpr int   kIconDagger = 1;
+    // ※ 단검·대검의 칸 번호는 여기 없다 — **무기 데이터가 들고 있다**
+    //   (weapons.json 의 `icon`). 여기 남는 것은 무기가 아닌 것들뿐이다.
     constexpr int   kIconSevered = 2;
     constexpr int   kIconTeeth = 3;
 
@@ -197,7 +198,8 @@ void PlayScene::UpdateFocus()
     //   화톳불 위에 무기를 떨궜을 때 무엇이 우선인가. **무기다.**
     //   화톳불은 도망 안 가지만, 쉬면 적이 되살아난다 — 주우려다 쉬면
     //   되돌릴 수가 없다. 되돌릴 수 없는 쪽을 뒤로 민다.
-    if (m_pickup->Active() && m_player->PickupHand() != WeaponHand::None
+    if (m_pickup->Active()
+        && m_player->PickupHand(m_pickup->WeaponId()) != WeaponHand::None
         && Intersects(body, m_pickup->PickupArea()))
     {
         m_focus.kind   = FocusKind::Weapon;
@@ -231,12 +233,14 @@ void PlayScene::Interact(SceneContext& ctx)
     // ---- 무기를 줍는다 ----
     if (m_focus.kind == FocusKind::Weapon)
     {
-        const WeaponHand hand = m_player->PickupHand();
+        const WeaponHand hand = m_player->PickupHand(m_pickup->WeaponId());
         if (hand == WeaponHand::None)
             return;   // 초점을 잡은 뒤 팔이 잘렸을 수도 있다
 
+        // ★ 순서가 중요하다. PickedUp 이 먼저면 WeaponId 를 읽을 수는 있지만
+        //   「무엇을 주웠는지」가 이미 지난 일이 된다 — 값을 먼저 옮긴다.
+        m_player->EquipWeapon(hand, m_pickup->WeaponId());
         m_pickup->PickedUp();
-        m_player->EquipWeapon(hand);
         ctx.audio.Play("ui_confirm", 0.7f);
         return;
     }
@@ -472,6 +476,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     //   플레이어·적과 같은 그릇에 담기면 「월드에 있는 것」이 한 종류가 된다 —
     //   나중에 상자·함정·투사체가 생겨도 같은 방식으로 붙는다.
     m_pickup = &m_weaponObj.Add<WeaponPickup>();
+    m_pickup->SetSheet(m_icons);   // 손 슬롯과 **같은 시트**를 쓴다
 
     // ★ 플레이어를 먼저 Start 한다 — LoadMap 이 SetHome/PlaceAt 을 부르는데
     //   그때 컨트롤러의 컴포넌트 참조가 이미 채워져 있어야 한다.
@@ -496,6 +501,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
+    Log::Info("[play] F8 = 무기 바꾸기 — 대검은 **양손**이라 좌/우클릭이 같은 것을 휘두른다");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
     Log::Info("[play] TIP: 공격 -> 후딜 중에 다시 공격 = 2타(THRUST). 머리 높이다");
     Log::Info("[play] TIP: 적 머리 위 `!` 가 예고다. 그동안 Shift 로 구르면 흘린다");
@@ -829,7 +835,10 @@ void PlayScene::DrawHandSlots(Renderer& renderer)
 
         const bool armed   = m_player->HandArmed(cells[i].hand);
         const bool severed = m_playerParts->IsBroken(cells[i].arm);
-        const int  icon    = armed ? kIconDagger : kIconTeeth;
+
+        // ★ **무기가 자기 아이콘을 들고 있다.** 여기에 `if (단검) … else if
+        //   (대검) …` 을 쓰면 무기를 추가할 때마다 이 줄을 찾아 고쳐야 한다.
+        const int  icon    = armed ? m_player->Weapon().icon : kIconTeeth;
 
         const RECT src{ icon * kIconSize, 0, (icon + 1) * kIconSize, kIconSize };
 
@@ -885,9 +894,10 @@ void PlayScene::UpdateWeaponDrop(SceneContext& ctx)
     if (m_player->ConsumeWeaponDropRequest())
     {
         const Transform& tr = m_playerObj.transform;
-        m_pickup->DropAt(tr.x, tr.y);
+        m_pickup->DropAt(tr.x, tr.y, m_player->WeaponId(), m_player->Weapon().icon);
         ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromWorldX(tr.x, ctx.camera.X()));
-        Log::Info("[play] 무기가 땅에 떨어졌다 ({:.0f}, {:.0f})", tr.x, tr.y);
+        Log::Info("[play] {} 가 땅에 떨어졌다 ({:.0f}, {:.0f})",
+                  m_player->Weapon().name, tr.x, tr.y);
     }
 }
 

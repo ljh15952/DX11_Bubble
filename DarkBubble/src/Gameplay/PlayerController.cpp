@@ -286,26 +286,37 @@ namespace
     }();
 
     // ========================================================================
-    //  DefaultMoveset — **위의 상수들이 이제 「기본값」이다**
+    //  DefaultDagger / DefaultUnarmed — **위의 상수들이 이제 「기본값」이다**
     //
     //    6-g 에서 숫자가 assets/data/weapons.json 으로 나갔다.
     //    그렇다고 여기 값들이 사라진 것은 아니다 — 파일이 없거나 깨졌을 때
     //    쓰는 **바닥값**이고, 무엇보다 **왜 그 숫자인지가 여기 적혀 있다.**
     //    JSON 에는 주석을 못 단다. 이유는 코드에 남고 값만 파일로 나간다.
     // ========================================================================
-    Moveset DefaultMoveset()
+    //  ★ 8-a 에서 **둘로 갈라졌다.** 무기의 공격과 맨손의 공격은
+    //    같은 곳에 있으면 안 된다 — 무기가 둘이 되면 이빨이 두 벌이 된다.
+    WeaponType DefaultDagger()
     {
-        Moveset m;
-        m.light      = kDaggerLight;
-        m.crouch     = kDaggerCrouch;
-        m.dash       = kDaggerDash;
-        m.thrust     = kDaggerCombo2;
-        m.jump       = kDaggerJump;
-        m.prone      = kDaggerProne;
-        m.bite       = kBite;
-        m.biteCrouch = kBiteCrouch;
-        m.biteProne  = kBiteProne;
-        return m;
+        WeaponType w;
+        w.name      = "DAGGER";
+        w.icon      = 1;          // icons.png 1칸 = 단검
+        w.twoHanded = false;
+        w.light     = kDaggerLight;
+        w.crouch    = kDaggerCrouch;
+        w.dash      = kDaggerDash;
+        w.thrust    = kDaggerCombo2;
+        w.jump      = kDaggerJump;
+        w.prone     = kDaggerProne;
+        return w;
+    }
+
+    UnarmedSet DefaultUnarmed()
+    {
+        UnarmedSet u;
+        u.bite       = kBite;
+        u.biteCrouch = kBiteCrouch;
+        u.biteProne  = kBiteProne;
+        return u;
     }
 
     constexpr RollData kRoll{ /*windup*/ 4, /*invincible*/ 12, /*recovery*/ 10 };
@@ -423,8 +434,11 @@ void PlayerController::Start(SceneContext& ctx)
 {
     // ★ 순서가 규칙이다: **기본값을 먼저 채우고 파일로 덮어쓴다.**
     //   반대로 하면 파일에 없는 항목이 비어 버린다.
-    m_moves = DefaultMoveset();
-    ReloadMoveset();
+    // ★ 기본값을 먼저 넣고 파일로 덮어쓴다. 적 카탈로그와 같은 순서다 —
+    //   반대로 하면 파일에 없는 항목이 비어 버린다.
+    m_weapons["dagger"] = DefaultDagger();
+    m_unarmed           = DefaultUnarmed();
+    ReloadWeapons();
 
     m_body    = &Owner().Require<BodyComponent>();
     m_sprite  = &Owner().Require<SpriteComponent>();
@@ -463,7 +477,14 @@ namespace
 
 bool PlayerController::HandArmed(WeaponHand hand) const
 {
-    if (hand == WeaponHand::None || m_weaponHand != hand)
+    if (hand == WeaponHand::None || m_weaponHand == WeaponHand::None)
+        return false;
+
+    // ★★ **양손 무기는 두 손이 다 「들고 있다」**가 된다. 좌클릭도 우클릭도
+    //   같은 대검을 휘두른다 — 두 손으로 쥐고 있으니 당연하다.
+    //   그리고 그것이 곧 §1.2 의 기회비용이다: 왼손이 막혀 나중에 횃불도
+    //   방패도 못 든다. **규칙을 따로 쓰지 않고 이 한 줄로** 성립한다.
+    if (!Weapon().twoHanded && m_weaponHand != hand)
         return false;
 
     // ※ 팔이 잘리면 TakeHit 이 이미 무기를 떨구므로 여기 걸릴 일은 없다.
@@ -479,9 +500,16 @@ void PlayerController::OnPartBroken(int part)
 
     // ★ 팔이 잘리면 **그 손의** 무기를 떨군다(design.md §3.2.2).
     //   다른 손이면 아무 일도 없다 — 어느 손인지가 결과를 바꾼다.
-    const bool lostHand =
-           (part == Part_RightArm && m_weaponHand == WeaponHand::Right)
-        || (part == Part_LeftArm  && m_weaponHand == WeaponHand::Left);
+    //
+    //   ★★ 단, **양손 무기는 어느 팔이 잘려도** 떨어진다. 두 손으로 쥐고
+    //     있으니 한 손을 잃으면 들 수가 없다 — §3.2.2 가 무기에 따라
+    //     무거워진다. 새 규칙이 아니라 `twoHanded` 한 칸의 결과다.
+    const bool holding  = (m_weaponHand != WeaponHand::None);
+    const bool armPart  = (part == Part_RightArm || part == Part_LeftArm);
+    const bool lostHand = holding && armPart &&
+        (Weapon().twoHanded
+            || (part == Part_RightArm && m_weaponHand == WeaponHand::Right)
+            || (part == Part_LeftArm  && m_weaponHand == WeaponHand::Left));
 
     if (lostHand)
     {
@@ -508,8 +536,17 @@ bool PlayerController::CanHold(WeaponHand hand) const
 }
 
 
-WeaponHand PlayerController::PickupHand() const
+WeaponHand PlayerController::PickupHand(const std::string& weaponId) const
 {
+    // ★★ **양손 무기는 두 팔이 다 성해야 한다.** 한 팔을 잃으면 대검은
+    //   못 든다 — 「팔을 잃으면 무기를 바꿔야 한다」가 규칙 없이 성립한다.
+    auto it = m_weapons.find(weaponId);
+    if (it != m_weapons.end() && it->second.twoHanded)
+    {
+        return (CanHold(WeaponHand::Right) && !m_parts->IsBroken(Part_LeftArm))
+             ? WeaponHand::Right : WeaponHand::None;
+    }
+
     // ★ **주손부터** 묻는다. 손을 고르는 자유는 사라졌지만, 「팔이 잘려서
     //   못 줍는다」는 남아야 한다 — 이 게임에서 팔은 실제로 잘린다.
     if (CanHold(WeaponHand::Right)) return WeaponHand::Right;
@@ -526,11 +563,44 @@ bool PlayerController::ConsumeWeaponDropRequest()
 }
 
 
-void PlayerController::EquipWeapon(WeaponHand hand)
+void PlayerController::EquipWeapon(WeaponHand hand, const std::string& weaponId)
 {
     m_weaponHand = hand;
-    Log::Info("[play] 무기를 {} 손에 들었다",
-              hand == WeaponHand::Right ? "오른" : "왼");
+    m_weaponId   = weaponId;
+    Log::Info("[play] {} 를 {} 손에 들었다{}", Weapon().name,
+              hand == WeaponHand::Right ? "오른" : "왼",
+              Weapon().twoHanded ? " (양손)" : "");
+}
+
+
+const WeaponType& PlayerController::Weapon() const
+{
+    auto it = m_weapons.find(m_weaponId);
+    if (it != m_weapons.end())
+        return it->second;
+
+    // ★ 없으면 죽지 않는다. 카탈로그는 비어 있을 수 없다 —
+    //   Start 가 기본 단검을 먼저 넣고 파일로 덮어쓴다.
+    return m_weapons.begin()->second;
+}
+
+
+void PlayerController::CycleWeapon()
+{
+    // ★ 임시. 아직 무기를 얻을 길이 「떨어진 것을 줍는다」뿐이라
+    //   두 번째 무기를 손에 넣을 방법이 없다. 8단계 장비 화면이 답이다.
+    auto it = m_weapons.find(m_weaponId);
+    if (it == m_weapons.end() || ++it == m_weapons.end())
+        it = m_weapons.begin();
+
+    m_weaponId = it->first;
+
+    // ★ 손에 아무것도 없으면 들려 준다. 없으면 「바꿨는데 안 나간다」가 된다.
+    if (m_weaponHand == WeaponHand::None)
+        m_weaponHand = WeaponHand::Right;
+
+    Log::Info("[play] (F8) 무기 -> {}{}", Weapon().name,
+              Weapon().twoHanded ? " (양손 — 왼손이 막힌다)" : "");
 }
 
 
@@ -552,27 +622,30 @@ bool PlayerController::CanRoll() const
 
 
 // ----------------------------------------------------------------------------
-//  ReloadMoveset — 파일에서 다시 읽는다 (F6)
+//  ReloadWeapons — 파일에서 다시 읽는다 (F6)
 //
 //    ★ 실패하면 **아무것도 안 바뀐다.** 로그만 남는다.
 //      JSON 을 고치다 오타가 나서 게임이 죽으면 아무도 핫 리로드를 안 쓴다 —
 //      리로드의 값어치는 「틀려도 안전하다」는 데서 나온다.
 //
 //    ★ 실패해도 **true/false 를 보고 무언가 하지 않는다.** 부르는 쪽이
-//      되돌릴 필요가 없기 때문이다(MovesetIO::LoadInto 의 약속).
+//      되돌릴 필요가 없기 때문이다(WeaponIO::LoadInto 의 약속).
 // ----------------------------------------------------------------------------
-void PlayerController::ReloadMoveset()
+void PlayerController::ReloadWeapons()
 {
     std::string err;
-    if (MovesetIO::LoadInto(L"assets/data/weapons.json", m_moves, &err))
+    // ★ 없던 무기는 **단검에서 출발한다.** 그래서 대검은 단검과 다른 것만
+    //   적으면 된다 — 적 카탈로그가 DefaultGrunt 에서 출발하는 것과 같다.
+    if (WeaponIO::LoadInto(L"assets/data/weapons.json",
+                           m_weapons, m_unarmed, DefaultDagger(), &err))
     {
-        Log::Info("[moveset] weapons.json 적용");
+        Log::Info("[weapon] weapons.json 적용 — 무기 {}종", m_weapons.size());
         return;
     }
 
     // ※ 파일이 아예 없는 것도 여기로 온다. 그게 정상 동작이다 —
     //   기본값으로 굴러가고, 나중에 파일을 두면 그때부터 읽힌다.
-    Log::Info("[moveset] weapons.json 을 못 읽었다 ({}) — 이전 값 유지", err);
+    Log::Info("[weapon] weapons.json 을 못 읽었다 ({}) — 이전 값 유지", err);
 }
 
 
@@ -751,16 +824,18 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     {
         switch (m_parts->CurrentPosture())
         {
-        case Posture::Prone:  return m_moves.biteProne;
-        case Posture::Crouch: return m_moves.biteCrouch;
+        case Posture::Prone:  return m_unarmed.biteProne;
+        case Posture::Crouch: return m_unarmed.biteCrouch;
         case Posture::Stand:  break;
         }
-        return m_moves.bite;
+        return m_unarmed.bite;
     }
 
     // ★ 공중이면 무조건 내려찍기다. 아래의 선택지(웅크리기·콤보·달리기)는
     //   전부 **발이 땅에 있다**는 전제 위에 있다.
-    if (!m_body->Grounded())             return m_moves.jump;
+    const WeaponType& w = Weapon();
+
+    if (!m_body->Grounded())             return w.jump;
 
     // ① ★ **서 있지 않으면** 낮게 휘두르는 것밖에 못 한다.
     //   ★★ **입력이 아니라 자세**를 본다. 전에는 Ctrl 을 눌렀는지를 물어서,
@@ -770,8 +845,8 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     //   물기와 **같은 모양의 switch** 다. 자세가 늘면 컴파일러가 여기도 짚는다.
     switch (m_parts->CurrentPosture())
     {
-    case Posture::Prone:  return m_moves.prone;
-    case Posture::Crouch: return m_moves.crouch;
+    case Posture::Prone:  return w.prone;
+    case Posture::Crouch: return w.crouch;
     case Posture::Stand:  break;
     }
 
@@ -782,20 +857,20 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     // ★ **기본 공격 뒤에만** 2타가 나온다. DASH·CROUCH·JUMP 뒤에는 안 나온다.
     //   ※ SelectAttack 은 m_currentAttack 이 갱신되기 **전에** 불리므로,
     //     여기서 보는 것은 아직 **직전 공격**이다.
-    if (prev == PlayerState::Attack && m_currentAttack == &m_moves.light)
-        return m_moves.thrust;
+    if (prev == PlayerState::Attack && m_currentAttack == &w.light)
+        return w.thrust;
 
     // ③ ★ 구르기 직후 -> 대시. 「달리는 중」이 아니라 **구르기 뒤**다.
     //   달리는 중으로 두었더니 이동이 거의 항상이라 평타가 안 나왔다.
-    if (prev == PlayerState::Roll)       return m_moves.dash;
+    if (prev == PlayerState::Roll)       return w.dash;
 
-    return m_moves.light;                                         // ④ 기본
+    return w.light;                                               // ④ 기본
 }
 
 
 const AttackData& PlayerController::CurrentAttack() const
 {
-    return m_currentAttack ? *m_currentAttack : m_moves.light;
+    return m_currentAttack ? *m_currentAttack : Weapon().light;
 }
 
 
@@ -1310,7 +1385,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //   ★ 예약에 **손까지** 담는다. 왼손으로 1타를 내고 오른손으로 이어치는
         //     것도 성립해야 하기 때문이다 — 「이어친다」는 무기의 성질이지
         //     손의 성질이 아니다.
-        if (handPressed != WeaponHand::None && m_currentAttack == &m_moves.light
+        if (handPressed != WeaponHand::None && m_currentAttack == &Weapon().light
             && m_stateTicks >= atk.startup + atk.active)
         {
             m_queuedHand = handPressed;
@@ -1413,7 +1488,12 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     // ★ F6 — 무브셋을 파일에서 다시 읽는다.
     //   숫자 하나 고칠 때마다 빌드하지 않아도 되는 것이 이 단계의 전부다.
     if (consumeEdgeInput && ctx.input.DataReloadPressed())
-        ReloadMoveset();
+        ReloadWeapons();
+
+    // ★ 임시 디버그 키(F8) — 카탈로그의 다음 무기로. 8단계 장비 화면이 답이다.
+    //   ※ 죽은 뒤에는 받지 않는다 — F4/F7 과 같은 이유다.
+    if (consumeEdgeInput && ctx.input.WeaponSwapPressed() && !IsDead())
+        CycleWeapon();
 
     // ★ 임시 디버그 키 — 부위를 부러뜨렸다 되돌린다.
     //
@@ -1555,9 +1635,12 @@ void PlayerController::RenderUI(Renderer& renderer)
     //   ★ F2 로 바뀌는 값이므로 **항상** 보여야 한다.
     //     안 보이면 「같은 공격에 왜 이번엔 안 밀렸지?」를 확인할 수 없다.
     renderer.DrawString(
-        std::format("ARMOR {} (poise {})  WEAPON {}", Armor().name, Armor().poise,
-                    m_weaponHand == WeaponHand::Right ? "R.HAND"
-                  : m_weaponHand == WeaponHand::Left  ? "L.HAND" : "-none-"),
+        std::format("ARMOR {} (poise {})  WEAPON {} {}",
+                    Armor().name, Armor().poise,
+                    m_weaponHand == WeaponHand::None ? "-none-" : Weapon().name.c_str(),
+                    m_weaponHand == WeaponHand::None ? ""
+                  : Weapon().twoHanded               ? "[2H]"
+                  : m_weaponHand == WeaponHand::Right ? "[R]" : "[L]"),
         12.0f, Config::kCanvasHeight - 52.0f, DirectX::Colors::SlateGray, 1);
 
     // ---- 상태 ----
@@ -1568,7 +1651,7 @@ void PlayerController::RenderUI(Renderer& renderer)
         const AttackData& a = CurrentAttack();
         renderer.DrawString(
             std::format("{}{}  t{:<3}{}   [{} {} {}]  h{:.0f}{}",
-                        a.name, (m_currentAttack == &m_moves.thrust) ? " (2nd)" : "",
+                        a.name, (m_currentAttack == &Weapon().thrust) ? " (2nd)" : "",
                         m_stateTicks, AttackPhase(m_stateTicks, a),
                         a.startup, a.active, a.recovery, a.heightFromFoot,
                         (m_queuedHand != WeaponHand::None) ? "  >> NEXT" : ""),

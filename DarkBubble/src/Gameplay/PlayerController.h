@@ -16,7 +16,7 @@
 #include "Core/AABB.h"
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
-#include "Gameplay/Moveset.h"
+#include "Gameplay/WeaponType.h"
 
 class BodyComponent;
 class PartsComponent;
@@ -206,13 +206,14 @@ public:
     bool HandArmed(WeaponHand hand) const;   // 그 손에 무기가 들려 있는가
     bool CanHold(WeaponHand hand)   const;   // 그 손으로 주울 수 있는가
 
+    //   ★ **무엇을 줍는가**까지 받는다. 양손 무기는 두 팔이 다 성해야 한다.
     // 지금 주우면 **어느 손에 들어가는가.** None = 못 줍는다.
     //   ★ 손 선택이 줍기에서 사라졌으므로 규칙이 필요하다:
     //     **주손(오른손) 우선, 그 팔이 부서졌으면 반대 손.**
     //     §1.2 의 기회비용(왼손을 무기로 채우면 횃불을 못 든다)은
     //     8단계 장비 화면으로 옮긴다 — 줍는 순간에 고르게 하면
     //     「집어 든다」와 「장착한다」가 한 동작에 붙어 되돌릴 수가 없다.
-    WeaponHand PickupHand() const;
+    WeaponHand PickupHand(const std::string& weaponId) const;
     // 땅을 밟고 있는가. ★ E(상호작용)가 이것을 본다 —
     //   공중에서는 줍지도, 쉬지도, 문을 넘지도 못한다.
     bool Grounded() const;
@@ -248,7 +249,17 @@ public:
     //     온다(§3.2.2). 무기를 일부러 버리는 키는 **없다.**
 
     // 무기를 손에 넣었다. Scene 이 줍기를 처리한 뒤 알려 준다.
-    void EquipWeapon(WeaponHand hand);
+    //   ★ **무엇을** 들었는지까지 받는다. 무기가 둘이 된 순간 「손에 들었다」
+    //     만으로는 부족하다 — 땅에 떨어진 것이 단검인지 대검인지가 결과를 바꾼다.
+    void EquipWeapon(WeaponHand hand, const std::string& weaponId);
+
+    // 지금 들고 있는 무기. ★ 카탈로그에 없으면 **첫 무기**로 대신한다 —
+    //   파일에서 무기 이름이 사라져도 게임은 돈다(로더들과 같은 태도).
+    const WeaponType& Weapon() const;
+    const std::string& WeaponId() const { return m_weaponId; }
+
+    // 임시 디버그(F8) — 카탈로그의 다음 무기로. 8단계 장비 화면이 오면 버린다.
+    void CycleWeapon();
 
     // ---- ★ 팔 레이어 (design.md §8.1) ----
     //   팔을 별도 시트로 겹쳐 두고, 잘리면 그 장을 숨기고 상처 장을 켠다.
@@ -272,7 +283,7 @@ private:
     void UpdateMovement(SceneContext& ctx, float moveX);
 
     // 무브셋을 파일에서 다시 읽는다. 실패하면 이전 값이 그대로 남는다.
-    void ReloadMoveset();
+    void ReloadWeapons();
 
     // 지금 자세에 맞는 기본 그림. 자세를 고르는 곳은 여기 한 곳이다.
     const AnimationClip& PostureClip(bool moving) const;
@@ -293,10 +304,19 @@ private:
 
     AABB SpriteBounds() const;
 
-    // ★ 무브셋을 **값으로** 소유한다. 「직전에 기본 공격을 냈는가」를
-    //   `m_currentAttack == &m_moves.light` 로 묻고 있으므로 주소가 안정해야 한다.
-    //   리로드는 필드를 덮어쓸 뿐이라 주소가 유지된다.
-    Moveset m_moves;
+    // ★ 무기 **카탈로그**를 값으로 소유한다(8-a). 「직전에 기본 공격을 냈는가」를
+    //   `m_currentAttack == &Weapon().light` 로 묻고 있으므로 주소가 안정해야 한다.
+    //   ★ map 의 원소는 주소가 안 변한다 — 리로드는 **값만** 덮어쓴다.
+    WeaponCatalog m_weapons;
+
+    // 맨손. ★ 무기 **바깥**에 있다 — 「무기가 없을 때」는 몸의 성질이지
+    //   무기의 성질이 아니다(WeaponType.h 주석).
+    UnarmedSet    m_unarmed;
+
+    // 지금 들고 있는 무기의 **이름**. ★ 포인터가 아니라 이름인 이유는
+    //   적 스폰이 종류를 이름으로 가리키는 것과 같다 — 카탈로그가 바뀌어도
+    //   「무엇을 들고 있었는가」는 남는다.
+    std::string   m_weaponId = "dagger";
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     BodyComponent*    m_body    = nullptr;

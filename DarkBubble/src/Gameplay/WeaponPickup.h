@@ -20,8 +20,11 @@
 // ============================================================================
 #pragma once
 
+#include <string>
+
 #include "Core/AABB.h"
 #include "Core/Component.h"
+#include "Graphics/Assets.h"
 
 class WeaponPickup final : public Component
 {
@@ -34,9 +37,19 @@ public:
     // 월드에 존재하는가. 주우면 사라지고 떨구면 나타난다.
     bool Active() const { return m_active; }
 
-    // 떨군다. 위치는 떨어뜨린 쪽이 정한다.
-    void DropAt(float x, float y);
+    // ★ 무엇이 떨어져 있는지 그림으로 알려 준다(8-a).
+    //   전에는 사각형 두 개로 그렸다. 무기가 하나뿐일 때는 「무기가 있다」만
+    //   알리면 됐지만, 둘이 되는 순간 **어느 쪽이 떨어져 있는지**가 판단이 된다.
+    //   ※ 손 슬롯 UI 와 **같은 시트**를 쓴다 — 「UI 의 그것」과 「바닥의 그것」이
+    //     같은 물건으로 읽혀야 한다.
+    void SetSheet(Assets::TextureHandle sheet) { m_sheet = std::move(sheet); }
+
+    // 떨군다. 위치도 **무엇인지**도 떨어뜨린 쪽이 정한다.
+    void DropAt(float x, float y, std::string weaponId, int icon);
     void PickedUp() { m_active = false; }
+
+    // 여기 떨어져 있는 것이 무엇인가. 주운 쪽이 이 이름으로 장착한다.
+    const std::string& WeaponId() const { return m_weaponId; }
 
     // 주울 수 있는 범위. 발밑 기준으로 넉넉히 잡는다 —
     // 픽셀 단위로 정확히 밟게 하면 조작이 답답해진다.
@@ -45,4 +58,8 @@ public:
 private:
     bool m_active   = false;
     int  m_bobTicks = 0;   // 눈에 띄게 하려는 위아래 흔들림용
+
+    Assets::TextureHandle m_sheet;          // icons.png
+    std::string           m_weaponId = "dagger";
+    int                   m_icon     = 1;
 };

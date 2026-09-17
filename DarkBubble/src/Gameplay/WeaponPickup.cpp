@@ -8,9 +8,8 @@
 
 namespace
 {
-    // 칼날 색은 플레이어 시트의 칼과 같게 — 「저게 내 무기다」가 바로 읽혀야 한다.
-    constexpr float kBladeW = 16.0f;
-    constexpr float kBladeH =  4.0f;
+    // icons.png 한 칸의 크기.
+    constexpr int kIconSize = 16;
 
     // 주울 수 있는 범위. 그림보다 넉넉하다.
     constexpr float kAreaHalfW = 16.0f;
@@ -18,12 +17,14 @@ namespace
 }
 
 
-void WeaponPickup::DropAt(float x, float y)
+void WeaponPickup::DropAt(float x, float y, std::string weaponId, int icon)
 {
     Transform& tr = Owner().transform;
     tr.x = x;
     tr.y = y;
-    m_active = true;
+    m_weaponId = std::move(weaponId);
+    m_icon     = icon;
+    m_active   = true;
 }
 
 
@@ -56,15 +57,18 @@ void WeaponPickup::Render(Renderer& renderer)
         { cx - 7.0f, std::round(tr.y) - 2.0f, cx + 7.0f, std::round(tr.y) },
         DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.35f));
 
-    // 칼날 (테두리 + 본색). 스프라이트 없이 도형 두 개면 충분하다.
-    renderer.DrawFilledRect(
-        { cx - kBladeW * 0.5f - 1.0f, cy - kBladeH * 0.5f - 1.0f,
-          cx + kBladeW * 0.5f + 1.0f, cy + kBladeH * 0.5f + 1.0f },
-        DirectX::XMVectorSet(0.07f, 0.07f, 0.10f, 1.0f));
-    renderer.DrawFilledRect(
-        { cx - kBladeW * 0.5f, cy - kBladeH * 0.5f,
-          cx + kBladeW * 0.5f, cy + kBladeH * 0.5f },
-        DirectX::XMVectorSet(0.81f, 0.82f, 0.86f, 1.0f));
+    // ★ 시트가 없으면 아무것도 안 그린다. 「없으면 대신 사각형」을 남겨 두면
+    //   시트를 못 읽은 것을 **아무도 눈치채지 못한다** — 조용한 실패가 제일 나쁘다.
+    if (!m_sheet)
+        return;
+
+    const float half = kIconSize * 0.5f;
+    const RECT  src{ m_icon * kIconSize, 0, (m_icon + 1) * kIconSize, kIconSize };
+
+    renderer.Sprites().Draw(
+        m_sheet.Get(),
+        DirectX::XMFLOAT2(cx - half, cy - half), &src,
+        DirectX::Colors::White);
 }
 
 

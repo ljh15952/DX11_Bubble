@@ -37,5 +37,5 @@ void ReadAttack(const JsonValue& v, AttackData& a)
     else if (posture == "stand")  a.posture = Posture::Stand;
 
     // name 은 일부러 안 읽는다. const char* 라 수명 문제가 생기고,
-    // 무엇보다 이름은 조정하는 값이 아니라 식별자다(Moveset.h 참조).
+    // 무엇보다 이름은 조정하는 값이 아니라 식별자다(WeaponType.h 참조).
 }
