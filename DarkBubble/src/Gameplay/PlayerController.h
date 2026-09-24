@@ -292,6 +292,34 @@ public:
     int         EquipWeight() const;
     WeightClass Weight()      const;
 
+    // ========================================================================
+    //  ★★ 지문 두 칸 (8-g, design.md §1.1 · §1.2)
+    //
+    //    ★ 방어구와 **같은 손길**이다 — Enter 로 끼고 Enter 로 뺀다.
+    //      좌/우클릭은 **손에 드는 것**, Enter 는 **몸에 걸치는 것**.
+    //      지문은 걸치는 쪽이다.
+    // ========================================================================
+    static constexpr int kRingSlots = 2;
+
+    const std::string& RingItem(int slot) const { return m_rings[slot]; }
+
+    // 가방의 지문을 **빈 칸에** 낀다. 두 칸이 다 차 있으면 false —
+    //   ★ 어느 것을 뺄지는 플레이어가 정한다. 몰래 하나를 빼서 가방에 넣으면
+    //     「초심자 지문이 어디 갔지?」가 된다.
+    bool WearRingFromBag(int bagSlot);
+    bool TakeOffRing(int slot);     // 가방으로. 가방이 차 있으면 false
+    void DiscardRing(int slot);     // 발밑으로
+
+    // ---- ★ 인식 (§1.1) — 지문이 바꾸는 것 ----
+    //   Scene 이 **그릴 때** 묻는다. 세상(적의 행동 · 판정)은 그대로다.
+    bool SeesTelegraph() const;   // 적의 `!` 가 보이는가
+    int  LightLevel()    const;   // 어둠 속에서 보이는 범위(%). 아무것도 없으면 바닥값
+
+    // 이 손의 버튼이 **휘두르기**인가.
+    //   빈손 → 문다(휘두르기다) / 방패 → 막는다 / 횃불 → 비춘다(아무것도 안 한다)
+    //   ★ 「그 손에 든 것이 버튼의 뜻을 정한다」(§3.2.1.1)가 셋째 경우를 얻었다.
+    bool ButtonSwings(WeaponHand hand) const;
+
     // 특수 효과 — 이 적 종류에게 주는 추가 데미지(%).
     //   ★ 방어구의 효과는 **모든 공격**에, 무기의 효과는 **그 무기로 칠 때만**
     //     듣는다. 왼손의 성검이 오른손 단검을 강하게 만들면 이상하니까.
@@ -581,6 +609,14 @@ private:
     // ★ 입은 방어구. 빈 문자열 = 안 입음. 손·가방과 **같은 표현**이다.
     //   ※ `m_armorIndex`(F2 로 두 벌을 오가던 것)가 여기 있었다.
     std::array<std::string, kArmorSlots> m_armor;
+
+    // ★ 낀 지문. 빈 문자열 = 비었다. 손·방어구·가방과 **같은 표현**이다.
+    std::array<std::string, kRingSlots> m_rings;
+
+    // 몸에 걸친 모든 것(방어구 · 지문 · 손)의 효과를 한 번씩 훑는다. 가방은 빼고.
+    //   ★ 인식 효과(SeeTelegraph · Light)는 **어디서 왔든** 듣는다 — 지문이든
+    //     손의 횃불이든. 그래서 한 곳에서 훑는다.
+    template <class Fn> void ForEachWornEffect(Fn&& fn) const;
     bool m_deathScreenRequested = false;
 
     // 팔 레이어 번호. -1 = 안 붙었다.

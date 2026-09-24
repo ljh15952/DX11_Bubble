@@ -552,6 +552,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
     Log::Info("[play] Tab = 장비 화면 (가방 6칸). ★ 게임은 **안 멈춘다** — 적이 온다");
+    Log::Info("[play] 지문: NOVICE = 적의 ! 가 보인다  FIREFLY = 어둠 속(동굴)이 보인다  — 빼 보면 안다");
     Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
     Log::Info("[play] 방패: 그 손의 버튼을 **누르고 있으면** 막는다. 앉으면 띠가 내려간다");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -818,10 +819,16 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //   두 몸 사이의 판정을 Scene 이 하는 것과 같은 이유다.
     {
         const Enemy* front = NearestEnemy();
+
+        // ★ 예고가 보이는가 = 플레이어가 初心者の指輪 를 꼈는가(§1.1).
+        //   한 번 물어서 모두에게 같은 답을 준다.
+        const bool seesTelegraph = m_player->SeesTelegraph();
+
         for (Enemy& e : m_enemies)
         {
             e.brain->SetTargetProne(m_playerParts->Prone());
             e.brain->SetYieldRoom(front && front != &e);
+            e.brain->SetTelegraphVisible(seesTelegraph);
         }
     }
 
@@ -879,11 +886,8 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         ReloadData(ctx);
 
     // ★ 임시 키. 밝기는 **비교해 봐야** 정할 수 있다.
-    if (consumeEdgeInput && ctx.input.DarkTogglePressed())
-    {
-        m_dark = !m_dark;
-        Log::Info("[play] (F5) 어둠 {}", m_dark ? "ON" : "OFF");
-    }
+    // ※ F5(어둠 껐다 켜기)가 여기 있었다. 어두운가는 이제 **맵이** 정하고
+    //   (MapData::dark), 얼마나 보이는가는 **지문과 횃불이** 정한다(8-g).
 
     // ★ 장비 화면. **게임을 멈추지 않는다**(InventoryScene.h 주석).
     //   죽은 뒤에는 안 연다 — 열자마자 스스로 닫힐 뿐이다.
@@ -911,7 +915,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 // ----------------------------------------------------------------------------
 void PlayScene::DrawDarkness(Renderer& renderer)
 {
-    if (!m_dark || !m_lightMask)
+    if (!m_map.dark || !m_lightMask)
         return;
 
     const Transform& tr = m_playerObj.transform;
@@ -920,18 +924,27 @@ void PlayScene::DrawDarkness(Renderer& renderer)
     const float lx = std::round(tr.x);
     const float ly = std::round(tr.y - kLightHeight);
 
-    const float halfW = kLightMaskW * 0.5f;
-    const float halfH = kLightMaskH * 0.5f;
+    // ★★ 얼마나 보이는가 = **지문과 횃불이 정한다**(8-g, §1.1).
+    //   마스크 그림은 **한 장 그대로** 두고 크기만 바꾼다 — 蛍の指輪(100)면
+    //   원래 크기, 아무것도 없으면(35) 몸 둘레만 보인다. 그림을 빛마다 만들지
+    //   않는다: 「진하기를 그림에 굽지 않은」 것과 같은 판단이다.
+    const float light = static_cast<float>(m_player->LightLevel()) / 100.0f;
+
+    const float halfW = kLightMaskW * 0.5f * light;
+    const float halfH = kLightMaskH * 0.5f * light;
 
     // ★ 진하기는 **여기서** 정한다. 그림에는 굽지 않았다 —
     //   그래야 장소마다 다르게 두어도 그림을 다시 안 만든다.
     const DirectX::XMVECTOR tint =
         DirectX::XMVectorSet(1.0f, 1.0f, 1.0f, kDarkAlpha);
 
+    // ★ 원점은 **그림의** 가운데다(배율 전). 배율은 따로 준다 — 원점에
+    //   배율을 곱해 넣으면 빛이 가슴에서 비껴 난다.
     const DirectX::XMFLOAT2 pos{ lx, ly };
     renderer.Sprites().Draw(
         m_lightMask.Get(), pos, nullptr, tint,
-        0.0f, DirectX::XMFLOAT2(halfW, halfH), DirectX::XMFLOAT2(1.0f, 1.0f),
+        0.0f, DirectX::XMFLOAT2(kLightMaskW * 0.5f, kLightMaskH * 0.5f),
+        DirectX::XMFLOAT2(light, light),
         (tr.facing < 0) ? DirectX::SpriteEffects_FlipHorizontally
                         : DirectX::SpriteEffects_None);
 

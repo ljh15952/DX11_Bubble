@@ -56,6 +56,7 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
     m.worldWidth  = world["w"].Flt(m.worldWidth);
     m.worldHeight = world["h"].Flt(m.worldHeight);
     m.groundY     = world["groundY"].Flt(m.groundY);
+    m.dark        = world["dark"]   .Bool(m.dark);
 
     const JsonValue& solids = (*root)["solids"];
     for (size_t i = 0; i < solids.Size(); ++i)

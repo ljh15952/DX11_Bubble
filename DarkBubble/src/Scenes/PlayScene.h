@@ -166,7 +166,7 @@ private:
     //   알파 블렌딩이 그대로 「보이는 만큼만 보인다」가 되기 때문이다.
     //   ★ 「어떻게 만들까」보다 **「무엇이면 충분한가」**를 먼저 물으면 싸진다.
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_lightMask;
-    bool m_dark = true;                  // F5 로 껐다 켠다(임시)
+    // ※ `m_dark`(F5 로 껐다 켜던 것)가 여기 있었다 — 맵이 정한다(MapData::dark).
     void DrawDarkness(Renderer& renderer);
 
     // 손에 든 것을 보여 주는 아이콘 (빈손 / 단검 / 잘림 / 이빨)

@@ -70,6 +70,18 @@ namespace
         w.poise  = v["poise"] .Int(w.poise);
         w.weight = v["weight"].Int(w.weight);
 
+        // ---- 지문 · 휘두르기 (8-g) ----
+        w.ring   = v["ring"]  .Bool(w.ring);
+        w.swings = v["swings"].Bool(w.swings);
+
+        // ★ 지문이면서 방어구 부위를 가진 것은 **모순**이다 — 어디에 끼는지
+        //   둘이 다른 답을 한다. 경고하고 지문 쪽을 따른다.
+        if (w.ring && w.armorSlot != ArmorSlot::None)
+        {
+            Log::Info("[item] ! {} : ring 인데 armorSlot 도 있다 — 지문으로 친다", id);
+            w.armorSlot = ArmorSlot::None;
+        }
+
         // ---- 특수 효과 (§3.10.5) ----
         //   ★ 적혀 있으면 **통째로 갈아 끼운다**(덧붙이지 않는다). base(단검)의
         //     효과가 섞여 들어오면 「아무것도 안 적은 투구에 칼의 효과」가 생긴다.
@@ -83,7 +95,9 @@ namespace
                 const std::string kind = e["kind"].Str();
 
                 ItemEffect ef;
-                if (kind == "bonusDamage") ef.kind = EffectKind::BonusDamage;
+                if      (kind == "bonusDamage")  ef.kind = EffectKind::BonusDamage;
+                else if (kind == "seeTelegraph") ef.kind = EffectKind::SeeTelegraph;
+                else if (kind == "light")        ef.kind = EffectKind::Light;
                 else
                 {
                     // ★ 모르는 효과는 경고만 하고 건너뛴다. 게임을 멈추면

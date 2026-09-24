@@ -21,6 +21,7 @@ namespace
     constexpr float kGroupGap  = 14.0f;  // 무리 사이 — 손 / 몸 / 가방이 다른 곳임을 보여 준다
 
     constexpr int kHands = 2;
+    constexpr int kRings = PlayerController::kRingSlots;
     constexpr int kBag   = PlayerController::kBagSize;
 
     constexpr int kIconTeeth    = 3;     // 빈손 = 이빨(무기가 없으면 문다)
@@ -38,7 +39,7 @@ bool InventoryScene::Enter(SceneContext& ctx)
         return false;
 
     // ★ 가방 첫 칸에서 시작한다. 여는 이유는 대개 「무엇을 꺼내 쓸까」다.
-    m_cursor = kHands + kArmorSlots;
+    m_cursor = kHands + kArmorSlots + kRings;
 
     Log::Info("[inv] ← → 고르기   좌/우클릭 = 그 손에   Enter = 입기/넣기   X = 버리기   Tab = 닫기");
     Log::Info("[inv] ★ 게임은 **안 멈춘다** — 적이 온다");
@@ -48,15 +49,28 @@ bool InventoryScene::Enter(SceneContext& ctx)
 
 int InventoryScene::SlotCount() const
 {
-    return kHands + kArmorSlots + kBag;
+    return kHands + kArmorSlots + kRings + kBag;
 }
 
 
 InventoryScene::Slot InventoryScene::SlotAt(int cursor) const
 {
-    if (cursor < kHands)               return { SlotKind::Hand,  cursor };
-    if (cursor < kHands + kArmorSlots) return { SlotKind::Armor, cursor - kHands };
-    return { SlotKind::Bag, cursor - kHands - kArmorSlots };
+    // 왼쪽 무리부터 차례로 빼 나간다. 남은 번호가 그 무리 안의 번호다.
+    int i = cursor;
+
+    if (i < kHands)
+        return { SlotKind::Hand, i };
+    i -= kHands;
+
+    if (i < kArmorSlots)
+        return { SlotKind::Armor, i };
+    i -= kArmorSlots;
+
+    if (i < kRings)
+        return { SlotKind::Ring, i };
+    i -= kRings;
+
+    return { SlotKind::Bag, i };
 }
 
 
@@ -66,6 +80,7 @@ const std::string& InventoryScene::IdAt(const Slot& s) const
     {
     case SlotKind::Hand:  return m_player.HandItem(HandOf(s.index));
     case SlotKind::Armor: return m_player.ArmorItem(static_cast<ArmorSlot>(s.index));
+    case SlotKind::Ring:  return m_player.RingItem(s.index);
     case SlotKind::Bag:   break;
     }
     return m_player.BagItem(s.index);
@@ -147,11 +162,11 @@ void InventoryScene::Act(SceneContext& ctx)
         if (slot.kind != SlotKind::Bag || !item)
             return;
 
-        if (item->IsArmor())
+        if (item->IsWorn())
         {
-            // ★ 방어구는 손에 드는 것이 아니다 — 왜 안 되는지와 **어떻게 하는지**를 같이.
+            // ★ 걸치는 것은 손에 드는 것이 아니다 — 왜 안 되는지와 **어떻게 하는지**를 같이.
             ctx.audio.Play("ui_cancel", 0.5f);
-            Say("ARMOR - PRESS ENTER TO WEAR", false);
+            Say(item->IsRing() ? "RING - PRESS ENTER TO WEAR" : "ARMOR - PRESS ENTER TO WEAR", false);
             return;
         }
 
@@ -180,6 +195,15 @@ void InventoryScene::Act(SceneContext& ctx)
         switch (slot.kind)
         {
         case SlotKind::Bag:
+            if (item->IsRing())
+            {
+                // ★ 두 칸이 다 차 있으면 **안 낀다.** 어느 것을 뺄지는 플레이어가
+                //   정한다 — 몰래 하나를 빼면 「초심자 지문이 어디 갔지?」가 된다.
+                ok = m_player.WearRingFromBag(slot.index);
+                if (ok) Say("WORE " + name, true);
+                else  { ctx.audio.Play("ui_cancel", 0.6f); Say("RINGS FULL - TAKE ONE OFF", false); return; }
+                break;
+            }
             if (!item->IsArmor())
             {
                 Say("WEAPON - LMB / RMB = WHICH HAND", false);
@@ -190,6 +214,11 @@ void InventoryScene::Act(SceneContext& ctx)
             if (ok) Say(std::format("WORE {}  ->  {} {}  POISE {}", name,
                                     WeightClassName(m_player.Weight()),
                                     m_player.EquipWeight(), m_player.TotalPoise()), true);
+            break;
+
+        case SlotKind::Ring:
+            ok = m_player.TakeOffRing(slot.index);
+            if (ok) Say(name + " -> BAG", true);
             break;
 
         case SlotKind::Hand:
@@ -224,6 +253,7 @@ void InventoryScene::Act(SceneContext& ctx)
         {
         case SlotKind::Hand:  m_player.DiscardHand(HandOf(slot.index));                     break;
         case SlotKind::Armor: m_player.DiscardArmor(static_cast<ArmorSlot>(slot.index));   break;
+        case SlotKind::Ring:  m_player.DiscardRing(slot.index);                             break;
         case SlotKind::Bag:   m_player.DiscardBag(slot.index);                              break;
         }
         ctx.audio.Play("ui_cancel", 0.7f, -0.5f);
@@ -236,7 +266,7 @@ void InventoryScene::RenderUI(Renderer& renderer)
     auto groupW = [](int cells) { return cells * kCell + (cells - 1) * kGap; };
 
     const float totalW = groupW(kHands) + kGroupGap + groupW(kArmorSlots)
-                       + kGroupGap + groupW(kBag);
+                       + kGroupGap + groupW(kRings) + kGroupGap + groupW(kBag);
 
     const float left = (Config::kCanvasWidth - totalW) * 0.5f;
 
@@ -246,7 +276,8 @@ void InventoryScene::RenderUI(Renderer& renderer)
     const float top = 36.0f;
 
     const float armorX = left + groupW(kHands) + kGroupGap;
-    const float bagX   = armorX + groupW(kArmorSlots) + kGroupGap;
+    const float ringX  = armorX + groupW(kArmorSlots) + kGroupGap;
+    const float bagX   = ringX + groupW(kRings) + kGroupGap;
 
     // ---- 판 ----
     //   ★ 화면 전체를 덮지 않는다(PauseScene 과 다르다).
@@ -263,6 +294,7 @@ void InventoryScene::RenderUI(Renderer& renderer)
     renderer.DrawString(std::format("{} {}  POISE {}", WeightClassName(m_player.Weight()),
                                     m_player.EquipWeight(), m_player.TotalPoise()),
                         armorX, top - 14.0f, DirectX::Colors::Gainsboro, 1);
+    renderer.DrawString("RINGS", ringX, top - 14.0f, DirectX::Colors::SlateGray, 1);
     renderer.DrawString(std::format("BAG {}", kBag), bagX, top - 14.0f, DirectX::Colors::SlateGray, 1);
 
     // ---- 칸 ----
@@ -275,6 +307,7 @@ void InventoryScene::RenderUI(Renderer& renderer)
         {
         case SlotKind::Hand:  x = left   + s.index * (kCell + kGap); break;
         case SlotKind::Armor: x = armorX + s.index * (kCell + kGap); break;
+        case SlotKind::Ring:  x = ringX  + s.index * (kCell + kGap); break;
         case SlotKind::Bag:   x = bagX   + s.index * (kCell + kGap); break;
         }
 
@@ -327,6 +360,10 @@ void InventoryScene::RenderUI(Renderer& renderer)
         info = std::format("{}  {}  POISE {}  W {}", item->name,
                            ArmorSlotName(item->armorSlot), item->poise, item->weight);
     }
+    else if (item->IsRing())
+    {
+        info = item->name + "  RING";   // 무엇이 보이게 되는지는 아래 효과 줄이 말한다
+    }
     else if (item->IsShield())
     {
         info = std::format("{}  GUARD {:.0f}-{:.0f}  DEF {}%  HARD {}  W {}",
@@ -341,10 +378,27 @@ void InventoryScene::RenderUI(Renderer& renderer)
     }
 
     // ★ 특수 효과도 적는다. **숨은 효과는 없는 효과와 같다.**
+    //   ★ 지문은 **무엇이 보이게 되는지**를 적는다 — 숫자가 아니라 인식이다(§1.1).
     if (item)
         for (const ItemEffect& e : item->effects)
-            if (e.kind == EffectKind::BonusDamage)
+        {
+            switch (e.kind)
+            {
+            case EffectKind::BonusDamage:
                 info += std::format("  +{}% vs {}", e.value, e.vs.empty() ? "ALL" : e.vs);
+                break;
+            case EffectKind::SeeTelegraph:
+                info += "  SEE ENEMY TELLS (!)";
+                break;
+            case EffectKind::Light:
+                info += std::format("  LIGHT {}%", e.value);
+                break;
+            }
+        }
+
+    // ★ 휘두르지 않는 손 물건은 그것도 적는다 — 「왜 공격이 안 나가지?」를 막는다.
+    if (item && !item->swings)
+        info += "  (DOES NOT SWING)";
 
     renderer.DrawString(info, left, top + kCell + 8.0f, DirectX::Colors::Gainsboro, 1);
 
@@ -352,6 +406,6 @@ void InventoryScene::RenderUI(Renderer& renderer)
         renderer.DrawString(m_message, left, top + kCell + 20.0f,
                             m_messageGood ? DirectX::Colors::Gold : DirectX::Colors::Crimson, 1);
     else
-        renderer.DrawString("LMB/RMB: HOLD  ENTER: WEAR/STOW  X: DROP  TAB: CLOSE",
+        renderer.DrawString("LMB/RMB: HOLD   ENTER: WEAR/STOW   X: DROP   TAB: CLOSE",
                             left, top + kCell + 20.0f, DirectX::Colors::DimGray, 1);
 }

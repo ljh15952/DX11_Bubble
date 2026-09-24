@@ -153,10 +153,8 @@ public:
     bool MenuRightPressed() const { return m_edges.menuRight; }   // → / D / 패드 →
     bool DiscardPressed()   const { return m_edges.discard;   }   // X / 패드 RB
 
-    // ★ F5 — 어둠 껐다 켜기.
-    //   밝기는 **비교해 봐야** 정할 수 있다. 끄고 켤 수 없으면
-    //   「지금이 어두운 건지 원래 그런 건지」를 알 수가 없다.
-    bool DarkTogglePressed() const { return m_edges.darkToggle; }
+    // ※ F5(어둠 껐다 켜기)가 있었다. 어두운가는 맵이, 얼마나 보이는가는 지문과
+    //   횃불이 정한다(8-g) — 비교는 이제 **지문을 뺐다 끼며** 한다.
 
     // ★ F6 — 무브셋(items.json)을 다시 읽는다.
     //   게임 상태(공격 수치)를 바꾸므로 **누적 엣지**다 —
@@ -205,7 +203,6 @@ private:
         bool menuLeft  = false;
         bool menuRight = false;
         bool discard   = false;
-        bool darkToggle = false;
         bool dataReload = false;
     };
     Edges m_edges;

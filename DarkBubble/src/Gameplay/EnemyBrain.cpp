@@ -592,7 +592,9 @@ void EnemyBrain::ApplyTint()
         m_sprite->SetTint(DirectX::XMVectorSet(1.00f, 0.75f, 0.70f, 1.0f));
     else if (AttackActive())
         m_sprite->SetTint(DirectX::XMVectorSet(1.00f, 0.45f, 0.35f, 1.0f));
-    else if (Telegraph())
+    // ★ 예고 틴트도 `!` 와 **같이** 지문을 따른다. `!` 만 숨기고 몸이 주황으로
+    //   물들면 예고가 그대로 보이는 것이라, 지문을 뺀 의미가 없다.
+    else if (m_telegraphVisible && Telegraph())
         m_sprite->SetTint(DirectX::XMVectorSet(1.00f, 0.78f, 0.60f, 1.0f));
     else
         m_sprite->ClearTint();
@@ -610,7 +612,9 @@ void EnemyBrain::Render(Renderer& renderer)
     //     ② 이 `!` 표시            — 기획서 §1.1 의 「初心者の指輪」
     //     ①만 있으면 초보자가 반응 못 하고 ②만 있으면 숙련의 여지가 없다.
     //     나중에 이 if 를 지문 장착 여부로 감싸면 그대로 첫 아이템이 된다.
-    if (Telegraph())
+    //   ★★ 감쌌다(8-g). 지문을 빼면 ②가 사라지고 **①만 남는다** —
+    //     팔을 젖히는 그림을 **읽어야** 한다. 초심자의 지문이라는 이름 그대로다.
+    if (m_telegraphVisible && Telegraph())
     {
         const AABB head = m_parts->Box(Part_Head);
         renderer.DrawString("!",

@@ -81,7 +81,6 @@ void Input::Poll()
                       || m_padTracker.dpadRight == PadTracker::PRESSED;
     m_edges.discard   |= m_kbTracker.pressed.X
                       || m_padTracker.rightShoulder == PadTracker::PRESSED;
-    m_edges.darkToggle |= m_kbTracker.pressed.F5;
     m_edges.dataReload |= m_kbTracker.pressed.F6;
 }
 

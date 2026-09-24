@@ -75,10 +75,16 @@ int main()
     // 부위가 있으면 방어구다 — ItemType::IsArmor() 와 같은 판정.
     auto isArmor = [](const JsonValue& w) { return !w["armorSlot"].Str().empty(); };
 
-    // ★ 휘두르는 것 = 방패도 방어구도 아닌 것. 둘은 공격 데이터를 base(단검)
-    //   에서 물려받은 채 **아무도 안 읽는다** — 그래서 「무기마다 다른 그림 행」
-    //   검사에서 빼야 한다. 안 빼면 단검과 같은 행을 쓴다고 실패한다.
-    auto swings = [&](const JsonValue& w) { return !isShield(w) && !isArmor(w); };
+    auto isRing = [](const JsonValue& w) { return w["ring"].Bool(false); };
+
+    // ★ 휘두르는 것 = 방패 · 방어구 · 지문이 아니고, `swings: false`(횃불)도 아닌 것.
+    //   나머지는 공격 데이터를 base(단검)에서 물려받은 채 **아무도 안 읽는다** —
+    //   그래서 「무기마다 다른 그림 행」 검사에서 빼야 한다. 안 빼면 단검과 같은
+    //   행을 쓴다고 실패한다.
+    auto swings = [&](const JsonValue& w)
+    {
+        return !isShield(w) && !isArmor(w) && !isRing(w) && w["swings"].Bool(true);
+    };
 
     for (const auto& kv : list.Members())
     {
@@ -97,8 +103,34 @@ int main()
         for (size_t i = 0; i < fx.Size(); ++i)
         {
             const std::string kind = fx[i]["kind"].Str();
-            Check(kind == "bonusDamage", id + " : 아는 효과 종류다 (" + kind + ")");
-            Check(fx[i]["value"].Int(0) != 0, id + " : 효과에 value 가 있다");
+            const bool known = (kind == "bonusDamage" || kind == "seeTelegraph" || kind == "light");
+            Check(known, id + " : 아는 효과 종류다 (" + kind + ")");
+
+            // ★ 수치가 **뜻이 있는** 종류만 value 를 요구한다. seeTelegraph 는
+            //   「보인다/안 보인다」뿐이라 숫자가 없다.
+            if (kind == "bonusDamage" || kind == "light")
+                Check(fx[i]["value"].Int(0) > 0, id + " : " + kind + " 에 value 가 있다");
+        }
+
+        // ---- 지문 ----
+        if (isRing(w))
+        {
+            // ★ 지문이면서 방어구 부위를 가지면 「어디에 끼는가」가 둘이다.
+            Check(!isArmor(w), id + " : 지문에 armorSlot 이 없다");
+
+            // ★ 지문은 **인식을 바꾼다**(§1.1). 효과가 없는 지문은 지문이 아니다.
+            Check(fx.Size() > 0, id + " : 지문에 효과가 있다");
+            continue;
+        }
+
+        // ---- 휘두르지 않는 손 물건 (횃불) ----
+        //   ★ 공격 데이터를 적지 않는다 — base(단검)의 것을 물려받지만 아무도 안
+        //     읽는다. 대신 「무엇을 하는가」가 있어야 한다: 휘두르지도 막지도
+        //     않는데 효과도 없으면 **손 하나를 공짜로 막는 물건**이다.
+        if (!w["swings"].Bool(true))
+        {
+            Check(fx.Size() > 0, id + " : 휘두르지 않는 물건에 효과가 있다");
+            continue;
         }
 
         // ---- 방어구 ----

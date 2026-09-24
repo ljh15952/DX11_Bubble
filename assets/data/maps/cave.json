@@ -3,7 +3,8 @@
   "world": {
     "w": 960,
     "h": 680,
-    "groundY": 600
+    "groundY": 600,
+    "dark": true
   },
   "entries": {
     "start": 140,

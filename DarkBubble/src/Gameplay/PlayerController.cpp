@@ -363,6 +363,11 @@ namespace
     //   **색만 다르고 나머지는 같아야** 둘이 비교된다.
     constexpr int   kSparkTicks           = 9;
 
+    // ★ 빛이 **아무것도 없을 때**의 범위(%). 0 이면 자기 몸도 안 보인다 —
+    //   「어둡다」는 벌이지 「아무것도 못 한다」가 아니어야 한다.
+    //   100 = 8-f 까지의 어둠(F5 를 켰을 때)과 같다. 蛍の指輪 가 그만큼 비춘다.
+    constexpr int   kBaseLight            = 35;
+
     constexpr float kOriginX = kCellW * 0.5f;
     constexpr float kOriginY = static_cast<float>(kCellH);
 
@@ -509,13 +514,20 @@ void PlayerController::Start(SceneContext& ctx)
     // ※ 강인도 적용(ApplyArmor)은 맨 아래 Respawn 이 한다 — 여기서 또 부르면
     //   같은 일을 두 곳에서 하게 된다.
 
+    // ★ 初心者の指輪 를 **끼고 시작한다**(§1.1 「입수: 최초」). 이게 있어서
+    //   적의 `!` 가 보인다 — 빼 보면 그제야 「예고가 지문이었다」가 드러난다.
+    if (m_items.count("novice_ring") && m_items.at("novice_ring").IsRing())
+        m_rings[0] = "novice_ring";
+
     // ★ 시작 가방(6칸 — 가득 찬다). 무기를 얻는 길(상자·적 드롭)이 아직 없으므로
     //   장비 화면을 확인하려면 **바꿀 것이 있어야** 한다(8-a).
-    //   ★ 고른 기준: 무게 등급 **셋이 다 닿는** 조합 + 특수 효과 하나.
-    //     판금은 몸통·투구만 넣었다 — 다리·발까지 넣으면 가방이 넘친다.
-    //     (items.json 에는 네 조각이 다 있다)
-    for (const char* id : { "greatsword", "buckler", "kite",
-                            "plate_mail", "plate_helm", "hunter_boots" })
+    //   ★ 고른 기준: 무게 등급 **셋이 다 닿는** 조합 + 특수 효과 + **빛 둘**.
+    //     蛍の指輪 와 횃불이 같이 있어야 §1.2 의 「어느 쪽으로 비출까」를
+    //     해 볼 수 있다. 그 자리를 내느라 BUCKLER · PLATE HELM 이 빠졌다
+    //     (items.json 에는 그대로 있다). HEAVY 는 여전히 닿는다:
+    //       천 7 + 단검 2 + 판금 몸통 +7 + KITE 8 = 24 → HEAVY
+    for (const char* id : { "greatsword", "kite", "plate_mail",
+                            "hunter_boots", "firefly_ring", "torch" })
         if (m_items.count(id))
             StoreInBag(id);
 
@@ -619,8 +631,13 @@ int PlayerController::BonusDamageVs(const std::string& enemyType) const
         }
     };
 
-    // 방어구 — 모든 공격에
+    // 방어구 · 지문 — **걸친 것**은 모든 공격에
     for (const std::string& id : m_armor)
+    {
+        auto it = m_items.find(id);
+        if (it != m_items.end()) add(it->second);
+    }
+    for (const std::string& id : m_rings)
     {
         auto it = m_items.find(id);
         if (it != m_items.end()) add(it->second);
@@ -631,6 +648,108 @@ int PlayerController::BonusDamageVs(const std::string& enemyType) const
         add(Weapon(m_pendingHand));
 
     return percent;
+}
+
+
+template <class Fn>
+void PlayerController::ForEachWornEffect(Fn&& fn) const
+{
+    auto visit = [&](const std::string& id)
+    {
+        if (id.empty()) return;
+        auto it = m_items.find(id);
+        if (it == m_items.end()) return;
+        for (const ItemEffect& e : it->second.effects)
+            fn(e);
+    };
+
+    for (const std::string& id : m_armor) visit(id);
+    for (const std::string& id : m_rings) visit(id);
+
+    // 손. ★ 양손 무기는 두 칸에 있어도 **한 번**만.
+    visit(m_hand[0]);
+    if (m_hand[1] != m_hand[0])
+        visit(m_hand[1]);
+}
+
+
+bool PlayerController::SeesTelegraph() const
+{
+    bool sees = false;
+    ForEachWornEffect([&](const ItemEffect& e)
+    {
+        if (e.kind == EffectKind::SeeTelegraph) sees = true;
+    });
+    return sees;
+}
+
+
+int PlayerController::LightLevel() const
+{
+    // ★ **가장 밝은 것 하나**를 쓴다(더하지 않는다). 지문과 횃불을 같이 들어도
+    //   두 배로 밝아지지 않는다 — 그래서 蛍를 꼈으면 **횃불이 필요 없다**,
+    //   손 하나가 돌아온다. 이것이 §1.2 의 기회비용의 뒷면이다.
+    int level = kBaseLight;
+    ForEachWornEffect([&](const ItemEffect& e)
+    {
+        if (e.kind == EffectKind::Light && e.value > level) level = e.value;
+    });
+    return level;
+}
+
+
+bool PlayerController::ButtonSwings(WeaponHand hand) const
+{
+    if (!HandArmed(hand))
+        return true;   // 빈손 → 문다. 이빨도 휘두르기다
+
+    const ItemType& t = Weapon(hand);
+    return t.swings && !t.IsShield();
+}
+
+
+bool PlayerController::WearRingFromBag(int bagSlot)
+{
+    if (bagSlot < 0 || bagSlot >= kBagSize || m_bag[bagSlot].empty())
+        return false;
+
+    auto it = m_items.find(m_bag[bagSlot]);
+    if (it == m_items.end() || !it->second.IsRing())
+        return false;
+
+    for (std::string& r : m_rings)
+    {
+        if (r.empty())
+        {
+            r = m_bag[bagSlot];
+            m_bag[bagSlot].clear();
+            Log::Info("[play] {} 를 꼈다", it->second.name);
+            return true;
+        }
+    }
+    return false;   // 두 칸이 다 찼다 — 무엇을 뺄지는 플레이어가 정한다
+}
+
+
+bool PlayerController::TakeOffRing(int slot)
+{
+    if (slot < 0 || slot >= kRingSlots || m_rings[slot].empty())
+        return false;
+    if (!StoreInBag(m_rings[slot]))
+        return false;   // 가방이 찼다 — 낀 채로 둔다
+
+    m_rings[slot].clear();
+    return true;
+}
+
+
+void PlayerController::DiscardRing(int slot)
+{
+    if (slot < 0 || slot >= kRingSlots || m_rings[slot].empty())
+        return;
+
+    m_dropRequests.push_back(m_rings[slot]);   // 발밑에 — Scene 이 놓는다
+    m_rings[slot].clear();
 }
 
 
@@ -874,10 +993,11 @@ WeaponHand PlayerController::PickupHand(const std::string& weaponId) const
     //   못 든다 — 「팔을 잃으면 무기를 바꿔야 한다」가 규칙 없이 성립한다.
     auto it = m_items.find(weaponId);
 
-    // ★ 방어구는 **손에 들지 않는다** — None 을 돌려주면 줍기가 가방으로 보낸다.
-    //   빈 부위면 바로 입히는 방법도 있지만, 판금을 줍는 순간 몰래 HEAVY 가
-    //   되면 「왜 갑자기 느리지?」가 된다. 입는 것은 **플레이어가 정한다.**
-    if (it != m_items.end() && it->second.IsArmor())
+    // ★ 걸치는 것(방어구 · 지문)은 **손에 들지 않는다** — None 을 돌려주면 줍기가
+    //   가방으로 보낸다. 빈 칸이면 바로 입히는 방법도 있지만, 판금을 줍는 순간
+    //   몰래 HEAVY 가 되면 「왜 갑자기 느리지?」가 된다. 걸치는 것은 **플레이어가
+    //   정한다.**
+    if (it != m_items.end() && it->second.IsWorn())
         return WeaponHand::None;
 
     //   ★ 두 칸을 차지하므로 **두 칸이 다 비어 있어야** 한다 — 왼손에 단검을
@@ -965,8 +1085,8 @@ bool PlayerController::EquipFromBag(int slot, WeaponHand hand)
     auto it = m_items.find(id);
     const bool both = (it != m_items.end()) && it->second.twoHanded;
 
-    // ★ 방어구는 **손에 못 든다.** 입는 것이다(WearFromBag).
-    if (it != m_items.end() && it->second.IsArmor())
+    // ★ 걸치는 것은 **손에 못 든다.** 입거나 끼는 것이다(WearFromBag · WearRingFromBag).
+    if (it != m_items.end() && it->second.IsWorn())
         return false;
 
     // ---- 팔이 있어야 든다 ----
@@ -1044,10 +1164,11 @@ void PlayerController::EquipWeapon(WeaponHand hand, const std::string& weaponId)
     auto it = m_items.find(weaponId);
     const bool both = (it != m_items.end()) && it->second.twoHanded;
 
-    // ★★ 방어구는 손에 **절대** 안 든다. 부르는 쪽(줍기 · 장비 화면)도 막지만
-    //   **가장 아래에서 한 번 더** 막는다 — 부르는 길이 하나 늘 때마다 그 길이
-    //   검사를 빠뜨릴 수 있다. 실제로 줍기(PickupHand)가 처음엔 방어구를 몰랐다.
-    if (it != m_items.end() && it->second.IsArmor())
+    // ★★ 걸치는 것(방어구 · 지문)은 손에 **절대** 안 든다. 부르는 쪽(줍기 ·
+    //   장비 화면)도 막지만 **가장 아래에서 한 번 더** 막는다 — 부르는 길이
+    //   하나 늘 때마다 그 길이 검사를 빠뜨릴 수 있다. 실제로 줍기(PickupHand)가
+    //   처음엔 방어구를, 그다음엔 지문을 몰랐다.
+    if (it != m_items.end() && it->second.IsWorn())
         return;
 
     // ★ 자리를 비운다. 밀려난 것은 **가방으로**(8-e) — 8-b 에서는 땅이었다.
@@ -1892,10 +2013,12 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         : (consumeEdgeInput && ctx.input.RightHandPressed()) ? WeaponHand::Right
         :                                                      WeaponHand::None;
 
-    // ★★ **방패를 든 손은 공격 버튼이 아니다.** 그 손은 막는 손이다 —
-    //   「버튼은 손이고, 그 손에 든 것이 무엇을 할지 정한다」(§3.2.1.1).
-    //   방어를 위한 새 키도, 「방어 중이면 공격 금지」라는 규칙도 없다.
-    const WeaponHand handPressed = IsShieldHand(pressed) ? WeaponHand::None : pressed;
+    // ★★ **휘두르지 않는 손은 공격 버튼이 아니다.** 방패를 든 손은 막는 손이고,
+    //   횃불을 든 손은 비추는 손이다 — 「버튼은 손이고, 그 손에 든 것이
+    //   무엇을 할지 정한다」(§3.2.1.1). 금지 규칙을 따로 쓰지 않는다.
+    //   ★ 횃불을 든 손은 **물지도 못한다** — 손이 차 있으니까. 그것도 대가다.
+    const WeaponHand handPressed =
+        (pressed != WeaponHand::None && !ButtonSwings(pressed)) ? WeaponHand::None : pressed;
 
     switch (m_state)
     {

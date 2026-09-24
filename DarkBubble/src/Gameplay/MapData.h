@@ -74,6 +74,12 @@ struct MapData
     // 부활·스폰이 놓이는 높이. ★ 맵마다 다르다.
     float groundY     =  680.0f;
 
+    // ★★ 어두운 곳인가 (8-g). 전에는 F5 로 전부 끄고 켰다.
+    //   **맵이 정해야** 한다 — 들판까지 어두우면 빛(蛍 · 횃불)이 **선택이 아니라
+    //   필수**가 되어, 지문 한 칸이 영원히 묶인다. 동굴만 어두우면
+    //   「동굴에 들어가기 전에 무엇을 바꿀까」가 생긴다(§1.2 의 예 그대로).
+    bool  dark        = false;
+
     std::vector<AABB>          solids;    // 지형 (바닥·벽·발판)
     std::vector<MapEnemySpawn> enemies;
     std::vector<MapInteract>   interacts;   // 포탈 + 세이브 포인트

@@ -98,6 +98,14 @@ public:
     bool HitThisSwing() const { return m_hitThisSwing; }
     void MarkHitThisSwing()   { m_hitThisSwing = true; }
 
+    // ★ 예고(`!` · 주황 틴트)를 **보여 줄지**. Scene 이 매 틱 알려 준다(§1.1).
+    //   ★★ 적의 **행동**은 그대로다 — 예고 구간도 판정도 똑같이 흐른다.
+    //     바뀌는 것은 **그리는가**뿐이다. 「지문은 능력이 아니라 인식을
+    //     바꾼다」가 여기서 문자 그대로다.
+    //   ★ 적이 플레이어의 지문을 **직접 보지 않는다.** 둘 사이의 일은
+    //     둘을 다 아는 Scene 이 한다 — SetTargetProne 과 같은 이유다.
+    void SetTelegraphVisible(bool v) { m_telegraphVisible = v; }
+
     // ★ 휘두르던 것이 튕겼다(§3.12) — 벽이나 단단한 방패를 쳤다.
     //   **플레이어와 같은 이름, 같은 뜻**이다. 한쪽만 튕기면 handoff §8 의
     //   「대칭인 쪽도 같이 볼 것」을 또 밟는다.
@@ -164,6 +172,7 @@ private:
     int  m_attackCooldown = 0;
     bool m_attackIsBite   = false;   // ★ 공격 시작 시점에 고정된다
     bool m_hitThisSwing   = false;
+    bool m_telegraphVisible = true;   // 지문(初心者の指輪)이 있을 때만 참
 
     // 넉백 방향. 휘청인 시점에 고정된다.
     // ★ 세로 성분이 사라졌다. 넉백은 수평 + BodyComponent 의 「살짝 뜨기」다.
