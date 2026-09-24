@@ -69,9 +69,8 @@ void Input::Poll()
     m_edges.pause   |= m_kbTracker.pressed.Escape
                     || m_padTracker.start == PadTracker::PRESSED;
 
-    // ★ F2 도 누적한다. 이유는 Input.h 의 선언부 주석 참조 —
-    //   게임 상태(장착 방어구)를 바꾸므로 틱 안에서 소비되어야 한다.
-    m_edges.armorSwap |= m_kbTracker.pressed.F2;
+    // ★ F4 · F7 도 누적한다. 이유는 Input.h 의 선언부 주석 참조 —
+    //   게임 상태(몸의 부위)를 바꾸므로 틱 안에서 소비되어야 한다.
     m_edges.legBreak  |= m_kbTracker.pressed.F4;
     m_edges.armBreak  |= m_kbTracker.pressed.F7;
     m_edges.inventory |= m_kbTracker.pressed.Tab

@@ -59,7 +59,7 @@
       }
     }
   },
-  "weapons": {
+  "items": {
     "dagger": {
       "name": "DAGGER",
       "icon": 1,
@@ -171,7 +171,8 @@
           "ticks": 5,
           "loop": false
         }
-      }
+      },
+      "weight": 2
     },
     "greatsword": {
       "name": "GREATSWORD",
@@ -284,7 +285,8 @@
           "ticks": 10,
           "loop": false
         }
-      }
+      },
+      "weight": 12
     },
     "buckler": {
       "name": "BUCKLER",
@@ -307,7 +309,8 @@
         "ticks": 12,
         "loop": true
       },
-      "hardness": 8
+      "hardness": 8,
+      "weight": 3
     },
     "kite": {
       "name": "KITE",
@@ -330,9 +333,82 @@
         "ticks": 12,
         "loop": true
       },
-      "hardness": 14
+      "hardness": 14,
+      "weight": 8
+    },
+    "cloth_hood": {
+      "name": "CLOTH HOOD",
+      "icon": 7,
+      "armorSlot": "head",
+      "poise": 1,
+      "weight": 1
+    },
+    "cloth_coat": {
+      "name": "CLOTH COAT",
+      "icon": 8,
+      "armorSlot": "body",
+      "poise": 5,
+      "weight": 3
+    },
+    "cloth_pants": {
+      "name": "CLOTH PANTS",
+      "icon": 9,
+      "armorSlot": "legs",
+      "poise": 3,
+      "weight": 2
+    },
+    "cloth_shoes": {
+      "name": "CLOTH SHOES",
+      "icon": 10,
+      "armorSlot": "feet",
+      "poise": 1,
+      "weight": 1
+    },
+    "plate_helm": {
+      "name": "PLATE HELM",
+      "icon": 11,
+      "armorSlot": "head",
+      "poise": 4,
+      "weight": 4
+    },
+    "plate_mail": {
+      "name": "PLATE MAIL",
+      "icon": 12,
+      "armorSlot": "body",
+      "poise": 12,
+      "weight": 10
+    },
+    "plate_greaves": {
+      "name": "PLATE GREAVES",
+      "icon": 13,
+      "armorSlot": "legs",
+      "poise": 5,
+      "weight": 6
+    },
+    "plate_boots": {
+      "name": "PLATE BOOTS",
+      "icon": 14,
+      "armorSlot": "feet",
+      "poise": 3,
+      "weight": 4
+    },
+    "hunter_boots": {
+      "name": "HUNTER BOOTS",
+      "icon": 15,
+      "armorSlot": "feet",
+      "poise": 1,
+      "weight": 1,
+      "effects": [
+        {
+          "kind": "bonusDamage",
+          "vs": "grunt",
+          "value": 25
+        }
+      ]
     }
   },
   "_note5": "방패: guardTop/guardBottom 이 덮는 띠다(발끝 기준, 선 자세). 앉으면 몸 높이 비율로 같이 내려간다 — 「앉아서 하단을 막는다」에 특수 규칙이 없다. defense 는 막아 내는 비율(%), guardCost 는 스태미나 = impact * guardCost / 100. ★ guardClip 의 행과 tools/gen_player_guard.ps1 의 표는 같은 숫자여야 한다.",
-  "_note6": "hardness: 이 값 이상의 impact 는 못 튕긴다. impact 가 이보다 작으면 막는 순간 친 쪽이 튕겨 굳는다(§3.12). 가드 브레이크는 스태미나가 맡는다."
+  "_note6": "hardness: 이 값 이상의 impact 는 못 튕긴다. impact 가 이보다 작으면 막는 순간 친 쪽이 튕겨 굳는다(§3.12). 가드 브레이크는 스태미나가 맡는다.",
+  "_note7": "방어구: armorSlot = head / body / legs / feet. poise 는 입은 조각의 합, weight 는 입은 것 + 든 것의 합(가방은 안 센다). 무게 등급 문턱은 PlayerController.cpp 의 kWeightTiers (LIGHT <12 · MEDIUM <24 · HEAVY).",
+  "_note8": "effects: [{ kind, vs, value }]. kind 는 지금 bonusDamage 하나. vs 는 enemies.json 의 적 종류 이름(비우면 모두). 방어구 효과는 모든 공격에, 무기 효과는 그 무기로 칠 때만. 모르는 kind 는 경고만 하고 건너뛴다."
 }

@@ -1,6 +1,14 @@
 ﻿// ============================================================================
-//  WeaponType.h
-//    무기 **한 종류**가 들고 다니는 것 전부 + weapons.json 읽기.
+//  ItemType.h
+//    물건 **한 종류**가 들고 다니는 것 전부 + items.json 읽기.
+//    무기 · 방패 · 방어구가 **한 목록**에 있다.
+//
+//  ---- ★★ WeaponType 에서 이름이 또 바뀌었다 (8-f) ----
+//    방어구가 들어오면서 「무기 카탈로그」가 방어구를 담게 됐다 — 이름이
+//    거짓말이 된다. 목록을 둘로 나누지 않은 이유는 방패 때(8-c)와 같다:
+//    **가방 칸이 「이름 하나」라**, 목록이 둘이면 가방이 어느 목록의 이름인지
+//    부터 물어야 한다. 하나로 두고 **이름을 바꿨다** — 옛 사용처가 전부
+//    컴파일 에러가 되어 빠뜨릴 수가 없다(handoff §9.1).
 //
 //  ---- ★ Moveset 에서 이름이 바뀌었다 (8-a) ----
 //    「무브셋」은 **공격 묶음**이라는 뜻이었다. 무기가 하나뿐일 때는 그것이
@@ -28,13 +36,65 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include "Gameplay/AttackData.h"
 
 // ============================================================================
-//  WeaponType — 무기 하나
+//  방어구 부위 (design.md §3.10.4)
+//
+//    ★ 넷이다 — 머리 · 몸 · 다리 · 발. 칸마다 **하나씩**만 입는다.
+//    ★ None 이면 방어구가 아니다(무기 · 방패). 「방어구인가」 플래그를
+//      따로 두지 않는다 — 방패의 「막는 띠가 있으면 방패」와 같은 판단이다.
 // ============================================================================
-struct WeaponType
+enum class ArmorSlot { None = -1, Head, Body, Legs, Feet, Count };
+
+constexpr int kArmorSlots = static_cast<int>(ArmorSlot::Count);
+
+// 화면에 적는 부위 이름. ★ ASCII — BitmapFont 가 ASCII 전용이다.
+constexpr const char* ArmorSlotName(ArmorSlot s)
+{
+    switch (s)
+    {
+    case ArmorSlot::Head: return "HEAD";
+    case ArmorSlot::Body: return "BODY";
+    case ArmorSlot::Legs: return "LEGS";
+    case ArmorSlot::Feet: return "FEET";
+    default:              return "-";
+    }
+}
+
+
+// ============================================================================
+//  ItemEffect — 특수 효과 (design.md §3.10.5)
+//
+//    ★ **종류(kind) + 대상(vs) + 수치**. 셋이면 대부분의 효과가 적힌다.
+//      「해골에게 추가 데미지」 = { BonusDamage, "skeleton", 25 }.
+//
+//    ★★ 대상은 **적 종류의 이름**(enemies.json 의 키)이다. 새 개념(태그)을
+//      만들지 않았다 — 해골이 생기면 `"vs": "skeleton"` 이 그대로 먹힌다.
+//      여러 종류를 한 번에 묶어야 할 때(언데드 전체) 그때 태그를 붙인다.
+//
+//    ★ 효과를 늘리는 법: enum 에 한 줄, 읽는 곳에 한 줄, **쓰는 곳에 한 곳.**
+//      모르는 kind 는 로더가 경고만 하고 건너뛴다 — 틀려도 안전하다.
+// ============================================================================
+enum class EffectKind
+{
+    BonusDamage,   // vs 에게 주는 데미지 +value%
+};
+
+struct ItemEffect
+{
+    EffectKind  kind  = EffectKind::BonusDamage;
+    std::string vs;          // 대상 적 종류. 비어 있으면 **모두**
+    int         value = 0;   // % 등, 종류가 뜻을 정한다
+};
+
+
+// ============================================================================
+//  ItemType — 물건 하나
+// ============================================================================
+struct ItemType
 {
     // 화면에 뜨는 이름. ★ ASCII 만 — BitmapFont 가 ASCII 전용이다.
     //   ※ `AttackData::name` 이 `const char*` 인 것과 다르다. 저것은 코드의
@@ -116,6 +176,33 @@ struct WeaponType
 
     // 막는 띠가 있으면 방패다.
     bool IsShield() const { return guardTop > guardBottom; }
+
+    // ========================================================================
+    //  ★★ 방어구 (design.md §3.10.4)
+    // ========================================================================
+    ArmorSlot armorSlot = ArmorSlot::None;
+
+    // 강인도. ★ 입은 조각을 **더한다.** 옛 CLOTH(10) · PLATE(24)가 네 조각의
+    //   합으로 갈라졌다 — 한 벌을 다 입어야 옛 값이 된다.
+    int poise = 0;
+
+    bool IsArmor() const { return armorSlot != ArmorSlot::None; }
+
+    // ========================================================================
+    //  무게 — **모든 물건**에 있다 (§3.10.4)
+    //
+    //    ★ 방어구만이 아니라 손에 든 것도 센다(소울류의 「장비 중량」).
+    //      대검(12)은 느리게 휘두르는 것에 더해 **몸도 무겁게** 만든다 —
+    //      §3.10 의 「무거운 무기 | 느리다」가 공격 속도와 이동 양쪽에서 성립한다.
+    //    ★ 합이 **등급**(LIGHT / MEDIUM / HEAVY)을 정하고, 등급이 이동 속도와
+    //      구르기 무적을 정한다. 등급인 이유: 연속 값이면 조각 하나의 차이가
+    //      0.97배처럼 **느껴지지 않는다.** 문턱이 있어야 「이 투구를 쓰면
+    //      HEAVY 로 넘어간다」가 판단이 된다.
+    // ========================================================================
+    int weight = 0;
+
+    // 특수 효과. ★ **입거나 들었을 때만** 듣는다 — 가방 안에서는 무효다.
+    std::vector<ItemEffect> effects;
 };
 
 
@@ -133,10 +220,10 @@ struct UnarmedSet
 };
 
 
-using WeaponCatalog = std::map<std::string, WeaponType>;
+using ItemCatalog = std::map<std::string, ItemType>;
 
 
-namespace WeaponIO
+namespace ItemIO
 {
     // ------------------------------------------------------------------------
     //  LoadInto — 파일의 값으로 **덮어쓴다**
@@ -146,12 +233,13 @@ namespace WeaponIO
     //      다른 로더들과 같은 약속이다(MapIO / EnemyTypeIO).
     //      되돌리는 책임을 부르는 쪽에 두면 언젠가 한 곳이 빠뜨린다.
     //
-    //    ★★ `base` 는 **없던 무기가 출발하는 값**이다. 빈 WeaponType 에서
+    //    ★★ `base` 는 **없던 무기가 출발하는 값**이다. 빈 ItemType 에서
     //      시작하면 파일에 안 적은 항목이 AttackData 의 일반 기본값이 되어
     //      「무기를 하나 더 적었더니 이상한 것이 나왔다」가 된다 —
     //      적 카탈로그가 DefaultGrunt 에서 출발하는 것과 같은 이유다.
     //      그래서 대검은 **단검과 다른 것만** 적으면 된다.
     // ------------------------------------------------------------------------
-    bool LoadInto(const wchar_t* path, WeaponCatalog& out, UnarmedSet& unarmed,
-                  const WeaponType& base, std::string* error);
+    //    ★ 파일의 목록 키는 `"items"` 다(8-f 에서 `"weapons"` 에서 바뀌었다).
+    bool LoadInto(const wchar_t* path, ItemCatalog& out, UnarmedSet& unarmed,
+                  const ItemType& base, std::string* error);
 }

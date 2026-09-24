@@ -1,5 +1,6 @@
 ﻿// ============================================================================
-//  weapons_test.cpp — weapons.json 이 C++ 파서로 읽히는지 + **규칙을 지키는지**.
+//  items_test.cpp — items.json 이 C++ 파서로 읽히는지 + **규칙을 지키는지**.
+//    (8-f 에서 weapons_test 에서 이름이 바뀌었다 — 방어구가 들어왔다)
 //  돌리는 법은 tools/json_test.cpp 첫머리와 같다(파일 이름만 바꾼다).
 //
 //  ---- ★ 왜 이 검사가 필요해졌는가 ----
@@ -48,28 +49,36 @@ static void One(const std::string& who, const JsonValue& a)
 int main()
 {
     std::string err;
-    auto root = Json::ParseFile(L"assets/data/weapons.json", &err);
-    Check(root.has_value(), "weapons.json 을 읽었다");
+    auto root = Json::ParseFile(L"assets/data/items.json", &err);
+    Check(root.has_value(), "items.json 을 읽었다");
     if (!root) { std::printf("      오류: %s\n", err.c_str()); return 1; }
 
     // ---- 맨손은 **무기 바깥**에 있다 ----
     const JsonValue& un = (*root)["unarmed"];
-    Check(!un.IsNull(), "unarmed 가 weapons 바깥에 있다");
+    Check(!un.IsNull(), "unarmed 가 items 바깥에 있다");
     for (const char* k : { "bite", "biteCrouch", "biteProne" })
         One(std::string("unarmed.") + k, un[k]);
 
     // ---- 무기 카탈로그 ----
-    const JsonValue& list = (*root)["weapons"];
-    Check(!list.IsNull(), "weapons 항목이 있다");
+    const JsonValue& list = (*root)["items"];
+    Check(!list.IsNull(), "items 항목이 있다");
     Check(list.Members().size() >= 2, "무기가 둘 이상이다 (하나뿐이면 「바꾼다」를 확인할 수 없다)");
 
     const char* kMoves[] = { "light", "crouch", "dash", "thrust", "jump", "prone" };
 
-    // 막는 띠가 있으면 방패다 — WeaponType::IsShield() 와 같은 판정.
+    // 막는 띠가 있으면 방패다 — ItemType::IsShield() 와 같은 판정.
     auto isShield = [](const JsonValue& w)
     {
         return w["guardTop"].Flt(0.0f) > w["guardBottom"].Flt(0.0f);
     };
+
+    // 부위가 있으면 방어구다 — ItemType::IsArmor() 와 같은 판정.
+    auto isArmor = [](const JsonValue& w) { return !w["armorSlot"].Str().empty(); };
+
+    // ★ 휘두르는 것 = 방패도 방어구도 아닌 것. 둘은 공격 데이터를 base(단검)
+    //   에서 물려받은 채 **아무도 안 읽는다** — 그래서 「무기마다 다른 그림 행」
+    //   검사에서 빼야 한다. 안 빼면 단검과 같은 행을 쓴다고 실패한다.
+    auto swings = [&](const JsonValue& w) { return !isShield(w) && !isArmor(w); };
 
     for (const auto& kv : list.Members())
     {
@@ -78,6 +87,29 @@ int main()
 
         Check(!w["name"].Str().empty(), id + " : name 이 있다");
         Check(w["icon"].Int(-1) >= 0,   id + " : icon 이 있다");
+
+        // ★ 무게는 **모든 물건**에 있어야 한다. 빠지면 base(단검)의 2 를
+        //   물려받아 「무게를 안 적은 대검이 단검만큼 가볍다」가 된다.
+        Check(w["weight"].Int(-1) >= 0, id + " : weight 가 있다");
+
+        // ---- 효과 ----
+        const JsonValue& fx = w["effects"];
+        for (size_t i = 0; i < fx.Size(); ++i)
+        {
+            const std::string kind = fx[i]["kind"].Str();
+            Check(kind == "bonusDamage", id + " : 아는 효과 종류다 (" + kind + ")");
+            Check(fx[i]["value"].Int(0) != 0, id + " : 효과에 value 가 있다");
+        }
+
+        // ---- 방어구 ----
+        if (isArmor(w))
+        {
+            const std::string slot = w["armorSlot"].Str();
+            Check(slot == "head" || slot == "body" || slot == "legs" || slot == "feet",
+                  id + " : armorSlot 이 head/body/legs/feet (" + slot + ")");
+            Check(w["poise"].Int(-1) >= 0, id + " : poise 가 있다");
+            continue;
+        }
 
         // ---- 방패 ----
         if (isShield(w))
@@ -104,7 +136,7 @@ int main()
         //   6-a·b 에서 무브셋 4종이 전부 같은 행이던 것과 똑같은 실수다.
         for (const auto& other : list.Members())
         {
-            if (other.first == id || isShield(other.second)) continue;
+            if (other.first == id || !swings(other.second)) continue;
             bool same = true;
             for (const char* k : kMoves)
             {
@@ -129,6 +161,20 @@ int main()
                   a.first + " 와 " + b.first + " 가 다른 방어 그림을 쓴다");
         }
     }
+
+    // ---- ★★ 천·판금 한 벌의 강인도 합이 **옛 값**과 같아야 한다 ----
+    //   8-f 전에는 CLOTH 10 · PLATE 24 두 벌이었다. 네 조각으로 갈랐을 때
+    //   합이 달라지면 「방어구를 나눴더니 강해졌다/약해졌다」가 몰래 생긴다.
+    auto setPoise = [&](std::initializer_list<const char*> ids)
+    {
+        int sum = 0;
+        for (const char* k : ids) sum += list[k]["poise"].Int(0);
+        return sum;
+    };
+    Check(setPoise({ "cloth_hood", "cloth_coat", "cloth_pants", "cloth_shoes" }) == 10,
+          "천 한 벌 poise 합 == 10 (옛 CLOTH)");
+    Check(setPoise({ "plate_helm", "plate_mail", "plate_greaves", "plate_boots" }) == 24,
+          "판금 한 벌 poise 합 == 24 (옛 PLATE)");
 
     // ---- 맨손은 무기 안에 **없어야** 한다 ----
     //   ★ 옛 모양(무기 안의 bite)이 남아 있으면 조용히 무시되어,

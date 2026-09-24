@@ -1,4 +1,4 @@
-﻿#include "Gameplay/WeaponType.h"
+﻿#include "Gameplay/ItemType.h"
 
 #include "Core/Json.h"
 #include "Core/Log.h"
@@ -28,21 +28,21 @@ namespace
 
         if (!a.clip.loop && shown != total)
         {
-            Log::Info("[weapon] ! {}.{} : 그림 {}틱 != 프레임 데이터 {}틱 "
+            Log::Info("[item] ! {}.{} : 그림 {}틱 != 프레임 데이터 {}틱 "
                       "({}프레임 x {}틱)",
                       who, what, shown, total, a.clip.frameCount, a.clip.ticksPerFrame);
         }
 
         if (a.clip.ticksPerFrame > 0 && (a.startup % a.clip.ticksPerFrame) != 0)
         {
-            Log::Info("[weapon] ! {}.{} : startup {} 이 틱/프레임 {} 로 안 나눠떨어진다 "
+            Log::Info("[item] ! {}.{} : startup {} 이 틱/프레임 {} 로 안 나눠떨어진다 "
                       "— 타격 그림과 판정이 어긋난다",
                       who, what, a.startup, a.clip.ticksPerFrame);
         }
     }
 
     // 무기 하나를 읽는다. ★ 적힌 항목만 덮어쓴다 — 나머지는 base 그대로다.
-    void ReadWeapon(const JsonValue& v, const std::string& id, WeaponType& w)
+    void ReadItem(const JsonValue& v, const std::string& id, ItemType& w)
     {
         w.name      = v["name"]     .Str(w.name);
         w.icon      = v["icon"]     .Int(w.icon);
@@ -55,6 +55,47 @@ namespace
         w.defense     = v["defense"]    .Int(w.defense);
         w.guardCost   = v["guardCost"]  .Int(w.guardCost);
         w.hardness    = v["hardness"]   .Int(w.hardness);
+
+        // ---- 방어구 · 무게 (§3.10.4) ----
+        //   ★ 부위는 **글자**로 적는다. 숫자(0~3)로 두면 파일만 보고 뜻을 모른다 —
+        //     AttackData 의 posture 와 같은 규칙이다.
+        const std::string slot = v["armorSlot"].Str();
+        if      (slot == "head") w.armorSlot = ArmorSlot::Head;
+        else if (slot == "body") w.armorSlot = ArmorSlot::Body;
+        else if (slot == "legs") w.armorSlot = ArmorSlot::Legs;
+        else if (slot == "feet") w.armorSlot = ArmorSlot::Feet;
+        else if (!slot.empty())
+            Log::Info("[item] ! {} : 모르는 armorSlot '{}' — 방어구가 아닌 것으로 친다", id, slot);
+
+        w.poise  = v["poise"] .Int(w.poise);
+        w.weight = v["weight"].Int(w.weight);
+
+        // ---- 특수 효과 (§3.10.5) ----
+        //   ★ 적혀 있으면 **통째로 갈아 끼운다**(덧붙이지 않는다). base(단검)의
+        //     효과가 섞여 들어오면 「아무것도 안 적은 투구에 칼의 효과」가 생긴다.
+        const JsonValue& fx = v["effects"];
+        if (!fx.IsNull())
+        {
+            w.effects.clear();
+            for (size_t i = 0; i < fx.Size(); ++i)
+            {
+                const JsonValue& e = fx[i];
+                const std::string kind = e["kind"].Str();
+
+                ItemEffect ef;
+                if (kind == "bonusDamage") ef.kind = EffectKind::BonusDamage;
+                else
+                {
+                    // ★ 모르는 효과는 경고만 하고 건너뛴다. 게임을 멈추면
+                    //   효과 하나 만들다 오타 날 때마다 아무것도 못 한다.
+                    Log::Info("[item] ! {} : 모르는 효과 '{}' — 건너뛴다", id, kind);
+                    continue;
+                }
+                ef.vs    = e["vs"]   .Str();
+                ef.value = e["value"].Int();
+                w.effects.push_back(std::move(ef));
+            }
+        }
         ReadClip(v["guardClip"],       w.guardClip);
         ReadClip(v["guardCrouchClip"], w.guardCrouchClip);
 
@@ -77,8 +118,8 @@ namespace
 }
 
 
-bool WeaponIO::LoadInto(const wchar_t* path, WeaponCatalog& out, UnarmedSet& unarmed,
-                        const WeaponType& base, std::string* error)
+bool ItemIO::LoadInto(const wchar_t* path, ItemCatalog& out, UnarmedSet& unarmed,
+                        const ItemType& base, std::string* error)
 {
     std::string err;
     const auto root = Json::ParseFile(path, &err);
@@ -88,24 +129,24 @@ bool WeaponIO::LoadInto(const wchar_t* path, WeaponCatalog& out, UnarmedSet& una
         return false;
     }
 
-    const JsonValue& list = (*root)["weapons"];
+    const JsonValue& list = (*root)["items"];
     if (list.IsNull())
     {
-        if (error) *error = "weapons 항목이 없다";
+        if (error) *error = "items 항목이 없다";
         return false;
     }
 
     // ★ **사본에 읽고 마지막에 옮긴다.** 도중에 실패해도 반쯤 적용되지 않는다.
     //   절반만 적용된 밸런스는 틀린 밸런스보다 나쁘다 — 무엇이 적용됐는지
     //   알 수 없기 때문이다.
-    WeaponCatalog tempWeapons = out;
+    ItemCatalog tempWeapons = out;
     UnarmedSet    tempUnarmed = unarmed;
 
     for (const auto& kv : list.Members())
     {
         // 있던 무기면 그 값에서, 없던 무기면 base(단검)에서 출발한다.
-        WeaponType w = tempWeapons.count(kv.first) ? tempWeapons[kv.first] : base;
-        ReadWeapon(kv.second, kv.first, w);
+        ItemType w = tempWeapons.count(kv.first) ? tempWeapons[kv.first] : base;
+        ReadItem(kv.second, kv.first, w);
         tempWeapons[kv.first] = w;
     }
 

@@ -20,7 +20,7 @@
 #include "Core/AABB.h"
 #include "Core/Component.h"
 #include "Gameplay/AttackData.h"
-#include "Gameplay/WeaponType.h"
+#include "Gameplay/ItemType.h"
 
 class BodyComponent;
 class PartsComponent;
@@ -129,7 +129,9 @@ struct HurtData
 
 
 // ============================================================================
-//  ArmorData — 강인도(poise)
+//  ★ ArmorData(이름 + 강인도 한 쌍)가 **사라졌다**(8-f).
+//    방어구가 네 부위의 조각이 되어 items.json 으로 갔다. 강인도는 이제
+//    **입은 조각의 합**이다 — PlayerController::TotalPoise.
 //
 //        poise >= impact  →  데미지만 받고 자리에서 버틴다 (경직 없음)
 //        poise <  impact  →  Hurt(경직) + 넉백 + 피격 무적
@@ -137,11 +139,27 @@ struct HurtData
 //    ★ 버티기는 안전한 것이 아니라 **다른 지불 방식**이다.
 //      구르기는 스태미나로, 버티기는 HP 로 낸다.
 // ============================================================================
-struct ArmorData
+
+// ============================================================================
+//  무게 등급 (design.md §3.10.4)
+//
+//    ★★ PLATE 가 **공짜 업그레이드**였다. 강인도만 주고 잃는 것이 없어서
+//      §3.10 의 「강해지는 대신 무엇을 포기하는가」가 방어구에서만 안 섰다.
+//      이제 무게가 **이동 속도와 구르기 무적**을 깎는다 —
+//      「버틸까(무겁게), 피할까(가볍게)」가 장비로 갈린다.
+// ============================================================================
+enum class WeightClass { Light, Medium, Heavy };
+
+constexpr const char* WeightClassName(WeightClass w)
 {
-    const char* name  = "CLOTH";
-    int         poise = 10;
-};
+    switch (w)
+    {
+    case WeightClass::Light:  return "LIGHT";
+    case WeightClass::Medium: return "MEDIUM";
+    case WeightClass::Heavy:  return "HEAVY";
+    }
+    return "?";
+}
 
 
 class PlayerController final : public Component
@@ -215,6 +233,15 @@ private:
     // 그 손에 든 것이 방패인가.
     bool IsShieldHand(WeaponHand hand) const;
 
+    // 방어구가 바뀌었다 — 강인도를 다시 계산한다.
+    //   ★ 입기 · 벗기 · 버리기 · 부활 **어디서든** 이것을 부른다. 한 곳에서만
+    //     빠뜨리면 「벗었는데 강인도가 그대로」가 된다.
+    void ApplyArmor();
+
+    // 지금 무게 등급의 구르기 무적 틱 / 이동 배율.
+    int   RollInvulnTicks()  const;
+    float WeightSpeedScale() const;
+
     // 그 손을 비운다. 비운 것은 **어디로** 가는가:
     //   ★ 8-b 에서는 「팔이 잘렸다」와 「다른 것을 들었다」가 같은 일이라
     //     하나(Displace)로 합쳤다. 가방이 생기면서 **둘이 갈라졌다** —
@@ -242,7 +269,33 @@ public:
     //   무기와 방어구는 그대로다(design.md §3.6.1 의 「남는다」).
     void Rest();
 
-    const ArmorData& Armor() const;
+    // ========================================================================
+    //  ★★ 방어구 네 부위 (8-f, design.md §3.10.4)
+    // ========================================================================
+    const std::string& ArmorItem(ArmorSlot s) const { return m_armor[static_cast<int>(s)]; }
+
+    // 가방의 방어구를 **그 부위에** 입는다. 입고 있던 것은 가방으로.
+    //   ★ 어느 부위인지는 **물건이 안다**(armorSlot). 손처럼 고를 필요가 없다 —
+    //     투구를 발에 신을 수는 없으니까.
+    bool WearFromBag(int bagSlot);
+
+    // 벗어서 가방에 넣는다. 가방이 차 있으면 false — 입은 채로 둔다.
+    bool TakeOffArmor(ArmorSlot s);
+
+    // 벗어서 발밑에 떨군다.
+    void DiscardArmor(ArmorSlot s);
+
+    // ---- 합계 ----
+    //   ★ **입은 것 + 든 것**을 센다. 가방 안의 것은 안 센다 — 가방은 무게가
+    //     없는 셈이다(6칸 제한이 이미 가방의 대가다).
+    int         TotalPoise()  const;
+    int         EquipWeight() const;
+    WeightClass Weight()      const;
+
+    // 특수 효과 — 이 적 종류에게 주는 추가 데미지(%).
+    //   ★ 방어구의 효과는 **모든 공격**에, 무기의 효과는 **그 무기로 칠 때만**
+    //     듣는다. 왼손의 성검이 오른손 단검을 강하게 만들면 이상하니까.
+    int BonusDamageVs(const std::string& enemyType) const;
 
     // ★ 부위 상실이 행동을 막는다. 조건을 흩뿌리지 않고 이름을 붙여 모은다.
     // ★ `CanAttack()` 을 지웠다. 「공격할 수 있는가」는 이제 **질문이 아니다** —
@@ -324,7 +377,7 @@ public:
     //   파일에서 무기 이름이 사라져도 게임은 돈다(로더들과 같은 태도).
     //   ※ 빈손인지는 `HandArmed` 로 따로 묻는다. 여기서 널을 돌려주면
     //     부르는 쪽마다 널 검사가 생긴다.
-    const WeaponType& Weapon(WeaponHand hand) const;
+    const ItemType& Weapon(WeaponHand hand) const;
 
     // 그 손에 든 것의 이름. 빈손이면 빈 문자열.
     const std::string& HandItem(WeaponHand hand) const;
@@ -334,7 +387,7 @@ public:
     //     플레이어뿐이라 여기 있을 뿐이다. 상자나 적이 무기를 내놓게 되는
     //     순간 **적 카탈로그처럼 Scene 으로 올라간다**(design.md §9 의
     //     「두 번째 사용자가 생겼을 때 올린다」).
-    const WeaponCatalog& Weapons() const { return m_weapons; }
+    const ItemCatalog& Items() const { return m_items; }
 
     // ★ F8/F9(카탈로그에서 꺼내 들기)가 **사라졌다**(8-e). 장비 화면이
     //   그 일을 한다 — 허공에서 꺼내던 것이 가방에서 꺼내는 것이 되었다.
@@ -395,7 +448,7 @@ private:
     void UpdateMovement(SceneContext& ctx, float moveX);
 
     // 무브셋을 파일에서 다시 읽는다. 실패하면 이전 값이 그대로 남는다.
-    void ReloadWeapons();
+    void ReloadItems();
 
     // 지금 자세에 맞는 기본 그림. 자세를 고르는 곳은 여기 한 곳이다.
     const AnimationClip& PostureClip(bool moving) const;
@@ -419,10 +472,10 @@ private:
     // ★ 무기 **카탈로그**를 값으로 소유한다(8-a). 「직전에 기본 공격을 냈는가」를
     //   `m_currentAttack == &Weapon().light` 로 묻고 있으므로 주소가 안정해야 한다.
     //   ★ map 의 원소는 주소가 안 변한다 — 리로드는 **값만** 덮어쓴다.
-    WeaponCatalog m_weapons;
+    ItemCatalog m_items;
 
     // 맨손. ★ 무기 **바깥**에 있다 — 「무기가 없을 때」는 몸의 성질이지
-    //   무기의 성질이 아니다(WeaponType.h 주석).
+    //   무기의 성질이 아니다(ItemType.h 주석).
     UnarmedSet    m_unarmed;
 
     // ---- ★★ 손 슬롯 둘 (8-b) ----
@@ -525,7 +578,9 @@ private:
     //     것이 한 단어를 쓰게 되고, 읽는 사람이 반드시 한 번은 헷갈린다.
     std::vector<std::string> m_dropRequests;
 
-    int  m_armorIndex = 0;       // F2 로 바뀐다(임시)
+    // ★ 입은 방어구. 빈 문자열 = 안 입음. 손·가방과 **같은 표현**이다.
+    //   ※ `m_armorIndex`(F2 로 두 벌을 오가던 것)가 여기 있었다.
+    std::array<std::string, kArmorSlots> m_armor;
     bool m_deathScreenRequested = false;
 
     // 팔 레이어 번호. -1 = 안 붙었다.

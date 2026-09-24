@@ -61,7 +61,7 @@ namespace
     constexpr int   kIconSize  = 16;
     constexpr int   kIconEmpty = 0;    // ※ 지금은 안 쓴다. 빈손도 「문다」이므로
     // ※ 단검·대검의 칸 번호는 여기 없다 — **무기 데이터가 들고 있다**
-    //   (weapons.json 의 `icon`). 여기 남는 것은 무기가 아닌 것들뿐이다.
+    //   (items.json 의 `icon`). 여기 남는 것은 무기가 아닌 것들뿐이다.
     constexpr int   kIconSevered = 2;
     constexpr int   kIconTeeth = 3;
 
@@ -398,6 +398,7 @@ void PlayScene::SpawnEnemies(SceneContext& ctx)
         const EnemyType& type = it->second;
 
         Enemy e;
+        e.type = it->first;   // ★ 대신 쓴 종류(grunt)면 그 이름이다 — 실제로 싸우는 것
         e.obj = std::make_unique<GameObject>("enemy");
         e.obj->transform.x      = s.x;
         e.obj->transform.facing = s.facing;
@@ -641,17 +642,23 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
 
     const AttackData& atk = m_player->CurrentAttack();
 
+    // ★ 특수 효과(§3.10.5). **곱한 결과만** 넘긴다 — 부위 HP 쪽은 효과를 모른다.
+    //   효과가 늘어도 PartsComponent 는 「데미지 몇」만 받으면 된다.
+    const int bonus  = m_player->BonusDamageVs(target->type);
+    const int damage = atk.damage * (100 + bonus) / 100;
+
     m_player->MarkHitThisSwing();
     target->parts->Flash(kFlashTicks);
-    target->parts->Damage(part, atk.damage);
+    target->parts->Damage(part, damage);
 
     // ★ 소리와 흔들림은 "맞는 순간" 에 낸다. 휘두르는 순간이 아니다.
     ctx.camera.Shake(kShakeStrength, kShakeTicks);
     ctx.audio.Play("hit", 0.85f, RandomPitch(0.12f),
                    PanFromWorldX(target->Tr().x, ctx.camera.X()));
 
-    Log::Info("[play] {} 로 {} 명중  dmg {}  남은 HP {}",
-              atk.name, target->parts->Name(part), atk.damage,
+    Log::Info("[play] {} 로 {} 명중  dmg {}{}  남은 HP {}",
+              atk.name, target->parts->Name(part), damage,
+              bonus ? std::format(" (+{}% vs {})", bonus, target->type) : std::string(),
               std::max(0, target->parts->Hp(part)));
 
     // ---- ★ 강인도 판정 : 적도 휘청인다 ----
@@ -1054,7 +1061,7 @@ void PlayScene::UpdateWeaponDrop(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 void PlayScene::DropItem(SceneContext& ctx, const std::string& weaponId, float x, float y)
 {
-    const WeaponCatalog& types = m_player->Weapons();
+    const ItemCatalog& types = m_player->Items();
     auto it = types.find(weaponId);
     const int icon = (it != types.end()) ? it->second.icon : 1;
 

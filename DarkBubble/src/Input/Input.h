@@ -116,14 +116,16 @@ public:
     bool RollPressed()    const { return m_edges.roll;    }   // Shift / 패드 B          (게임)
     bool PausePressed()   const { return m_edges.pause;   }   // Esc / 패드 Start        (게임)
 
-    // ★ F2 는 디버그 키인데 **여기**에 있다.
-    //   바꾸는 대상(장착 중인 방어구)이 게임 상태라서 틱 안에서 처리해야 하고,
+    // ★ 아래의 F4 · F7 은 디버그 키인데 **여기**에 있다.
+    //   바꾸는 대상(몸의 부위)이 게임 상태라서 틱 안에서 처리해야 하고,
     //   그러면 틱이 0회 도는 프레임에서 사라지므로 누적이 필요하다.
     //
     //   「어느 키인가」가 아니라 **「무엇을 바꾸는가」**로 자리가 정해진다.
     //     게임 상태를 바꾼다  -> 여기(누적 엣지). 틱 안에서 소비
     //     표시만 바꾼다       -> 아래(엔진 키). Game 이 프레임당 1회
-    bool ArmorSwapPressed() const { return m_edges.armorSwap; }   // F2 (임시)
+    //
+    //   ※ F2(두 벌 갈아입기)가 여기 있었다. 방어구가 네 조각이 되어 장비
+    //     화면으로 갔다(8-f) — 쓰임이 끝난 임시 키는 지운다.
 
     // ★ F4 — 다리를 부러뜨렸다 되돌린다 (임시).
     //   엎드린 자세를 **바로** 만들어 판정 상자와 회피를 확인하기 위한 것이다.
@@ -156,7 +158,7 @@ public:
     //   「지금이 어두운 건지 원래 그런 건지」를 알 수가 없다.
     bool DarkTogglePressed() const { return m_edges.darkToggle; }
 
-    // ★ F6 — 무브셋(weapons.json)을 다시 읽는다.
+    // ★ F6 — 무브셋(items.json)을 다시 읽는다.
     //   게임 상태(공격 수치)를 바꾸므로 **누적 엣지**다 —
     //   「어느 키인가」가 아니라 **「무엇을 바꾸는가」**로 자리가 정해진다.
     bool DataReloadPressed() const { return m_edges.dataReload; }
@@ -197,9 +199,6 @@ private:
         bool roll      = false;
         bool pause   = false;
 
-        // ★ 임시. 강인도(poise)가 경직을 막는 것을 눈으로 비교하기 위한 키.
-        //   6단계에서 진짜 장비 시스템이 오면 버린다.
-        bool armorSwap = false;
         bool legBreak  = false;
         bool armBreak  = false;
         bool inventory = false;

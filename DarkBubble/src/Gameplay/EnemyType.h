@@ -33,7 +33,7 @@ struct EnemyType
 
     // ---- 공격 ----
     //   ★ 플레이어와 **같은 스키마**다(AttackData). 6-g 에서 정한 그대로,
-    //     weapons.json 과 enemies.json 이 같은 모양의 블록을 쓴다.
+    //     items.json 과 enemies.json 이 같은 모양의 블록을 쓴다.
     AttackData swing{};
     AttackData bite{};
 
@@ -88,7 +88,7 @@ namespace EnemyTypeIO
     //  LoadInto — 파일의 값으로 **덮어쓴다**
     //
     //    성공하면 true. ★ 실패하면 **out 을 건드리지 않고** false —
-    //    무기 로더와 같은 약속이다(WeaponIO::LoadInto).
+    //    무기 로더와 같은 약속이다(ItemIO::LoadInto).
     //
     //    ★★ 이미 있는 종류는 **값만 갱신**한다. 원소를 지웠다 다시 만들면
     //      EnemyBrain 이 들고 있는 참조가 끊긴다.

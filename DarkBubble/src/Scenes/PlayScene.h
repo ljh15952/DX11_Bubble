@@ -219,6 +219,10 @@ private:
     {
         std::unique_ptr<GameObject> obj;
 
+        // 적 종류의 **이름**(enemies.json 의 키). ★ 특수 효과의 대상(`vs`)이
+        //   이 이름을 가리킨다 — 「해골에게 추가 데미지」가 여기서 성립한다.
+        std::string type;
+
         // 조립할 때 받아 둔다. obj 가 살아 있는 한 유효하다.
         EnemyBrain*     brain = nullptr;
         PartsComponent* parts = nullptr;

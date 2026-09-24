@@ -15,6 +15,7 @@
 #include "Graphics/SpriteComponent.h"
 #include "Input/Input.h"
 
+#include <climits>
 #include <DirectXColors.h>
 #include <algorithm>
 #include <cmath>
@@ -85,7 +86,7 @@ namespace
     //      콤보 뒤에는 한 번밖에 못 구른다. 기획서 §3.1 이 요구한 긴장이다.
     //    ★ clip 은 frames × ticks == TotalTicks 가 되도록 맞춰 두었다.
     //
-    //    6-g 에서 이 네 덩어리가 그대로 weapons.json 이 된다.
+    //    6-g 에서 이 네 덩어리가 그대로 items.json 이 된다.
     // ========================================================================
     // ---- ★★ 중단은 **띠**다. 두껍게 만들면 안 된다 ----
     //
@@ -105,7 +106,7 @@ namespace
     //     베거나(2~18) 뛰어올라 찍어야(-9~21) 한다 —
     //     적이 자세로 방어하듯 플레이어도 자세로 답한다.
     //
-    //   ※ 숫자는 weapons.json 에도 있다. **F6 으로 바로 조정할 수 있는
+    //   ※ 숫자는 items.json 에도 있다. **F6 으로 바로 조정할 수 있는
     //     첫 밸런스 변경**이다 — 좁아서 답답하면 height 를 늘려 보면 된다.
     constexpr AttackData kDaggerLight{
         /*name*/     "LIGHT",
@@ -288,16 +289,16 @@ namespace
     // ========================================================================
     //  DefaultDagger / DefaultUnarmed — **위의 상수들이 이제 「기본값」이다**
     //
-    //    6-g 에서 숫자가 assets/data/weapons.json 으로 나갔다.
+    //    6-g 에서 숫자가 assets/data/items.json 으로 나갔다.
     //    그렇다고 여기 값들이 사라진 것은 아니다 — 파일이 없거나 깨졌을 때
     //    쓰는 **바닥값**이고, 무엇보다 **왜 그 숫자인지가 여기 적혀 있다.**
     //    JSON 에는 주석을 못 단다. 이유는 코드에 남고 값만 파일로 나간다.
     // ========================================================================
     //  ★ 8-a 에서 **둘로 갈라졌다.** 무기의 공격과 맨손의 공격은
     //    같은 곳에 있으면 안 된다 — 무기가 둘이 되면 이빨이 두 벌이 된다.
-    WeaponType DefaultDagger()
+    ItemType DefaultDagger()
     {
-        WeaponType w;
+        ItemType w;
         w.name      = "DAGGER";
         w.icon      = 1;          // icons.png 1칸 = 단검
         w.twoHanded = false;
@@ -326,11 +327,24 @@ namespace
     //   즉시 덮으면 무엇에 죽었는지 안 보여 플레이어가 배울 수 없다.
     constexpr int kDeathScreenDelay = 45;   // 0.75 초
 
-    // ---- 갑옷 (임시. F2 로 갈아입어 강인도의 효과를 비교한다) ----
-    //   적 공격의 impact 는 swing 18 / bite 12.
-    //     CLOTH(10) → 둘 다에 휘청인다   PLATE(24) → 둘 다 버텨낸다
-    constexpr ArmorData kArmors[] = { { "CLOTH", 10 }, { "PLATE", 24 } };
-    constexpr int kArmorCount = static_cast<int>(std::size(kArmors));
+    // ---- ★★ 무게 등급 표 (design.md §3.10.4) ----
+    //   ※ 두 벌(CLOTH/PLATE)을 F2 로 오가던 표가 여기 있었다(8-f 에서 제거).
+    //
+    //   ★ 문턱이 **시작 장비에서 셋 다 닿도록** 정했다:
+    //       천 한 벌 + 단검            =  9  → LIGHT
+    //       천 한 벌 + 대검            = 19  → MEDIUM
+    //       판금 몸통·투구 + 단검 + 연 방패 = 27  → HEAVY
+    //   닿지 않는 등급은 **확인할 수 없는 등급**이다(8-a 에서 배운 것).
+    //
+    //   ★ 구르기 **전체 길이는 안 바뀐다**(26틱). 줄어드는 것은 무적뿐이고
+    //     그만큼이 후딜이 된다 — 소울류의 「뚱뚱한 구르기」다. 그림 길이도
+    //     안 바뀌므로 애니메이션을 따로 만들 필요가 없다.
+    struct WeightTier { int below; float speed; int rollInvuln; };
+    constexpr WeightTier kWeightTiers[] = {
+        { 12,       1.00f, 12 },   // LIGHT  — 옛날 그대로
+        { 24,       0.85f, 10 },   // MEDIUM
+        { INT_MAX,  0.70f,  7 },   // HEAVY  — 적의 예고를 구르기로 흘리기 어렵다
+    };
 
     constexpr float kSpeedPerTick     = 150.0f / 60.0f;   // 틱당 2.5 픽셀
     constexpr float kCrouchSpeedScale     = 0.45f;        // 조준의 대가
@@ -440,7 +454,7 @@ const AnimationClip& PlayerController::PostureClip(bool moving) const
     //     여기를 고칠 일이 없다 — 무기가 자기 공격 그림을 드는 것과 같다.
     if (Guarding())
     {
-        const WeaponType& s = Weapon(GuardHand());
+        const ItemType& s = Weapon(GuardHand());
         return Crouched() ? s.guardCrouchClip : s.guardClip;
     }
 
@@ -460,9 +474,9 @@ void PlayerController::Start(SceneContext& ctx)
     //   반대로 하면 파일에 없는 항목이 비어 버린다.
     // ★ 기본값을 먼저 넣고 파일로 덮어쓴다. 적 카탈로그와 같은 순서다 —
     //   반대로 하면 파일에 없는 항목이 비어 버린다.
-    m_weapons["dagger"] = DefaultDagger();
+    m_items["dagger"] = DefaultDagger();
     m_unarmed           = DefaultUnarmed();
-    ReloadWeapons();
+    ReloadItems();
 
     // ★ 손 슬롯은 **빈 채로 시작한다.** 전에는 기본값이 「오른손에 단검」
     //   이었는데, 슬롯이 이름 문자열이 되면서 그 기본값이 사라졌다 —
@@ -470,13 +484,26 @@ void PlayerController::Start(SceneContext& ctx)
     //   ★★ 기본값에 숨어 있던 것을 **보이는 한 줄로** 끌어낸 셈이다.
     EquipWeapon(WeaponHand::Right, "dagger");
 
-    // ★ 시작 가방. F8/F9 가 허공에서 꺼내던 것들이 **처음부터 가방에** 있다 —
-    //   무기를 얻는 길(상자·적 드롭)이 아직 없으므로 장비 화면을 확인하려면
-    //   바꿀 것이 있어야 한다(8-a 의 「하나뿐이면 확인할 수 없다」).
-    //   ★ 카탈로그에 **있는 것만** 넣는다. 파일에서 무기가 빠졌는데 이름만
-    //     넣으면 가방에 「없는 물건」이 생긴다.
-    for (const char* id : { "greatsword", "buckler", "kite" })
-        if (m_weapons.count(id))
+    // ★ 천 한 벌을 입고 시작한다. 옛 CLOTH(poise 10)가 네 조각으로 갈라진 것이라
+    //   합이 그대로 10 이다 — 8-f 전과 **같은 몸**으로 시작한다.
+    //   ★ 카탈로그에 **있는 것만** 입는다. 파일에서 빠졌는데 이름만 넣으면
+    //     「없는 물건」을 입게 된다.
+    for (const char* id : { "cloth_hood", "cloth_coat", "cloth_pants", "cloth_shoes" })
+    {
+        auto it = m_items.find(id);
+        if (it != m_items.end() && it->second.IsArmor())
+            m_armor[static_cast<int>(it->second.armorSlot)] = id;
+    }
+    ApplyArmor();
+
+    // ★ 시작 가방(6칸 — 가득 찬다). 무기를 얻는 길(상자·적 드롭)이 아직 없으므로
+    //   장비 화면을 확인하려면 **바꿀 것이 있어야** 한다(8-a).
+    //   ★ 고른 기준: 무게 등급 **셋이 다 닿는** 조합 + 특수 효과 하나.
+    //     판금은 몸통·투구만 넣었다 — 다리·발까지 넣으면 가방이 넘친다.
+    //     (items.json 에는 네 조각이 다 있다)
+    for (const char* id : { "greatsword", "buckler", "kite",
+                            "plate_mail", "plate_helm", "hunter_boots" })
+        if (m_items.count(id))
             StoreInBag(id);
 
     m_body    = &Owner().Require<BodyComponent>();
@@ -488,7 +515,169 @@ void PlayerController::Start(SceneContext& ctx)
 }
 
 
-const ArmorData& PlayerController::Armor() const { return kArmors[m_armorIndex]; }
+// ----------------------------------------------------------------------------
+//  방어구 · 무게 (8-f, design.md §3.10.4)
+// ----------------------------------------------------------------------------
+namespace
+{
+    // 입은 것 + 든 것을 한 번씩 훑는다. ★ 양손 무기는 두 칸에 있어도 **한 번**.
+    //   이 규칙을 합계 함수마다 따로 쓰면 한 곳에서 대검을 두 번 센다.
+    template <class Fn>
+    void ForEachEquipped(const ItemCatalog& items,
+                         const std::array<std::string, kArmorSlots>& armor,
+                         const std::string (&hands)[2], Fn&& fn)
+    {
+        auto visit = [&](const std::string& id)
+        {
+            auto it = items.find(id);
+            if (it != items.end()) fn(it->second);
+        };
+
+        for (const std::string& id : armor)
+            if (!id.empty()) visit(id);
+
+        if (!hands[0].empty()) visit(hands[0]);
+        if (!hands[1].empty() && hands[1] != hands[0]) visit(hands[1]);
+        // ※ 「두 손이 같은 이름」은 양손 무기일 수도, 한손 무기 두 자루일 수도
+        //   있다(ReleaseHand 주석). 무게에서는 두 자루면 **두 번** 세야 하므로
+        //   아래에서 따로 바로잡는다.
+    }
+}
+
+
+int PlayerController::TotalPoise() const
+{
+    // ★ 강인도는 **방어구만** 센다. 방패의 버티기는 막았을 때의 규칙이지
+    //   맞았을 때의 규칙이 아니다(§3.11.1).
+    int sum = 0;
+    for (const std::string& id : m_armor)
+    {
+        auto it = m_items.find(id);
+        if (it != m_items.end()) sum += it->second.poise;
+    }
+    return sum;
+}
+
+
+int PlayerController::EquipWeight() const
+{
+    int sum = 0;
+    ForEachEquipped(m_items, m_armor, m_hand,
+                    [&sum](const ItemType& t) { sum += t.weight; });
+
+    // 한손 무기 두 자루(같은 종류)는 위에서 한 번만 셌다 — 한 번 더한다.
+    const std::string& r = m_hand[HandSlot(WeaponHand::Right)];
+    if (!r.empty() && r == m_hand[HandSlot(WeaponHand::Left)]
+        && !Weapon(WeaponHand::Right).twoHanded)
+    {
+        sum += Weapon(WeaponHand::Right).weight;
+    }
+    return sum;
+}
+
+
+WeightClass PlayerController::Weight() const
+{
+    const int w = EquipWeight();
+    for (int i = 0; i < static_cast<int>(std::size(kWeightTiers)); ++i)
+        if (w < kWeightTiers[i].below)
+            return static_cast<WeightClass>(i);
+    return WeightClass::Heavy;
+}
+
+
+int PlayerController::RollInvulnTicks() const
+{
+    return kWeightTiers[static_cast<int>(Weight())].rollInvuln;
+}
+
+
+float PlayerController::WeightSpeedScale() const
+{
+    return kWeightTiers[static_cast<int>(Weight())].speed;
+}
+
+
+int PlayerController::BonusDamageVs(const std::string& enemyType) const
+{
+    int percent = 0;
+    auto add = [&](const ItemType& t)
+    {
+        for (const ItemEffect& e : t.effects)
+        {
+            if (e.kind != EffectKind::BonusDamage) continue;
+            if (!e.vs.empty() && e.vs != enemyType) continue;   // 빈 vs = 모두
+            percent += e.value;
+        }
+    };
+
+    // 방어구 — 모든 공격에
+    for (const std::string& id : m_armor)
+    {
+        auto it = m_items.find(id);
+        if (it != m_items.end()) add(it->second);
+    }
+
+    // 무기 — **그 무기로 칠 때만.** 맨손(물기)이면 무기 효과가 없다.
+    if (HandArmed(m_pendingHand))
+        add(Weapon(m_pendingHand));
+
+    return percent;
+}
+
+
+void PlayerController::ApplyArmor()
+{
+    m_poise->SetValue(TotalPoise());
+}
+
+
+bool PlayerController::WearFromBag(int bagSlot)
+{
+    if (bagSlot < 0 || bagSlot >= kBagSize || m_bag[bagSlot].empty())
+        return false;
+
+    const std::string id = m_bag[bagSlot];
+    auto it = m_items.find(id);
+    if (it == m_items.end() || !it->second.IsArmor())
+        return false;
+
+    // ★ 맞바꾸기 — 꺼낸 칸에 입고 있던 것이 들어간다. 그래서 가방이 가득
+    //   차 있어도 된다(EquipFromBag 과 같은 이유).
+    std::string& worn = m_armor[static_cast<int>(it->second.armorSlot)];
+    m_bag[bagSlot] = worn;   // 안 입고 있었으면 빈 칸이 된다
+    worn = id;
+
+    ApplyArmor();
+    Log::Info("[play] {} 를 입었다 ({})  poise {}  무게 {} {}",
+              it->second.name, ArmorSlotName(it->second.armorSlot),
+              TotalPoise(), EquipWeight(), WeightClassName(Weight()));
+    return true;
+}
+
+
+bool PlayerController::TakeOffArmor(ArmorSlot s)
+{
+    std::string& worn = m_armor[static_cast<int>(s)];
+    if (worn.empty() || !StoreInBag(worn))
+        return false;   // 안 입었거나 가방이 찼다 — 입은 채로 둔다
+
+    worn.clear();
+    ApplyArmor();
+    return true;
+}
+
+
+void PlayerController::DiscardArmor(ArmorSlot s)
+{
+    std::string& worn = m_armor[static_cast<int>(s)];
+    if (worn.empty())
+        return;
+
+    m_dropRequests.push_back(worn);   // 발밑에 — Scene 이 놓는다
+    worn.clear();
+    ApplyArmor();
+}
 
 
 // ----------------------------------------------------------------------------
@@ -613,7 +802,7 @@ AABB PlayerController::GuardBox() const
     if (h == WeaponHand::None)
         return {};
 
-    const WeaponType& s  = Weapon(h);
+    const ItemType& s  = Weapon(h);
     const Transform&  tr = Owner().transform;
 
     // ★★ **자세가 상자를 내린다.** 몸이 낮아진 비율만큼 띠도 내려간다 —
@@ -634,7 +823,7 @@ AABB PlayerController::GuardBox() const
 
 void PlayerController::PayGuard(SceneContext& ctx, const AttackData& atk, int damage)
 {
-    const WeaponType& s    = Weapon(GuardHand());
+    const ItemType& s    = Weapon(GuardHand());
     const int         cost = atk.impact * s.guardCost / 100;
 
     // ★ 스태미나가 모자라도 **막기는 한다.** 「부족하면 안 나감」이 아니라
@@ -675,10 +864,17 @@ WeaponHand PlayerController::PickupHand(const std::string& weaponId) const
 {
     // ★★ **양손 무기는 두 팔이 다 성해야 한다.** 한 팔을 잃으면 대검은
     //   못 든다 — 「팔을 잃으면 무기를 바꿔야 한다」가 규칙 없이 성립한다.
+    auto it = m_items.find(weaponId);
+
+    // ★ 방어구는 **손에 들지 않는다** — None 을 돌려주면 줍기가 가방으로 보낸다.
+    //   빈 부위면 바로 입히는 방법도 있지만, 판금을 줍는 순간 몰래 HEAVY 가
+    //   되면 「왜 갑자기 느리지?」가 된다. 입는 것은 **플레이어가 정한다.**
+    if (it != m_items.end() && it->second.IsArmor())
+        return WeaponHand::None;
+
     //   ★ 두 칸을 차지하므로 **두 칸이 다 비어 있어야** 한다 — 왼손에 단검을
     //     들고 있으면 대검을 못 줍는다. 「무엇을 내려놓을까」가 생긴다.
-    auto it = m_weapons.find(weaponId);
-    if (it != m_weapons.end() && it->second.twoHanded)
+    if (it != m_items.end() && it->second.twoHanded)
     {
         return (CanHold(WeaponHand::Right) && CanHold(WeaponHand::Left))
              ? WeaponHand::Right : WeaponHand::None;
@@ -758,8 +954,12 @@ bool PlayerController::EquipFromBag(int slot, WeaponHand hand)
     if (id.empty())
         return false;
 
-    auto it = m_weapons.find(id);
-    const bool both = (it != m_weapons.end()) && it->second.twoHanded;
+    auto it = m_items.find(id);
+    const bool both = (it != m_items.end()) && it->second.twoHanded;
+
+    // ★ 방어구는 **손에 못 든다.** 입는 것이다(WearFromBag).
+    if (it != m_items.end() && it->second.IsArmor())
+        return false;
 
     // ---- 팔이 있어야 든다 ----
     //   ★ 양손 무기는 **두 팔 다.** 줍기(PickupHand)와 같은 규칙이다.
@@ -833,8 +1033,14 @@ void PlayerController::EquipWeapon(WeaponHand hand, const std::string& weaponId)
     if (hand == WeaponHand::None)
         return;
 
-    auto it = m_weapons.find(weaponId);
-    const bool both = (it != m_weapons.end()) && it->second.twoHanded;
+    auto it = m_items.find(weaponId);
+    const bool both = (it != m_items.end()) && it->second.twoHanded;
+
+    // ★★ 방어구는 손에 **절대** 안 든다. 부르는 쪽(줍기 · 장비 화면)도 막지만
+    //   **가장 아래에서 한 번 더** 막는다 — 부르는 길이 하나 늘 때마다 그 길이
+    //   검사를 빠뜨릴 수 있다. 실제로 줍기(PickupHand)가 처음엔 방어구를 몰랐다.
+    if (it != m_items.end() && it->second.IsArmor())
+        return;
 
     // ★ 자리를 비운다. 밀려난 것은 **가방으로**(8-e) — 8-b 에서는 땅이었다.
     //   가방이 차 있으면 그때 땅이다. 어느 쪽이든 **사라지지 않는다.**
@@ -863,17 +1069,17 @@ const std::string& PlayerController::HandItem(WeaponHand hand) const
 }
 
 
-const WeaponType& PlayerController::Weapon(WeaponHand hand) const
+const ItemType& PlayerController::Weapon(WeaponHand hand) const
 {
-    auto it = m_weapons.find(HandItem(hand));
-    if (it != m_weapons.end())
+    auto it = m_items.find(HandItem(hand));
+    if (it != m_items.end())
         return it->second;
 
     // ★ 없으면 죽지 않는다. 카탈로그는 비어 있을 수 없다 —
     //   Start 가 기본 단검을 먼저 넣고 파일로 덮어쓴다.
     //   ※ 빈손일 때도 여기로 온다. 「빈손인가」는 HandArmed 가 따로 답한다 —
     //     여기서 널을 돌려주면 부르는 쪽마다 널 검사가 생긴다.
-    return m_weapons.begin()->second;
+    return m_items.begin()->second;
 }
 
 
@@ -895,30 +1101,30 @@ bool PlayerController::CanRoll() const
 
 
 // ----------------------------------------------------------------------------
-//  ReloadWeapons — 파일에서 다시 읽는다 (F6)
+//  ReloadItems — 파일에서 다시 읽는다 (F6)
 //
 //    ★ 실패하면 **아무것도 안 바뀐다.** 로그만 남는다.
 //      JSON 을 고치다 오타가 나서 게임이 죽으면 아무도 핫 리로드를 안 쓴다 —
 //      리로드의 값어치는 「틀려도 안전하다」는 데서 나온다.
 //
 //    ★ 실패해도 **true/false 를 보고 무언가 하지 않는다.** 부르는 쪽이
-//      되돌릴 필요가 없기 때문이다(WeaponIO::LoadInto 의 약속).
+//      되돌릴 필요가 없기 때문이다(ItemIO::LoadInto 의 약속).
 // ----------------------------------------------------------------------------
-void PlayerController::ReloadWeapons()
+void PlayerController::ReloadItems()
 {
     std::string err;
     // ★ 없던 무기는 **단검에서 출발한다.** 그래서 대검은 단검과 다른 것만
     //   적으면 된다 — 적 카탈로그가 DefaultGrunt 에서 출발하는 것과 같다.
-    if (WeaponIO::LoadInto(L"assets/data/weapons.json",
-                           m_weapons, m_unarmed, DefaultDagger(), &err))
+    if (ItemIO::LoadInto(L"assets/data/items.json",
+                           m_items, m_unarmed, DefaultDagger(), &err))
     {
-        Log::Info("[weapon] weapons.json 적용 — 무기 {}종", m_weapons.size());
+        Log::Info("[weapon] items.json 적용 — 무기 {}종", m_items.size());
         return;
     }
 
     // ※ 파일이 아예 없는 것도 여기로 온다. 그게 정상 동작이다 —
     //   기본값으로 굴러가고, 나중에 파일을 두면 그때부터 읽힌다.
-    Log::Info("[weapon] weapons.json 을 못 읽었다 ({}) — 이전 값 유지", err);
+    Log::Info("[weapon] items.json 을 못 읽었다 ({}) — 이전 값 유지", err);
 }
 
 
@@ -929,7 +1135,7 @@ void PlayerController::Rest()
     m_parts->Reset();
     m_stamina->Reset();
     m_poise->Reset();
-    m_poise->SetValue(Armor().poise);
+    ApplyArmor();
 
     m_flash       = 0;
     m_sparkTicks  = 0;
@@ -1049,7 +1255,7 @@ void PlayerController::Respawn(SceneContext& ctx)
 
     m_stamina->Reset();
     m_poise->Reset();
-    m_poise->SetValue(Armor().poise);   // ★ 값의 출처는 방어구다
+    ApplyArmor();   // ★ 값의 출처는 입은 방어구다
 
     m_dropRequests.clear();   // 아직 Scene 이 안 가져간 요청은 버린다
 
@@ -1059,7 +1265,7 @@ void PlayerController::Respawn(SceneContext& ctx)
     //     되돌리면 「죽으면 무기가 손으로 돌아오는」 게임이 되어
     //     §3.6.1 의 「남는다」가 무의미해진다.
     //
-    //   ★ m_armorIndex 는 **일부러 되돌리지 않는다.** 장비는 죽어도 그대로다 —
+    //   ★ m_armor 는 **일부러 되돌리지 않는다.** 장비는 죽어도 그대로다 —
     //     design.md §3.6.1 의 「남는다」 칸에 실제로 들어간 첫 항목이다.
     //     되돌리면 「죽을 때마다 장비가 벗겨지는」 게임이 된다.
 
@@ -1111,7 +1317,7 @@ const AttackData& PlayerController::SelectAttack(PlayerState prev) const
     //   전부 **발이 땅에 있다**는 전제 위에 있다.
     // ★★ **누른 손**의 무기다. 손 슬롯이 둘이 된 뒤로 「내 무기」라는 것이
     //   없다 — 왼손에 단검, 오른손에 대검이면 버튼마다 다른 것이 나간다.
-    const WeaponType& w = Weapon(m_pendingHand);
+    const ItemType& w = Weapon(m_pendingHand);
 
     if (!m_body->Grounded())             return w.jump;
 
@@ -1288,7 +1494,10 @@ void PlayerController::UpdateMovement(SceneContext& ctx, float moveX)
     //   ★ 다리가 부서지면 **쓰러져 기어간다**(design.md §3.2.2).
     //     플레이어에게 가장 무서운 부위 파괴다 — 구르기까지 잃으면
     //     §3.1 의 「흘려서 산다」가 통째로 사라진다.
-    float speed = kSpeedPerTick;
+    //
+    //   ★★ 무게가 **먼저** 곱해진다(8-f). 무거우면 걷기도, 공중 제어도,
+    //     웅크려 걷기도 전부 느려진다 — 몸이 무거운 것이지 걷기만 무거운 게 아니다.
+    float speed = kSpeedPerTick * WeightSpeedScale();
     if (!m_body->Grounded())
     {
         speed *= kAirControl;   // 공중에서는 약하게만 조종된다
@@ -1415,8 +1624,10 @@ bool PlayerController::RollInvincible() const
     if (m_state != PlayerState::Roll)
         return false;
 
+    // ★ 무적 길이는 **무게 등급**이 정한다(§3.10.4). 전체 길이(26틱)는 그대로라
+    //   줄어든 무적만큼이 후딜이 된다.
     return m_stateTicks >= kRoll.windup
-        && m_stateTicks <  kRoll.windup + kRoll.invincible;
+        && m_stateTicks <  kRoll.windup + RollInvulnTicks();
 }
 
 
@@ -1808,7 +2019,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         //   무적 구간에서도 받으면 「구르면서 공격 확정」이 되어
         //   「굴러서 빠져나갈까, 붙어서 칠까」라는 판단이 사라진다.
         if (handPressed != WeaponHand::None
-            && m_stateTicks >= kRoll.windup + kRoll.invincible)
+            && m_stateTicks >= kRoll.windup + RollInvulnTicks())
         {
             m_queuedHand = handPressed;
         }
@@ -1858,22 +2069,12 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
         break;
     }
 
-    // ---- 상태와 무관한 입력 ----
-    //   ★ 임시 키. 강인도의 두 분기를 눈으로 비교하기 위한 것이다.
-    //     같은 공격에 CLOTH 는 튕겨나가고 PLATE 는 그대로 서서 휘두른다.
-    if (consumeEdgeInput && ctx.input.ArmorSwapPressed())
-    {
-        m_armorIndex = (m_armorIndex + 1) % kArmorCount;
-        m_poise->SetValue(Armor().poise);   // 방어구가 바뀌면 강인도도 바뀐다
-        ctx.audio.Play("ui_confirm", 0.5f);
-        Log::Info("[play] 갑옷 → {}  (poise {})   swing impact 18 / bite impact 12",
-                  Armor().name, Armor().poise);
-    }
+    // ※ F2(두 벌 갈아입기)가 여기 있었다. 장비 화면이 대신한다(8-f).
 
     // ★ F6 — 무브셋을 파일에서 다시 읽는다.
     //   숫자 하나 고칠 때마다 빌드하지 않아도 되는 것이 이 단계의 전부다.
     if (consumeEdgeInput && ctx.input.DataReloadPressed())
-        ReloadWeapons();
+        ReloadItems();
 
     // ※ F8/F9(카탈로그에서 꺼내 들기)가 여기 있었다. 장비 화면이 대신한다.
 
@@ -2015,7 +2216,7 @@ void PlayerController::RenderUI(Renderer& renderer)
     }
 
     // ---- 방어구 ----
-    //   ★ F2 로 바뀌는 값이므로 **항상** 보여야 한다.
+    //   ★ 장비로 바뀌는 값이므로 **항상** 보여야 한다.
     //     안 보이면 「같은 공격에 왜 이번엔 안 밀렸지?」를 확인할 수 없다.
     //   ★★ **두 손을 다** 적는다. 한 줄로 「내 무기」를 적던 때는 손이
     //     하나뿐인 셈이라 맞았지만, 이제 어느 손에 무엇이 있는지가 전부다.
@@ -2029,11 +2230,15 @@ void PlayerController::RenderUI(Renderer& renderer)
         return HandArmed(h) ? Weapon(h).name.c_str() : "-";
     };
 
+    //   ★ 방어구 이름 대신 **무게 등급과 강인도**를 적는다. 네 조각의 이름을
+    //     늘어놓으면 아무것도 안 읽힌다 — 싸움 중에 알아야 하는 것은
+    //     「지금 버티는가(poise)」와 「지금 잘 구르는가(무게)」다.
     renderer.DrawString(
-        twoH ? std::format("ARMOR {} (poise {})  BOTH HANDS {}",
-                           Armor().name, Armor().poise, label(WeaponHand::Right))
-             : std::format("ARMOR {} (poise {})  L {}  R {}",
-                           Armor().name, Armor().poise,
+        twoH ? std::format("{} {}  POISE {}  BOTH HANDS {}",
+                           WeightClassName(Weight()), EquipWeight(), TotalPoise(),
+                           label(WeaponHand::Right))
+             : std::format("{} {}  POISE {}  L {}  R {}",
+                           WeightClassName(Weight()), EquipWeight(), TotalPoise(),
                            label(WeaponHand::Left), label(WeaponHand::Right)),
         12.0f, Config::kCanvasHeight - 52.0f, DirectX::Colors::SlateGray, 1);
 
@@ -2054,10 +2259,17 @@ void PlayerController::RenderUI(Renderer& renderer)
     }
     else if (m_state == PlayerState::Roll)
     {
+        // ★ **지금 무게로 실제로 적용되는** 구간을 보여 준다. 상수(kRoll)를
+        //   그대로 적으면 HEAVY 인데도 「무적 12」가 떠서 화면이 거짓말을 한다.
+        RollData r = kRoll;
+        r.invincible = RollInvulnTicks();
+        r.recovery   = kRoll.TotalTicks() - r.windup - r.invincible;
+
         renderer.DrawString(
-            std::format("STATE ROLL  t{:<3}{}   [{} {} {}]",
-                        m_stateTicks, RollPhase(m_stateTicks, kRoll),
-                        kRoll.windup, kRoll.invincible, kRoll.recovery),
+            std::format("STATE ROLL  t{:<3}{}   [{} {} {}]  {}",
+                        m_stateTicks, RollPhase(m_stateTicks, r),
+                        r.windup, r.invincible, r.recovery,
+                        WeightClassName(Weight())),
             6.0f, 6.0f,
             RollInvincible() ? DirectX::Colors::DeepSkyBlue : DirectX::Colors::Orange, 1);
     }

@@ -1,6 +1,6 @@
 ﻿// ============================================================================
 //  InventoryScene.h
-//    장비 화면 — 손 둘 + 가방 여섯 칸 (design.md §3.10.3).
+//    장비 화면 — 손 둘 + 방어구 넷 + 가방 여섯 (design.md §3.10.3 · §3.10.4).
 //
 //  ---- ★★ 게임을 **멈추지 않는다** ----
 //    UpdatesBelow = true. 메뉴를 여는 동안에도 적은 움직인다.
@@ -17,11 +17,15 @@
 //    그 자리에 선 채이고 — 메뉴를 고르는 방향키가 캐릭터를 걷게 하지 않는다.
 //
 //  ---- 조작 : 「버튼은 손」이 메뉴 안에서도 같다 ----
-//    ← →          칸 고르기
-//    좌클릭 / 우클릭  가방의 것을 **그 손에** 든다
-//    Enter         손의 것을 가방에 넣는다
-//    X             버린다 (발밑에 떨군다)
-//    Tab / Esc     닫기
+//    ← →           칸 고르기
+//    좌클릭 / 우클릭  가방의 무기·방패를 **그 손에** 든다
+//    Enter          가방의 방어구를 **입는다** / 손·방어구 칸이면 가방에 넣는다
+//    X              버린다 (발밑에 떨군다)
+//    Tab / Esc      닫기
+//
+//    ★ 방어구를 Enter 로 입는 이유: 방어구는 **손에 드는 것이 아니다.**
+//      좌/우클릭은 손이므로 방어구에 쓰면 「어느 손에?」라는 틀린 질문이 된다.
+//      어느 부위인지는 **물건이 안다**(armorSlot) — 투구를 발에 신을 수는 없다.
 // ============================================================================
 #pragma once
 
@@ -31,6 +35,7 @@
 #include <string>
 
 class PlayerController;
+struct ItemType;
 
 class InventoryScene final : public Scene
 {
@@ -53,11 +58,22 @@ public:
     bool UpdatesBelow() const override { return true; }   // ★ 게임이 계속 돈다
 
 private:
-    // 칸 번호 : 0 = 왼손, 1 = 오른손, 2.. = 가방.
-    //   ★ 화면의 **왼쪽부터 오른쪽**과 같은 순서다. 왼손이 왼쪽에 있어야
+    // ---- 칸 ----
+    //   ★ 종류가 **셋**이다 — 손 · 방어구 · 가방. 둘이던 때(8-e)는
+    //     `m_cursor < 2 ? 손 : 가방` 으로 썼는데, 셋이 되는 순간 `? :` 가
+    //     조용히 하나를 빠뜨린다(handoff §9.1 의 자매 규칙). 그래서 **종류를
+    //     먼저 묻고** 그 안의 번호를 쓴다.
+    //   ★ 화면의 **왼쪽부터 오른쪽**과 같은 순서다 — 왼손이 왼쪽에 있어야
     //     「좌클릭 = 왼손」이 눈으로도 맞는다.
-    static constexpr int kHandSlots = 2;
-    int SlotCount() const;
+    enum class SlotKind { Hand, Armor, Bag };
+    struct Slot { SlotKind kind; int index; };
+
+    Slot SlotAt(int cursor) const;
+    int  SlotCount() const;
+
+    // 칸에 든 것. 비었으면 nullptr.
+    const ItemType*    ItemAt(const Slot& s) const;
+    const std::string& IdAt(const Slot& s) const;
 
     void Act(SceneContext& ctx);             // 이번 틱의 버튼을 처리한다
     void Say(std::string text, bool good);   // 결과 한 줄
@@ -65,7 +81,7 @@ private:
     PlayerController&     m_player;
     Assets::TextureHandle m_icons;
 
-    int         m_cursor = kHandSlots;   // 가방 첫 칸에서 시작한다
+    int         m_cursor = 0;
     std::string m_message;
     bool        m_messageGood = true;
     int         m_messageTicks = 0;
