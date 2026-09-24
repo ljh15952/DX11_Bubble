@@ -470,10 +470,22 @@ const AnimationClip& PlayerController::PostureClip(bool moving) const
 
 void PlayerController::Start(SceneContext& ctx)
 {
+    // ★★ 컴포넌트를 **맨 먼저** 찾는다.
+    //   이 다섯 줄이 원래 이 함수의 **맨 아래**에 있었다. 그 위에 시작 장비를
+    //   하나씩 얹어 왔는데, 8-b 의 EquipWeapon 은 컴포넌트를 안 써서 **우연히**
+    //   괜찮았다. 8-f 에서 ApplyArmor 가 처음으로 m_poise 를 건드리자
+    //   `this == nullptr` 로 터졌다 — 빌드로는 절대 안 잡히는 종류다.
+    //   ★ 찾기가 맨 위에 있으면 그 아래에 무엇을 붙이든 안전하다.
+    //     「이 줄보다 위에서는 컴포넌트를 쓰면 안 된다」는 **보이지 않는
+    //     규칙**을 없앤 것이다(handoff §8).
+    m_body    = &Owner().Require<BodyComponent>();
+    m_sprite  = &Owner().Require<SpriteComponent>();
+    m_poise   = &Owner().Require<PoiseComponent>();
+    m_parts   = &Owner().Require<PartsComponent>();
+    m_stamina = &Owner().Require<StaminaComponent>();
+
     // ★ 순서가 규칙이다: **기본값을 먼저 채우고 파일로 덮어쓴다.**
-    //   반대로 하면 파일에 없는 항목이 비어 버린다.
-    // ★ 기본값을 먼저 넣고 파일로 덮어쓴다. 적 카탈로그와 같은 순서다 —
-    //   반대로 하면 파일에 없는 항목이 비어 버린다.
+    //   반대로 하면 파일에 없는 항목이 비어 버린다 — 적 카탈로그와 같은 순서다.
     m_items["dagger"] = DefaultDagger();
     m_unarmed           = DefaultUnarmed();
     ReloadItems();
@@ -494,7 +506,8 @@ void PlayerController::Start(SceneContext& ctx)
         if (it != m_items.end() && it->second.IsArmor())
             m_armor[static_cast<int>(it->second.armorSlot)] = id;
     }
-    ApplyArmor();
+    // ※ 강인도 적용(ApplyArmor)은 맨 아래 Respawn 이 한다 — 여기서 또 부르면
+    //   같은 일을 두 곳에서 하게 된다.
 
     // ★ 시작 가방(6칸 — 가득 찬다). 무기를 얻는 길(상자·적 드롭)이 아직 없으므로
     //   장비 화면을 확인하려면 **바꿀 것이 있어야** 한다(8-a).
@@ -506,12 +519,7 @@ void PlayerController::Start(SceneContext& ctx)
         if (m_items.count(id))
             StoreInBag(id);
 
-    m_body    = &Owner().Require<BodyComponent>();
-    m_sprite  = &Owner().Require<SpriteComponent>();
-    m_poise   = &Owner().Require<PoiseComponent>();
-    m_parts   = &Owner().Require<PartsComponent>();
-    m_stamina = &Owner().Require<StaminaComponent>();
-    Respawn(ctx);
+    Respawn(ctx);   // 몸을 처음 상태로 + 입은 방어구로 강인도를 맞춘다
 }
 
 
