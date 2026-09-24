@@ -139,14 +139,17 @@ public:
     //     몫이고, 지금 무기가 땅에 떨어지는 경우는 **팔이 잘렸을 때뿐**이다.
     bool ArmBreakPressed() const { return m_edges.armBreak; }      // F7 (임시)
 
-    // ★ F8 / F9 — 그 손에 카탈로그의 **다음 무기를** 든다 (임시).
-    //   무기를 얻는 길이 아직 「떨어진 것을 줍기」뿐이라 두 번째 무기를
-    //   손에 넣을 방법이 없다. 8단계 장비 화면이 오면 버린다 — F2(갑옷)와 같다.
-    //
-    //   ★★ **손마다 따로**다. 한 키뿐이면 두 손에 서로 다른 것을 들 수가
-    //     없어서 「슬롯이 둘」이라는 것을 확인할 방법이 없다.
-    bool WeaponSwapRightPressed() const { return m_edges.swapRight; }  // F8 (임시)
-    bool WeaponSwapLeftPressed()  const { return m_edges.swapLeft;  }  // F9 (임시)
+    // ※ F8 / F9(카탈로그에서 꺼내 들기)가 있었다. **장비 화면(Tab)** 이
+    //   그 일을 한다 — 쓰임이 끝난 임시 키는 지운다(남겨 두면 누군가 쓴다).
+
+    // ---- ★ 장비 화면 (8-e) ----
+    //   Tab 으로 열고 닫는다. 화면 안에서는 좌우로 칸을 고르고,
+    //   ★ **좌클릭 = 왼손에, 우클릭 = 오른손에** 든다 — 「버튼은 손」이
+    //     메뉴 안에서도 같다. 줍기에서 미뤄 둔 「어느 손에 들까」의 답이다.
+    bool InventoryPressed() const { return m_edges.inventory; }   // Tab / 패드 Back
+    bool MenuLeftPressed()  const { return m_edges.menuLeft;  }   // ← / A / 패드 ←
+    bool MenuRightPressed() const { return m_edges.menuRight; }   // → / D / 패드 →
+    bool DiscardPressed()   const { return m_edges.discard;   }   // X / 패드 RB
 
     // ★ F5 — 어둠 껐다 켜기.
     //   밝기는 **비교해 봐야** 정할 수 있다. 끄고 켤 수 없으면
@@ -199,8 +202,10 @@ private:
         bool armorSwap = false;
         bool legBreak  = false;
         bool armBreak  = false;
-        bool swapRight = false;
-        bool swapLeft   = false;
+        bool inventory = false;
+        bool menuLeft  = false;
+        bool menuRight = false;
+        bool discard   = false;
         bool darkToggle = false;
         bool dataReload = false;
     };

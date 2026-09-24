@@ -125,6 +125,7 @@
     <ClCompile Include="src\Graphics\SpriteComponent.cpp" />
     <ClCompile Include="src\Input\Input.cpp" />
     <ClCompile Include="src\Scenes\DeathScene.cpp" />
+    <ClCompile Include="src\Scenes\InventoryScene.cpp" />
     <ClCompile Include="src\Scenes\PauseScene.cpp" />
     <ClCompile Include="src\Scenes\PlayScene.cpp" />
     <ClCompile Include="src\Scenes\TitleScene.cpp" />
@@ -164,6 +165,7 @@
     <ClInclude Include="src\Graphics\SpriteComponent.h" />
     <ClInclude Include="src\Input\Input.h" />
     <ClInclude Include="src\Scenes\DeathScene.h" />
+    <ClInclude Include="src\Scenes\InventoryScene.h" />
     <ClInclude Include="src\Scenes\PauseScene.h" />
     <ClInclude Include="src\Scenes\PlayScene.h" />
     <ClInclude Include="src\Scenes\TitleScene.h" />

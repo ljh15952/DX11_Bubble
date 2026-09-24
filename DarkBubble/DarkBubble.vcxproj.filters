@@ -82,6 +82,9 @@
     <ClCompile Include="src\Scenes\DeathScene.cpp">
       <Filter>Scenes</Filter>
     </ClCompile>
+    <ClCompile Include="src\Scenes\InventoryScene.cpp">
+      <Filter>Scenes</Filter>
+    </ClCompile>
     <ClCompile Include="src\Scenes\PauseScene.cpp">
       <Filter>Scenes</Filter>
     </ClCompile>
@@ -172,6 +175,9 @@
       <Filter>Input</Filter>
     </ClInclude>
     <ClInclude Include="src\Scenes\DeathScene.h">
+      <Filter>Scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Scenes\InventoryScene.h">
       <Filter>Scenes</Filter>
     </ClInclude>
     <ClInclude Include="src\Scenes\PauseScene.h">

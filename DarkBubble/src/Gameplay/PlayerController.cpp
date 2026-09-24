@@ -470,6 +470,15 @@ void PlayerController::Start(SceneContext& ctx)
     //   ★★ 기본값에 숨어 있던 것을 **보이는 한 줄로** 끌어낸 셈이다.
     EquipWeapon(WeaponHand::Right, "dagger");
 
+    // ★ 시작 가방. F8/F9 가 허공에서 꺼내던 것들이 **처음부터 가방에** 있다 —
+    //   무기를 얻는 길(상자·적 드롭)이 아직 없으므로 장비 화면을 확인하려면
+    //   바꿀 것이 있어야 한다(8-a 의 「하나뿐이면 확인할 수 없다」).
+    //   ★ 카탈로그에 **있는 것만** 넣는다. 파일에서 무기가 빠졌는데 이름만
+    //     넣으면 가방에 「없는 물건」이 생긴다.
+    for (const char* id : { "greatsword", "buckler", "kite" })
+        if (m_weapons.count(id))
+            StoreInBag(id);
+
     m_body    = &Owner().Require<BodyComponent>();
     m_sprite  = &Owner().Require<SpriteComponent>();
     m_poise   = &Owner().Require<PoiseComponent>();
@@ -549,7 +558,7 @@ void PlayerController::OnPartBroken(int part)
     //     「두 칸을 차지한다」의 결과다.
     //   ★ 「밀려난 것을 땅에 떨어뜨린다」와 **같은 일**이므로 같은 함수를 쓴다.
     const std::string dropped = m_hand[HandSlot(lost)];
-    Displace(lost);
+    ReleaseHand(lost, Release::Ground);   // ★ 잘리면 **땅**이다 — 가방이 아니다
     Log::Info("[play]   -> {} 를 떨궜다! 주우러 가야 한다", dropped);
 }
 
@@ -689,7 +698,7 @@ std::vector<std::string> PlayerController::ConsumeDrops()
 }
 
 
-void PlayerController::Displace(WeaponHand hand)
+void PlayerController::ReleaseHand(WeaponHand hand, Release to)
 {
     std::string& slot = m_hand[HandSlot(hand)];
     if (slot.empty())
@@ -700,12 +709,122 @@ void PlayerController::Displace(WeaponHand hand)
     //   ★★ 「두 칸이 같다」로 판정하면 **한손 무기 두 자루를 같은 종류로**
     //     들었을 때도 둘 다 사라진다. 판정은 `twoHanded` 로 한다 —
     //     **같아 보이는 것과 같은 것은 다르다.**
-    const bool both = Weapon(hand).twoHanded;
+    const std::string item = slot;
+    const bool        both = Weapon(hand).twoHanded;
 
-    m_dropRequests.push_back(slot);   // 밀려난 것은 땅에 떨어진다
     slot.clear();
     if (both)
         m_hand[HandSlot(OtherHand(hand))].clear();
+
+    // ★ 가방으로 보내라 했는데 자리가 없으면 **땅으로.** 물건은 절대
+    //   사라지지 않는다 — 부르는 쪽이 자리를 미리 확인했더라도 이 줄은 둔다.
+    //   「확인했으니 괜찮다」로 생략하면 확인하는 쪽이 바뀔 때 물건이 증발한다.
+    if (to == Release::Bag && StoreInBag(item))
+        return;
+
+    m_dropRequests.push_back(item);
+}
+
+
+bool PlayerController::BagHasRoom() const
+{
+    for (const std::string& s : m_bag)
+        if (s.empty())
+            return true;
+    return false;
+}
+
+
+bool PlayerController::StoreInBag(const std::string& id)
+{
+    for (std::string& s : m_bag)
+    {
+        if (s.empty())
+        {
+            s = id;
+            return true;
+        }
+    }
+    return false;   // 가득 찼다 — 넣지 않는다
+}
+
+
+bool PlayerController::EquipFromBag(int slot, WeaponHand hand)
+{
+    if (hand == WeaponHand::None || slot < 0 || slot >= kBagSize)
+        return false;
+
+    const std::string id = m_bag[slot];
+    if (id.empty())
+        return false;
+
+    auto it = m_weapons.find(id);
+    const bool both = (it != m_weapons.end()) && it->second.twoHanded;
+
+    // ---- 팔이 있어야 든다 ----
+    //   ★ 양손 무기는 **두 팔 다.** 줍기(PickupHand)와 같은 규칙이다.
+    if (m_parts->IsBroken(ArmOf(hand)))
+        return false;
+    if (both && m_parts->IsBroken(ArmOf(OtherHand(hand))))
+        return false;
+
+    // ---- 밀려날 것이 가방에 들어가는가 ----
+    //   ★ 꺼낸 칸이 먼저 비므로 **+1** 이다. 그래서 가득 찬 가방에서도
+    //     「단검 ⇄ 대검」 맞바꾸기는 된다.
+    //   ★ 양손 무기는 두 칸에 있어도 **한 개**로 센다.
+    const std::string& a = m_hand[HandSlot(hand)];
+    const std::string& b = m_hand[HandSlot(OtherHand(hand))];
+    const bool aTwoHanded = !a.empty() && Weapon(hand).twoHanded;
+
+    int out = a.empty() ? 0 : 1;
+    if (both && !b.empty() && !aTwoHanded)
+        ++out;
+
+    int room = 1;
+    for (const std::string& s : m_bag)
+        if (s.empty()) ++room;
+
+    // ★★ 자리가 모자라면 **아예 안 든다.** 넘치는 것을 땅에 떨구면
+    //   「장비를 바꿨더니 방패가 발밑에 떨어져 있다」가 되어, 무엇이 어디로
+    //   갔는지 모르게 된다. 거절하고 이유를 보여 주는 편이 낫다.
+    if (out > room)
+        return false;
+
+    m_bag[slot].clear();
+    EquipWeapon(hand, id);   // 밀려난 것은 가방으로 간다(방금 빈 칸 포함)
+    return true;
+}
+
+
+bool PlayerController::StowHand(WeaponHand hand)
+{
+    if (hand == WeaponHand::None || m_hand[HandSlot(hand)].empty())
+        return false;
+
+    // ★ 가방이 차 있으면 **손에 그대로 둔다.** 땅에 떨구지 않는다 —
+    //   「넣어라」를 눌렀는데 떨어지면 그건 넣은 것이 아니다.
+    if (!BagHasRoom())
+        return false;
+
+    ReleaseHand(hand, Release::Bag);
+    return true;
+}
+
+
+void PlayerController::DiscardBag(int slot)
+{
+    if (slot < 0 || slot >= kBagSize || m_bag[slot].empty())
+        return;
+
+    m_dropRequests.push_back(m_bag[slot]);   // 발밑에 떨군다 — Scene 이 놓는다
+    m_bag[slot].clear();
+}
+
+
+void PlayerController::DiscardHand(WeaponHand hand)
+{
+    if (hand != WeaponHand::None)
+        ReleaseHand(hand, Release::Ground);
 }
 
 
@@ -717,13 +836,11 @@ void PlayerController::EquipWeapon(WeaponHand hand, const std::string& weaponId)
     auto it = m_weapons.find(weaponId);
     const bool both = (it != m_weapons.end()) && it->second.twoHanded;
 
-    // ★ 자리를 비운다. **밀려난 것은 사라지지 않고 땅에 떨어진다** —
-    //   장비를 바꾸는 것이 물건을 없애는 일이 되면 안 된다.
-    //   그리고 이것이 양손 무기의 대가를 눈에 보이게 만든다:
-    //   **대검을 들면 왼손에 있던 것이 바닥에 떨어진다.**
-    Displace(hand);
+    // ★ 자리를 비운다. 밀려난 것은 **가방으로**(8-e) — 8-b 에서는 땅이었다.
+    //   가방이 차 있으면 그때 땅이다. 어느 쪽이든 **사라지지 않는다.**
+    ReleaseHand(hand, Release::Bag);
     if (both)
-        Displace(OtherHand(hand));
+        ReleaseHand(OtherHand(hand), Release::Bag);
 
     m_hand[HandSlot(hand)] = weaponId;
 
@@ -757,22 +874,6 @@ const WeaponType& PlayerController::Weapon(WeaponHand hand) const
     //   ※ 빈손일 때도 여기로 온다. 「빈손인가」는 HandArmed 가 따로 답한다 —
     //     여기서 널을 돌려주면 부르는 쪽마다 널 검사가 생긴다.
     return m_weapons.begin()->second;
-}
-
-
-void PlayerController::CycleWeapon(WeaponHand hand)
-{
-    // ★ 임시. 아직 무기를 얻을 길이 「떨어진 것을 줍는다」뿐이라
-    //   두 번째 무기를 손에 넣을 방법이 없다. 8단계 장비 화면이 답이다.
-    //
-    //   ★ 비우는 일은 EquipWeapon 이 한다 — 그리고 밀려난 것은 **땅에
-    //     떨어진다.** 디버그 키가 물건을 없애 버리면, 그걸로 확인한 결과도
-    //     못 믿게 된다.
-    auto it = m_weapons.find(m_hand[HandSlot(hand)]);
-    if (it == m_weapons.end() || ++it == m_weapons.end())
-        it = m_weapons.begin();
-
-    EquipWeapon(hand, it->first);
 }
 
 
@@ -1774,13 +1875,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     if (consumeEdgeInput && ctx.input.DataReloadPressed())
         ReloadWeapons();
 
-    // ★ 임시 디버그 키(F8) — 카탈로그의 다음 무기로. 8단계 장비 화면이 답이다.
-    //   ※ 죽은 뒤에는 받지 않는다 — F4/F7 과 같은 이유다.
-    if (consumeEdgeInput && !IsDead())
-    {
-        if (ctx.input.WeaponSwapRightPressed()) CycleWeapon(WeaponHand::Right);
-        if (ctx.input.WeaponSwapLeftPressed())  CycleWeapon(WeaponHand::Left);
-    }
+    // ※ F8/F9(카탈로그에서 꺼내 들기)가 여기 있었다. 장비 화면이 대신한다.
 
     // ★ 임시 디버그 키 — 부위를 부러뜨렸다 되돌린다.
     //

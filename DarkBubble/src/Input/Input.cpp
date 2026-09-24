@@ -74,8 +74,14 @@ void Input::Poll()
     m_edges.armorSwap |= m_kbTracker.pressed.F2;
     m_edges.legBreak  |= m_kbTracker.pressed.F4;
     m_edges.armBreak  |= m_kbTracker.pressed.F7;
-    m_edges.swapRight |= m_kbTracker.pressed.F8;
-    m_edges.swapLeft  |= m_kbTracker.pressed.F9;
+    m_edges.inventory |= m_kbTracker.pressed.Tab
+                      || m_padTracker.back == PadTracker::PRESSED;
+    m_edges.menuLeft  |= m_kbTracker.pressed.Left  || m_kbTracker.pressed.A
+                      || m_padTracker.dpadLeft  == PadTracker::PRESSED;
+    m_edges.menuRight |= m_kbTracker.pressed.Right || m_kbTracker.pressed.D
+                      || m_padTracker.dpadRight == PadTracker::PRESSED;
+    m_edges.discard   |= m_kbTracker.pressed.X
+                      || m_padTracker.rightShoulder == PadTracker::PRESSED;
     m_edges.darkToggle |= m_kbTracker.pressed.F5;
     m_edges.dataReload |= m_kbTracker.pressed.F6;
 }

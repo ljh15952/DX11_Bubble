@@ -1,5 +1,6 @@
 ﻿#include "Core/SceneManager.h"
 #include "Core/Log.h"
+#include "Input/Input.h"   // 아래 Scene 에 넘길 빈 입력
 
 namespace
 {
@@ -154,8 +155,26 @@ void SceneManager::UpdateStack(SceneContext& ctx, bool consumeEdgeInput)
     while (first > 0 && m_stack[first]->UpdatesBelow())
         --first;
 
+    // ★★ **입력은 맨 위만 받는다.** 아래 Scene 이 같이 갱신되더라도
+    //   (UpdatesBelow = true) 입력은 **빈 것**을 받는다.
+    //
+    //   장비 화면이 생기면서 필요해졌다. 게임을 멈추지 않는 메뉴라 아래
+    //   PlayScene 이 계속 도는데, 같은 입력을 받으면 메뉴를 고르는 방향키가
+    //   캐릭터를 걷게 하고 좌클릭이 칼을 휘두른다.
+    //
+    //   ★ 아래 Scene 의 코드는 **한 줄도 안 고쳤다.** 버튼이 안 눌렸다고
+    //     보일 뿐이라 플레이어는 「그 자리에 선 채」가 되고, 적은 평소대로
+    //     움직인다 — 설계(design.md §3.10.3)가 이 한 곳에서 성립한다.
+    //
+    //   ※ Input 은 Poll 전에는 모든 상태가 {} 라 「아무것도 안 눌림」이다.
+    //     장치(Keyboard 등)를 만들지 않으므로 싱글턴 충돌도 없다.
+    static const Input kNoInput;
+    SceneContext below{ ctx.renderer, kNoInput, ctx.scenes,
+                        ctx.assets, ctx.audio, ctx.camera };
+
+    const size_t top = m_stack.size() - 1;
     for (size_t i = first; i < m_stack.size(); ++i)
-        m_stack[i]->Update(ctx, consumeEdgeInput);
+        m_stack[i]->Update(i == top ? ctx : below, consumeEdgeInput);
 }
 
 

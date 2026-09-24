@@ -1,6 +1,7 @@
 ﻿#include "Scenes/PlayScene.h"
 
 #include "Scenes/DeathScene.h"
+#include "Scenes/InventoryScene.h"
 #include "Scenes/PauseScene.h"
 
 #include "Core/BodyComponent.h"
@@ -221,7 +222,9 @@ void PlayScene::UpdateFocus()
         if (d.map != m_mapName || !Intersects(body, d.pickup->PickupArea()))
             continue;
 
-        if (m_player->PickupHand(d.pickup->WeaponId()) == WeaponHand::None)
+        // ★ 손에 못 들어도 **가방에 들어가면** 주울 수 있다(8-e).
+        if (m_player->PickupHand(d.pickup->WeaponId()) == WeaponHand::None
+            && !m_player->BagHasRoom())
         {
             if (!blocked) blocked = &d;   // 뒤로 미뤄 둔다
             continue;
@@ -253,7 +256,7 @@ void PlayScene::UpdateFocus()
         //   못 하는 이유를 안 알려 주면 플레이어는 규칙을 못 배운다.
         m_focus.kind   = FocusKind::Weapon;
         m_focus.box    = blocked->pickup->PickupArea();
-        m_focus.prompt = "HANDS FULL";
+        m_focus.prompt = "BAG FULL";   // ★ 손도 가방도 찼다 — 이제 무엇을 버릴지 정할 때다
         m_focus.drop   = blocked;
     }
 }
@@ -271,11 +274,19 @@ void PlayScene::Interact(SceneContext& ctx)
     if (m_focus.kind == FocusKind::Weapon)
     {
         Drop* d = m_focus.drop;
-        const WeaponHand hand = m_player->PickupHand(d->pickup->WeaponId());
-        if (hand == WeaponHand::None)
-            return;   // 초점을 잡은 뒤 팔이 잘렸을 수도 있다
+        const std::string& id = d->pickup->WeaponId();
 
-        m_player->EquipWeapon(hand, d->pickup->WeaponId());
+        // ★★ **빈 손이 먼저, 그다음 가방**(8-e). 손에 들 수 있으면 바로 든다 —
+        //   팔이 잘려 떨군 무기를 주웠는데 메뉴를 열어야 다시 들 수 있으면
+        //   싸움 중엔 번거롭다. 손이 차 있으면 가방에 넣는다.
+        const WeaponHand hand = m_player->PickupHand(id);
+        if (hand != WeaponHand::None)
+            m_player->EquipWeapon(hand, id);
+        else if (m_player->StoreInBag(id))
+            Log::Info("[play] {} 를 가방에 넣었다", id);
+        else
+            return;   // 손도 가방도 안 된다 — 초점이 이미 BAG FULL 을 말했다
+
         ctx.audio.Play("ui_confirm", 0.7f);
 
         // ★★ 「주웠다」 = **목록에서 사라진다.** 숨김 플래그가 필요 없다.
@@ -539,7 +550,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
-    Log::Info("[play] F8 = 오른손 무기 바꾸기   F9 = 왼손 — 밀려난 것은 땅에 떨어진다");
+    Log::Info("[play] Tab = 장비 화면 (가방 6칸). ★ 게임은 **안 멈춘다** — 적이 온다");
     Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
     Log::Info("[play] 방패: 그 손의 버튼을 **누르고 있으면** 막는다. 앉으면 띠가 내려간다");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -575,11 +586,21 @@ void PlayScene::Respawn(SceneContext& ctx)
 
 void PlayScene::Resume(SceneContext& ctx)
 {
-    // ★ PauseScene 이 닫힌 경우와 DeathScene 이 닫힌 경우를 **상태로 구분한다.**
-    //   덕분에 DeathScene 은 PlayScene 을 알 필요가 없고 둘 사이에 포인터가 없다.
-    if (!m_player->IsDead())
+    // ★ 위에 있던 화면 중 **사망 화면이 닫혔을 때만** 부활한다.
+    //   DeathScene 은 PlayScene 을 알 필요가 없고 둘 사이에 포인터가 없다.
+    //
+    //   ★★ 전에는 `IsDead()` 로 구분했다 — 「위가 닫혔는데 죽어 있으면
+    //     사망 화면이 닫힌 것」. 위에 올라가는 것이 Pause · Death 둘뿐일 때는
+    //     맞았다. 장비 화면이 생기자 **틀렸다**: 게임이 안 멈추는 메뉴라
+    //     연 채로 죽을 수 있고, 그때 메뉴가 스스로 닫히면 여기로 와서
+    //     **사망 화면을 건너뛰고 즉시 부활했다.**
+    //     「죽어 있다」는 「사망 화면을 띄웠다」의 **대리값**이었을 뿐이다 —
+    //     셋째가 생기자 대리값이 무너졌다(handoff §9.1 의 사촌).
+    //   그래서 **진짜로 묻고 싶은 것**을 직접 기억한다.
+    if (!m_deathScreenShown)
         return;
 
+    m_deathScreenShown = false;
     Respawn(ctx);
     ctx.audio.Play("ui_confirm", 0.7f, -0.35f);
     Log::Info("[play] 부활 — 적도 되살아났다");
@@ -840,7 +861,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //     Scene 전환은 Scene 의 일이고, Gameplay 가 Scenes 를 알기 시작하면
     //     층이 뒤엉킨다. 컨트롤러는 「띄울 때가 됐다」까지만 말한다.
     if (m_player->ConsumeDeathScreenRequest())
+    {
+        m_deathScreenShown = true;   // ★ Resume 이 이것을 본다
         ctx.scenes.Push(std::make_unique<DeathScene>());
+    }
 
     // ★ F6 — 데이터를 다시 읽는다. 무기는 컨트롤러가 스스로 읽고(같은 키),
     //   적은 Scene 이 읽는다 — 카탈로그를 Scene 이 소유하기 때문이다.
@@ -852,6 +876,14 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     {
         m_dark = !m_dark;
         Log::Info("[play] (F5) 어둠 {}", m_dark ? "ON" : "OFF");
+    }
+
+    // ★ 장비 화면. **게임을 멈추지 않는다**(InventoryScene.h 주석).
+    //   죽은 뒤에는 안 연다 — 열자마자 스스로 닫힐 뿐이다.
+    if (consumeEdgeInput && ctx.input.InventoryPressed() && !m_player->IsDead())
+    {
+        ctx.audio.Play("ui_confirm", 0.5f);
+        ctx.scenes.Push(std::make_unique<InventoryScene>(*m_player));
     }
 
     if (consumeEdgeInput && ctx.input.PausePressed())
