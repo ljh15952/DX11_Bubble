@@ -39,6 +39,10 @@ class PoiseComponent;
 // ============================================================================
 enum class WeaponHand { None, Right, Left };
 
+// 맞은 결과. ★ Scene 이 **공격한 쪽**에게 무엇을 해 줄지가 여기서 갈린다 —
+//   튕겨 냈으면 치던 적이 튕겨야 하는데, 컨트롤러는 적을 모른다.
+enum class HitResult { Hit, Blocked, Deflected };
+
 // 손 -> 슬롯 번호. ★ enum 값에 기대는 유일한 곳으로 **모아 둔다** —
 //   흩어 놓으면 enum 에 값을 하나 더할 때 조용히 틀린다.
 constexpr int HandSlot(WeaponHand h) { return static_cast<int>(h) - 1; }
@@ -188,8 +192,12 @@ public:
     //   ★★ 공격 **상자**까지 받는다. 「막았는가」는 상자끼리 겹치는지로
     //     정해지고, 그 판단은 **맞는 쪽**이 해야 한다 — Scene 이 대신 판단해
     //     결과만 넘기면 「막았는데 왜 경직이지?」 같은 어긋남이 둘로 갈린다.
-    void TakeHit(SceneContext& ctx, const AttackData& atk, const AABB& atkBox,
-                 int part, float fromX, float fromY);
+    HitResult TakeHit(SceneContext& ctx, const AttackData& atk, const AABB& atkBox,
+                      int part, float fromX, float fromY);
+
+    // ★ 휘두르던 것이 튕겼다(§3.12) — 벽을 쳤다.
+    //   휘두르기가 거기서 끊기고, 짧게 굳으며 **친 방향의 반대로** 밀린다.
+    void Deflect(SceneContext& ctx);
     void Respawn(SceneContext& ctx);
 
 private:
@@ -410,6 +418,10 @@ private:
     // ★ HP 는 여기 없다 — PartsComponent 가 부위별로 갖는다(design.md §3.2.2).
     //   「전체 HP」라는 숫자가 의미를 잃었기 때문이다.
     int m_flash = 0;   // 피격 번쩍임 남은 틱
+
+    // 튕김 번쩍임 남은 틱. ★ 피격(m_flash · 붉은색)과 **따로** 둔다 —
+    //   튕긴 것은 맞은 것이 아니다. 같은 색이면 「벽을 쳤다」가 「맞았다」로 읽힌다.
+    int m_sparkTicks = 0;
 
     int m_invulnTicks = 0;
 

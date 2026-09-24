@@ -33,9 +33,10 @@ float StaminaComponent::Max() const { return kMax; }
 
 void StaminaComponent::Reset()
 {
-    m_current  = kMax;
-    m_delay    = 0;
-    m_depleted = false;
+    m_current    = kMax;
+    m_delay      = 0;
+    m_depleted   = false;
+    m_regenScale = 1.0f;
 }
 
 
@@ -57,7 +58,7 @@ void StaminaComponent::Tick(SceneContext&, bool)
     {
         // ★ float 이다. int 로 하면 틱당 0.9 가 0 으로 잘려 영원히 회복되지 않는다.
         //   이동 좌표와 같은 이유다 — 계산은 소수로, 표시할 때만 정리.
-        m_current = std::min(m_current + kRegenPerTick, kMax);
+        m_current = std::min(m_current + kRegenPerTick * m_regenScale, kMax);
     }
 
     // ---- 고갈 래치 ----

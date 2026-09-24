@@ -665,6 +665,58 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
 
 
 // ---- 적 → 플레이어 ----
+// ----------------------------------------------------------------------------
+//  HitsWall — 이 상자가 벽과 겹치는가
+//
+//    ★★ 「발밑보다 위로 솟은 것」만 벽이다.
+//      내려찍기의 상자는 발끝 **아래로** 9픽셀 나간다(heightFromFoot 6,
+//      height 30). 딛고 선 바닥까지 세면 착지할 때마다 튕긴다.
+//      바닥은 윗면이 발끝과 **같고**, 벽은 윗면이 발끝보다 **높다** —
+//      규칙이 아니라 **정의**다. 도랑 안에서는 도랑의 옆벽(윗면 600)이
+//      발끝(640)보다 높으므로 벽이 된다.
+// ----------------------------------------------------------------------------
+bool PlayScene::HitsWall(const AABB& box, float feetY) const
+{
+    bool hit = false;
+    m_level.ForEachOverlapping(box, [&](const AABB& s)
+    {
+        if (s.top < feetY)
+            hit = true;
+    });
+    return hit;
+}
+
+
+// ----------------------------------------------------------------------------
+//  TryDeflect — 벽에 걸린 휘두르기를 튕긴다 (§3.12)
+//
+//    ★ **active 동안 매 틱** 본다. 첫 틱에만 보면 달리며 치기(dash)처럼
+//      휘두르는 도중에 앞으로 나가는 공격이 벽을 뚫는다.
+//    ★ 플레이어와 적이 **같은 모양**이다. 공격 데이터를 같이 쓰니 튕기는
+//      규칙도 같아야 한다 — 한쪽만 튕기면 「적은 벽 너머로 벤다」가 된다.
+// ----------------------------------------------------------------------------
+void PlayScene::TryDeflect(SceneContext& ctx)
+{
+    if (m_player->AttackActive() && !m_player->HitThisSwing()
+        && HitsWall(m_player->AttackHitbox(), m_playerObj.transform.y))
+    {
+        m_player->Deflect(ctx);
+    }
+
+    for (Enemy& e : m_enemies)
+    {
+        if (!e.brain->AttackActive() || e.brain->HitThisSwing())
+            continue;
+        if (!HitsWall(e.brain->AttackHitbox(), e.Tr().y))
+            continue;
+
+        e.brain->Deflect(ctx);
+        ctx.audio.Play("hit", 0.6f, 0.7f, PanFromWorldX(e.Tr().x, ctx.camera.X()));
+        Log::Info("[play] ★ 적의 휘두르기가 벽에 튕겼다");
+    }
+}
+
+
 void PlayScene::TryEnemyHit(SceneContext& ctx)
 {
     if (m_player->IsDead()) return;
@@ -702,8 +754,17 @@ void PlayScene::TryEnemyHit(SceneContext& ctx)
         e.brain->MarkHitThisSwing();
         m_playerParts->Flash(kFlashTicks);
         // ★ 상자를 같이 넘긴다 — 「막았는가」는 **맞는 쪽**이 판단한다(§3.11).
-        m_player->TakeHit(ctx, e.brain->CurrentAttack(), atkBox, part,
-                          e.Tr().x, e.Tr().y);
+        const HitResult r = m_player->TakeHit(ctx, e.brain->CurrentAttack(), atkBox,
+                                              part, e.Tr().x, e.Tr().y);
+
+        // ★★ 단단한 방패에 튕겼으면 **친 쪽이** 굳는다(§3.12).
+        //   컨트롤러는 적을 모르므로 결과만 돌려주고, 적에게 전하는 것은
+        //   둘을 다 아는 Scene 이다 — 벽에 튕긴 것과 **같은 함수**를 부른다.
+        if (r == HitResult::Deflected)
+        {
+            e.brain->Deflect(ctx);
+            Log::Info("[play] ★ 방패가 튕겨 냈다 — 적이 굳었다. 반격할 틈이다");
+        }
     }
 }
 
@@ -751,6 +812,11 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     for (Enemy& e : m_enemies)
         e.obj->Tick(ctx, consumeEdgeInput);
     TryEnemyHit(ctx);
+
+    // ★ 튕김은 **적중 판정 뒤**다. 칼이 적에게 먼저 닿았으면 그 휘두르기는
+    //   이미 끝났으므로(HitThisSwing) 벽을 안 본다 — **살에 박힌 칼은 벽까지
+    //   안 간다.** 순서를 거꾸로 하면 적 바로 뒤에 벽이 있을 때 적을 못 친다.
+    TryDeflect(ctx);
 
     // ★ **전부 움직인 뒤**에 따라간다. 먼저 움직이면 한 틱 뒤처진 곳을 비춘다.
     UpdateCamera(ctx);

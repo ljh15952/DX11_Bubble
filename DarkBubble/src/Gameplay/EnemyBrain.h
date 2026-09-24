@@ -98,6 +98,11 @@ public:
     bool HitThisSwing() const { return m_hitThisSwing; }
     void MarkHitThisSwing()   { m_hitThisSwing = true; }
 
+    // ★ 휘두르던 것이 튕겼다(§3.12) — 벽이나 단단한 방패를 쳤다.
+    //   **플레이어와 같은 이름, 같은 뜻**이다. 한쪽만 튕기면 handoff §8 의
+    //   「대칭인 쪽도 같이 볼 것」을 또 밟는다.
+    void Deflect(SceneContext& ctx);
+
     // ---- 변경 ----
     //   ★ 휘청이게 한다. 강인도 판정은 **PlayScene 이** 이미 끝냈다 —
     //     「휘청일지」는 두 몸 사이의 계산이고, 여기는 그 결과만 받는다.

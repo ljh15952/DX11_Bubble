@@ -321,6 +321,28 @@ void EnemyBrain::Stagger(SceneContext& ctx, float fromX, float /*fromY*/)
 }
 
 
+// ----------------------------------------------------------------------------
+//  Deflect — 튕겼다. 휘두르기가 끊기고 친 방향의 반대로 밀린다.
+//
+//    ★ Stagger 와 다른 점: **맞은 게 아니다.** 그래서
+//        · 뜨지 않는다 (Lift 없음) — 충격은 무기에서 왔지 몸에 온 게 아니다
+//        · 강인도를 안 건드린다 — 강인도는 「맞았을 때」의 규칙이다
+//      플레이어의 Deflect 가 붉은 번쩍임·무적을 안 가져오는 것과 같은 판단이다.
+// ----------------------------------------------------------------------------
+void EnemyBrain::Deflect(SceneContext& ctx)
+{
+    if (m_state != EnemyState::Attack)
+        return;
+
+    m_hitThisSwing = true;
+    m_knockDirX    = -static_cast<float>(Owner().transform.facing);
+
+    // ★ Attack -> Hurt 전이 자체가 「공격 취소」다(Stagger 주석 참조).
+    //   튕김을 위한 상태를 따로 만들지 않는다.
+    ChangeState(ctx, EnemyState::Hurt);
+}
+
+
 void EnemyBrain::Kill(SceneContext& ctx)
 {
     ChangeState(ctx, EnemyState::Dead);

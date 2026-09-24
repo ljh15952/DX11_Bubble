@@ -306,7 +306,8 @@
         "frames": 2,
         "ticks": 12,
         "loop": true
-      }
+      },
+      "hardness": 8
     },
     "kite": {
       "name": "KITE",
@@ -328,8 +329,10 @@
         "frames": 2,
         "ticks": 12,
         "loop": true
-      }
+      },
+      "hardness": 14
     }
   },
-  "_note5": "방패: guardTop/guardBottom 이 덮는 띠다(발끝 기준, 선 자세). 앉으면 몸 높이 비율로 같이 내려간다 — 「앉아서 하단을 막는다」에 특수 규칙이 없다. defense 는 막아 내는 비율(%), guardCost 는 스태미나 = impact * guardCost / 100. ★ guardClip 의 행과 tools/gen_player_guard.ps1 의 표는 같은 숫자여야 한다."
+  "_note5": "방패: guardTop/guardBottom 이 덮는 띠다(발끝 기준, 선 자세). 앉으면 몸 높이 비율로 같이 내려간다 — 「앉아서 하단을 막는다」에 특수 규칙이 없다. defense 는 막아 내는 비율(%), guardCost 는 스태미나 = impact * guardCost / 100. ★ guardClip 의 행과 tools/gen_player_guard.ps1 의 표는 같은 숫자여야 한다.",
+  "_note6": "hardness: 이 값 이상의 impact 는 못 튕긴다. impact 가 이보다 작으면 막는 순간 친 쪽이 튕겨 굳는다(§3.12). 가드 브레이크는 스태미나가 맡는다."
 }

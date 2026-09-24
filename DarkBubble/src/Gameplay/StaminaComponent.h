@@ -39,6 +39,12 @@ public:
     //     이 게임의 규칙이다(기획서 §3.1, 방식 B).
     void Spend(int cost);
 
+    // 회복 속도 배율. 매 틱 주인이 알려 준다(기본 1).
+    //   ★ 방패를 들고 있는 동안은 느려진다(§3.11). 안 그러면 **막으면서
+    //     평소 속도로 찬다** — 방패를 들고 서 있는 것이 공짜 휴식이 되고,
+    //     「막다 보면 못 막는다」가 영원히 오지 않는다.
+    void SetRegenScale(float scale) { m_regenScale = scale; }
+
     // ---- 읽기 ----
     float Current() const     { return m_current; }
     float Max() const;
@@ -53,4 +59,5 @@ private:
     float m_current  = 0.0f;
     int   m_delay    = 0;     // 회복이 시작되기까지 남은 틱
     bool  m_depleted = false; // 위 주석의 래치
+    float m_regenScale = 1.0f;
 };

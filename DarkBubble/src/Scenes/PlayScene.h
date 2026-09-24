@@ -59,7 +59,17 @@ public:
 private:
     // ---- ② 판정 : 두 몸 사이의 일 ----
     void TryPlayerHit(SceneContext& ctx);   // 플레이어 → 적
-    void TryEnemyHit(SceneContext& ctx);    // 적 → 플레이어
+    void TryEnemyHit(SceneContext& ctx);
+
+    // ---- ★ 튕김 (§3.12) ----
+    //   휘두르는 상자가 **벽**에 걸리면 친 쪽이 튕긴다. 플레이어도 적도.
+    //   ★ Scene 이 하는 이유는 판정과 같다 — 지형과 공격자를 **둘 다 아는 쪽**이
+    //     둘 사이의 일을 한다. 컨트롤러는 지형을 모른다(몸이 안다).
+    void TryDeflect(SceneContext& ctx);
+
+    // 이 상자가 **벽**과 겹치는가. ★ 「발밑보다 위로 솟은 것」만 벽이다 —
+    //   딛고 선 바닥까지 세면 내려찍기가 착지하는 순간마다 튕긴다.
+    bool HitsWall(const AABB& box, float feetY) const;    // 적 → 플레이어
 
     // ---- 월드에 떨어진 물건 ----
     //   ★ 컨트롤러는 월드를 모른다. 「떨궈야 한다」는 요청만 하고

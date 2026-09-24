@@ -340,6 +340,15 @@ namespace
     //   「막으면서 붙는다」가 되긴 하되 공짜는 아니어야 한다.
     constexpr float kGuardSpeedScale      = 0.55f;
 
+    // ★ 막는 동안의 스태미나 회복 배율. 소울류의 표준이다 —
+    //   방패를 들고 있으면 **숨이 안 돌아온다.**
+    //   1 이면 방패를 든 채 서 있는 것이 공짜 휴식이 된다(실제로 그랬다).
+    constexpr float kGuardRegenScale      = 0.3f;
+
+    // 튕겼을 때 금빛으로 번쩍이는 길이. 피격 번쩍임과 같은 길이로 둔다 —
+    //   **색만 다르고 나머지는 같아야** 둘이 비교된다.
+    constexpr int   kSparkTicks           = 9;
+
     constexpr float kOriginX = kCellW * 0.5f;
     constexpr float kOriginY = static_cast<float>(kCellH);
 
@@ -630,9 +639,12 @@ void PlayerController::PayGuard(SceneContext& ctx, const AttackData& atk, int da
     ctx.audio.Play("hit", 0.55f, 0.45f,
                    PanFromWorldX(Owner().transform.x, ctx.camera.X()));
 
+    // ★ `Depleted()` 를 보면 안 된다 — 고갈 래치는 **다음 틱의** Stamina::Tick 이
+    //   켠다. 방금 음수가 된 순간에는 아직 꺼져 있어서, 이 로그가 가드
+    //   브레이크를 **한 번 늦게** 알렸다. 지금 값을 직접 본다.
     Log::Info("[play] ★ 막았다 — {} (방어 {}%)  dmg {} -> {}  스태미나 -{}{}",
               s.name, s.defense, atk.damage, damage, cost,
-              m_stamina->Depleted() ? "  ** 가드 브레이크 **" : "");
+              m_stamina->Current() < 0.0f ? "  ** 가드 브레이크 **" : "");
 }
 
 
@@ -819,6 +831,7 @@ void PlayerController::Rest()
     m_poise->SetValue(Armor().poise);
 
     m_flash       = 0;
+    m_sparkTicks  = 0;
     m_invulnTicks = 0;
 }
 
@@ -915,6 +928,7 @@ void PlayerController::Respawn(SceneContext& ctx)
 
     m_parts->Reset();
     m_flash       = 0;
+    m_sparkTicks  = 0;
     m_invulnTicks = 0;
 
     m_rollDirX  =  1.0f;
@@ -1335,9 +1349,9 @@ bool PlayerController::ConsumeDeathScreenRequest()
 //
 //    ※ 무적 판정은 이 함수에 오기 전에 끝나 있다(PlayScene::TryEnemyHit).
 // ----------------------------------------------------------------------------
-void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
-                               const AABB& atkBox, int part,
-                               float fromX, float /*fromY*/)
+HitResult PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
+                                    const AABB& atkBox, int part,
+                                    float fromX, float /*fromY*/)
 {
     // ※ fromY 는 지금 쓰이지 않지만 인자에 남겨 둔다 —
     //   「위에서 맞으면 더 세게 눕는다」 같은 규칙이 오면 여기서 쓴다.
@@ -1361,6 +1375,14 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
     if (blocked)
         PayGuard(ctx, atk, damage);
 
+    // ★ 튕겨 냈는가 — 막았고, 방패가 그 충격보다 단단했다.
+    //   **데미지 규칙은 그대로다**(비율 감소). 튕김이 더하는 것은 딱 하나,
+    //   **친 쪽의 경직**뿐이다 — 규칙을 겹쳐 쌓지 않는다.
+    const HitResult result =
+          !blocked                                       ? HitResult::Hit
+        : Weapon(GuardHand()).hardness >= atk.impact     ? HitResult::Deflected
+        :                                                  HitResult::Blocked;
+
     m_parts->Damage(part, damage);
     m_flash = kFlashTicks;
 
@@ -1379,7 +1401,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
         ctx.camera.Shake(kShakeStrength * 2.5f, kShakeTicks * 3);
         ctx.audio.Play("hit", 1.0f, -0.55f, PanFromWorldX(tr.x, ctx.camera.X()));
         ChangeState(ctx, PlayerState::Dead);
-        return;
+        return result;
     }
 
     // ---- ★ 경직 여부를 강인도가 정한다 ----
@@ -1394,7 +1416,7 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
         ctx.camera.Shake(kShakeStrength * 0.6f, kShakeTicks);
         ctx.audio.Play("hit", 0.5f, -0.75f, PanFromWorldX(tr.x, ctx.camera.X()));   // 둔탁하게
         Log::Info("[play] 버텨냄  poise {} >= impact {}", m_poise->Value(), impact);
-        return;
+        return result;
     }
 
     // ---- 휘청였다 : 넉백 방향 = 공격자 -> 나 ----
@@ -1421,6 +1443,44 @@ void PlayerController::TakeHit(SceneContext& ctx, const AttackData& atk,
               m_poise->Value(), impact, kHurt.ticks, kHurt.invuln);
 
     ChangeState(ctx, PlayerState::Hurt);
+    return result;
+}
+
+
+// ----------------------------------------------------------------------------
+//  Deflect — 휘두르던 것이 튕겼다 (§3.12)
+//
+//    ★★ Hurt 를 **빌린다.** 「휘두르기가 끊기고, 짧게 굳고, 뒤로 밀린다」가
+//      Hurt 의 모양 그대로라 상태를 늘리지 않는다.
+//
+//    ★ 다만 **뜻이 다른 부분은 안 가져온다.** 죽는 그림에서 배운 것이다 —
+//      「빌려 쓴 것은 원래 뜻을 같이 가져온다」. Hurt 에는 셋이 딸려 있다:
+//
+//        몸이 젖혀지고 밀린다   → **가져온다** (튕김도 그렇다)
+//        붉게 번쩍인다          → 안 가져온다 (맞은 게 아니다) — 대신 금빛
+//        피격 무적              → 안 가져온다 (벽을 쳤다고 무적이 되면 안 된다)
+//
+//      무적은 TakeHit 이 주는 것이라 Hurt 상태 자체에는 없다 — 그래서
+//      여기서 ChangeState 만 하면 무적이 **저절로 안 따라온다.**
+// ----------------------------------------------------------------------------
+void PlayerController::Deflect(SceneContext& ctx)
+{
+    if (m_state != PlayerState::Attack)
+        return;
+
+    const Transform& tr = Owner().transform;
+
+    m_hitThisSwing = true;                               // 이 휘두르기는 끝났다
+    m_knockDirX    = -static_cast<float>(tr.facing);     // 친 방향의 반대로
+    m_sparkTicks   = kSparkTicks;
+
+    // 쇠끼리 부딪히는 소리. ★ 피격음과 **피치가 달라야** 한다 —
+    //   귀만으로도 「맞았다」와 「튕겼다」가 갈려야 한다.
+    ctx.camera.Shake(kShakeStrength * 1.2f, kShakeTicks);
+    ctx.audio.Play("hit", 0.8f, 0.7f, PanFromWorldX(tr.x, ctx.camera.X()));
+    Log::Info("[play] ★ 튕겼다 — {} 가 벽에 걸렸다", CurrentAttack().name);
+
+    ChangeState(ctx, PlayerState::Hurt);
 }
 
 
@@ -1430,6 +1490,7 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     ++m_stateTicks;
 
     if (m_flash > 0)        --m_flash;
+    if (m_sparkTicks > 0)   --m_sparkTicks;
     if (m_invulnTicks > 0)  --m_invulnTicks;
 
     // ★ 입력이 가로 하나뿐이다. 전에는 (x, y) 벡터였고, 아무것도 안 하는 y 가
@@ -1448,6 +1509,10 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     case WeaponHand::Right: m_guardHeld = ctx.input.RightHandHeld(); break;
     case WeaponHand::None:  m_guardHeld = false;                     break;
     }
+
+    // ★ 막는 동안은 천천히 찬다. 스태미나는 **이 컴포넌트보다 먼저** 틱하므로
+    //   다음 틱부터 적용된다 — 1틱 늦는 것은 눈에 안 보인다.
+    m_stamina->SetRegenScale(Guarding() ? kGuardRegenScale : 1.0f);
 
     // ★ 천장이 낮으면 Ctrl 을 떼어도 못 일어선다.
     //   ★★ **묻는 순서가 중요하다.** 일어설 수 있는지를 먼저 묻고,
@@ -1516,6 +1581,18 @@ void PlayerController::Tick(SceneContext& ctx, bool consumeEdgeInput)
     {
     case PlayerState::Idle:
     case PlayerState::Run:
+        // ★★ **고갈이 가장 먼저다.** 여기가 빠져 있었다 — 공격과 구르기는
+        //   끝날 때 고갈을 보는데, **서서 막다가** 바닥나면 아무도 안 봤다.
+        //   그래서 로그에는 「가드 브레이크」가 찍히는데 경직은 안 걸리고,
+        //   음수 스태미나로 계속 막을 수 있었다.
+        //   ★ 「스태미나를 쓰는 곳」마다 검사를 붙이는 대신 **서 있는 상태가
+        //     본다** — 나중에 스태미나를 쓰는 것이 늘어도 여기는 안 고친다.
+        if (m_stamina->Depleted())
+        {
+            ChangeState(ctx, PlayerState::Exhausted);
+            break;
+        }
+
         UpdateMovement(ctx, moveX);
 
         // ★ 「발밑이 없어졌다」를 입력보다 **먼저** 본다.
@@ -1762,6 +1839,8 @@ void PlayerController::Render(Renderer&)
         tint = DirectX::XMVectorSet(0.45f, 0.45f, 0.55f, 1.0f);   // 지쳐서 어둡게
     else if (RollInvincible())
         tint = DirectX::XMVectorSet(0.55f, 0.75f, 1.00f, 1.0f);   // ① 구르기 무적 = 푸르게
+    else if (m_sparkTicks > 0)
+        tint = DirectX::XMVectorSet(1.00f, 0.92f, 0.55f, 1.0f);   // 튕김 = 금빛 (맞은 게 아니다)
     else if (m_flash > 0)
         tint = DirectX::XMVectorSet(1.00f, 0.35f, 0.30f, 1.0f);   // 피격 순간 = 붉게
     else if (m_invulnTicks > 0 && (m_invulnTicks / 3) % 2 == 0)

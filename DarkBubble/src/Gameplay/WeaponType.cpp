@@ -54,6 +54,7 @@ namespace
         w.guardReach  = v["guardReach"] .Flt(w.guardReach);
         w.defense     = v["defense"]    .Int(w.defense);
         w.guardCost   = v["guardCost"]  .Int(w.guardCost);
+        w.hardness    = v["hardness"]   .Int(w.hardness);
         ReadClip(v["guardClip"],       w.guardClip);
         ReadClip(v["guardCrouchClip"], w.guardCrouchClip);
 
