@@ -242,6 +242,12 @@ void PlayScene::UpdateFocus()
         if (!Intersects(body, it.box))
             continue;
 
+        // ★ 열린 상자는 **가리키지 않는다.** 가리키면 「E : OPEN」이 떠서
+        //   빈 상자를 또 열 수 있을 것처럼 보인다 — 할 수 없는 일을 안내하면
+        //   안내가 거짓말이 된다.
+        if (it.kind == InteractKind::Chest && IsOpened(it))
+            continue;
+
         m_focus.kind   = FocusKind::Map;
         m_focus.box    = it.box;
         m_focus.prompt = it.Prompt();
@@ -327,7 +333,41 @@ void PlayScene::Interact(SceneContext& ctx)
         Log::Info("[play] 쉬었다 — 부활 지점 '{}' ({} {:.0f},{:.0f}) · 회복 · 적 부활",
                   it.name, m_saveMap, m_saveX, m_saveY);
         break;
+
+    case InteractKind::Chest:
+    {
+        // ★ 한 번 열면 끝(8-h ①). 기억부터 한다 — 아래에서 무엇이 실패해도
+        //   같은 상자를 두 번 열어 물건을 두 개 얻는 일은 없어야 한다.
+        m_openedChests.insert(ChestKey(it));
+
+        // ★★ 내용물은 **발밑에 떨어진다**(②). 가방으로 바로 넣지 않는다 —
+        //   8-b 의 「떨어진 물건」을 그대로 쓰니 **가방이 차 있어도 새로
+        //   처리할 것이 없고**, 무엇이 나왔는지 눈으로 보인다.
+        //   ★ 상자 **위**에서 놓는다. 몸(Body)이 있어서 떨어져 상자 앞바닥에
+        //     앉는다(8-b 에서 공중에 떠 있던 무기를 고친 그 몸이다).
+        const float x = (it.box.left + it.box.right) * 0.5f;
+        DropItem(ctx, it.item, x, it.box.top);
+
+        ctx.audio.Play("ui_confirm", 0.9f, -0.2f);
+        Log::Info("[play] 상자를 열었다 — {} ({})", it.item, ChestKey(it));
+
+        // 방금 가리키던 것이 사라졌다(열린 상자는 초점이 안 잡힌다).
+        m_focus = {};
+        break;
     }
+    }
+}
+
+
+std::string PlayScene::ChestKey(const MapInteract& chest) const
+{
+    return m_mapName + ":" + chest.id;
+}
+
+
+bool PlayScene::IsOpened(const MapInteract& chest) const
+{
+    return m_openedChests.count(ChestKey(chest)) > 0;
 }
 
 
@@ -483,9 +523,10 @@ bool PlayScene::Enter(SceneContext& ctx)
     if (!armFrontSheet || !armBackSheet || !stumpFrontSheet || !stumpBackSheet)
         return false;
 
-    m_lightMask = ctx.assets.Texture(L"assets/textures/light_mask.png");
-    m_icons     = ctx.assets.Texture(L"assets/textures/icons.png");
-    if (!m_lightMask || !m_icons)
+    m_lightMask  = ctx.assets.Texture(L"assets/textures/light_mask.png");
+    m_icons      = ctx.assets.Texture(L"assets/textures/icons.png");
+    m_chestSheet = ctx.assets.Texture(L"assets/textures/chest.png");
+    if (!m_lightMask || !m_icons || !m_chestSheet)
         return false;
 
     // ★ 상속 계층을 짜지 않는다. 필요한 능력을 붙일 뿐이다.
@@ -553,6 +594,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
     Log::Info("[play] Tab = 장비 화면 (가방 6칸). ★ 게임은 **안 멈춘다** — 적이 온다");
     Log::Info("[play] 지문: NOVICE = 적의 ! 가 보인다  FIREFLY = 어둠 속(동굴)이 보인다  — 빼 보면 안다");
+    Log::Info("[play] 가방은 비어 있다 — 물건은 **상자**에 있다 (E : OPEN). 시작 옆 상자에 횃불");
     Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
     Log::Info("[play] 방패: 그 손의 버튼을 **누르고 있으면** 막는다. 앉으면 띠가 내려간다");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -1155,6 +1197,28 @@ void PlayScene::Render(Renderer& renderer)
                                 DirectX::XMVectorSet(0.30f, 0.31f, 0.38f, 1.0f));
     }
 
+    // ---- ★ 상자 — **어둠 아래**에 그린다 ----
+    //   포탈·화톳불은 어둠 **위**에 그린다(「여기가 무엇인지」는 늘 보여야 한다).
+    //   상자는 반대다: 어둠 속의 상자는 **안 보여야** 빛(蛍 · 횃불)이 값을 한다.
+    //   동굴 안쪽의 FIREFLY 상자를 횃불 없이 찾으면 안 된다.
+    //   ★ 같은 「상호작용하는 것」이라도 **무엇을 위해 있는가**가 층을 정한다.
+    for (const MapInteract& it : m_map.interacts)
+    {
+        if (it.kind != InteractKind::Chest)
+            continue;
+
+        constexpr int kChestW = 20, kChestH = 16;
+        const int  cell = IsOpened(it) ? 1 : 0;
+        const RECT src{ cell * kChestW, 0, (cell + 1) * kChestW, kChestH };
+        const float cx = (it.box.left + it.box.right) * 0.5f;
+
+        renderer.Sprites().Draw(
+            m_chestSheet.Get(),
+            DirectX::XMFLOAT2(std::round(cx - kChestW * 0.5f),
+                              std::round(it.box.bottom - kChestH)),
+            &src, DirectX::Colors::White);
+    }
+
     // 바닥의 물건 -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
     for (Drop& d : m_drops)
         if (d.map == m_mapName)
@@ -1173,6 +1237,9 @@ void PlayScene::Render(Renderer& renderer)
     //   포탈은 푸르게, 세이브 포인트는 따뜻하게 — **색이 종류를 말한다.**
     for (const MapInteract& it : m_map.interacts)
     {
+        if (it.kind == InteractKind::Chest)
+            continue;   // 상자는 위에서 어둠 **아래**에 그렸다
+
         const bool save = (it.kind == InteractKind::SavePoint);
         const DirectX::XMVECTOR fill = save
             ? DirectX::XMVectorSet(1.00f, 0.72f, 0.35f, 0.22f)

@@ -17,7 +17,28 @@ static void Check(bool ok, const char* what)
     if (!ok) ++g_fail;
 }
 
-static void One(const wchar_t* path, const char* name, size_t portals, size_t saves)
+// ★ 상자 하나가 **어떤 지형의 윗면에** 놓였는가.
+//   아랫변 == 그 지형의 윗면 이고, 가운데 x 가 그 지형의 좌우 안에 있어야 한다.
+//   「바닥(groundY)보다 위」만 보면 **허공에 뜬 상자**를 못 잡는다 — 발판 위에
+//   놓으려다 좌표를 잘못 적으면 공중에 뜨는데, 그건 groundY 보다 위라 통과한다.
+static bool SitsOnSolid(const JsonValue& box, const JsonValue& solids)
+{
+    if (box.Size() != 4) return false;
+    const float cx     = (box[size_t(0)].Flt() + box[size_t(2)].Flt()) * 0.5f;
+    const float bottom = box[size_t(3)].Flt();
+
+    for (size_t i = 0; i < solids.Size(); ++i)
+    {
+        const JsonValue& s = solids[i];
+        const float l = s[size_t(0)].Flt(), top = s[size_t(1)].Flt(), r = s[size_t(2)].Flt();
+        if (bottom == top && cx > l && cx < r)
+            return true;
+    }
+    return false;
+}
+
+static void One(const wchar_t* path, const char* name, size_t portals, size_t saves,
+                size_t chests, const JsonValue& items)
 {
     std::string err;
     auto m = Json::ParseFile(path, &err);
@@ -56,12 +77,47 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
         if (bottom > groundY || left < 0.0f || right > worldW) placed = false;
     }
     Check(placed, "세이브 포인트가 맵 안, 지면 위에 있다");
+
+    // ★ 부활할 자리이므로 **실제로 딛고 설 곳**이어야 한다.
+    const JsonValue& solids = (*m)["solids"];
+    bool savesSit = true;
+    for (size_t i = 0; i < sv.Size(); ++i)
+        if (!SitsOnSolid(sv[i]["box"], solids)) savesSit = false;
+    Check(savesSit, "세이브 포인트가 지형 윗면에 놓였다");
+
+    // ---- 상자 (8-h) ----
+    const JsonValue& ch = (*m)["chests"];
+    Check(ch.Size() == chests, "상자 수");
+
+    bool sits = true, known = true, unique = true;
+    for (size_t i = 0; i < ch.Size(); ++i)
+    {
+        if (!SitsOnSolid(ch[i]["box"], solids)) sits = false;
+
+        // ★★ **두 파일을 엇갈려 본다.** 맵의 상자가 items.json 에 없는 물건을
+        //   가리키면, 열었는데 아무것도 안 나오거나 이름 없는 물건이 떨어진다.
+        //   맵 파일만 보고도, 물건 파일만 보고도 **안 보이는** 실수다.
+        if (items[ch[i]["item"].Str()].IsNull()) known = false;
+
+        // ★ id 가 겹치면 하나를 열 때 **둘 다 열린 것**이 된다(열림은 id 로 기억한다).
+        for (size_t j = i + 1; j < ch.Size(); ++j)
+            if (ch[i]["id"].Str() == ch[j]["id"].Str()) unique = false;
+    }
+    Check(sits,   "상자가 지형 윗면에 놓였다 (허공에 뜨지 않았다)");
+    Check(known,  "상자 안의 물건이 items.json 에 있다");
+    Check(unique, "상자 id 가 맵 안에서 겹치지 않는다");
 }
 
 int main()
 {
-    One(L"assets/data/maps/field.json", "field", 1, 2);
-    One(L"assets/data/maps/cave.json",  "cave",  1, 1);
+    std::string ierr;
+    auto items = Json::ParseFile(L"assets/data/items.json", &ierr);
+    Check(items.has_value(), "items.json 을 읽었다 (상자 내용물을 맞춰 보려고)");
+    if (!items) return 1;
+    const JsonValue& catalog = (*items)["items"];
+
+    One(L"assets/data/maps/field.json", "field", 1, 2, 7, catalog);
+    One(L"assets/data/maps/cave.json",  "cave",  1, 1, 3, catalog);
 
     // 서로를 가리키는지 — 이름이 안 맞으면 못 돌아온다
     std::string e;

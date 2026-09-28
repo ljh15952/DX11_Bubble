@@ -93,6 +93,29 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
         m.interacts.push_back(std::move(it));
     }
 
+    // ---- 상자 (8-h) ----
+    //   ★ id 나 item 이 없으면 **건너뛴다.** id 가 없으면 「열렸는가」를 기억할
+    //     이름이 없고, item 이 없으면 여는 의미가 없다 — 둘 다 조용히 틀린
+    //     상자가 되느니 없는 편이 낫다.
+    const JsonValue& chests = (*root)["chests"];
+    for (size_t i = 0; i < chests.Size(); ++i)
+    {
+        const JsonValue& c = chests[i];
+        MapInteract it;
+        it.kind = InteractKind::Chest;
+        it.box  = ReadBox(c["box"]);
+        it.id   = c["id"]  .Str();
+        it.item = c["item"].Str();
+        it.name = it.item;
+
+        if (it.id.empty() || it.item.empty())
+        {
+            Log::Info("[map] id 나 item 이 없는 상자가 있다 — 건너뛴다");
+            continue;
+        }
+        m.interacts.push_back(std::move(it));
+    }
+
     const JsonValue& saves = (*root)["savePoints"];
     for (size_t i = 0; i < saves.Size(); ++i)
     {

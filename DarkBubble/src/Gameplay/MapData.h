@@ -41,6 +41,10 @@ enum class InteractKind
 {
     Portal,      // 다른 맵으로
     SavePoint,   // 부활 지점을 여기로. 쉬면 회복하고 적이 되살아난다
+
+    // ★ 8-h. 7-d 에서 「나중에 상자·사람이 오면 **종류만** 늘어난다」고 적어 둔
+    //   그대로다 — 찾는 코드도, 버튼도, 그리는 자리도 안 늘었다.
+    Chest,       // 한 번 열면 끝. 안에 든 것이 발밑에 떨어진다
 };
 
 struct MapInteract
@@ -52,9 +56,23 @@ struct MapInteract
     std::string  entry;   // 포탈 : 그 맵의 어느 입구로
     std::string  name;    // 표시용
 
+    // ---- 상자 (8-h) ----
+    //   ★ `id` 는 **이 맵 안에서** 유일하면 된다. 「열렸는가」는 Scene 이
+    //     「맵 이름 + id」로 기억한다 — 두 맵에 같은 id 가 있어도 안 섞인다.
+    std::string  id;
+    std::string  item;    // 안에 든 것 (items.json 의 키)
+
+    // ★ `? :` 가 아니라 switch 다. 종류가 둘일 때는 `? :` 로 충분했는데
+    //   셋이 되는 순간 하나가 조용히 빠진다(handoff §9.1 의 자매 규칙).
     const char* Prompt() const
     {
-        return (kind == InteractKind::SavePoint) ? "E : REST" : "E : ENTER";
+        switch (kind)
+        {
+        case InteractKind::Portal:    return "E : ENTER";
+        case InteractKind::SavePoint: return "E : REST";
+        case InteractKind::Chest:     return "E : OPEN";
+        }
+        return "E";
     }
 };
 

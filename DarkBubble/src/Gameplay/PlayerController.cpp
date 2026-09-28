@@ -519,17 +519,11 @@ void PlayerController::Start(SceneContext& ctx)
     if (m_items.count("novice_ring") && m_items.at("novice_ring").IsRing())
         m_rings[0] = "novice_ring";
 
-    // ★ 시작 가방(6칸 — 가득 찬다). 무기를 얻는 길(상자·적 드롭)이 아직 없으므로
-    //   장비 화면을 확인하려면 **바꿀 것이 있어야** 한다(8-a).
-    //   ★ 고른 기준: 무게 등급 **셋이 다 닿는** 조합 + 특수 효과 + **빛 둘**.
-    //     蛍の指輪 와 횃불이 같이 있어야 §1.2 의 「어느 쪽으로 비출까」를
-    //     해 볼 수 있다. 그 자리를 내느라 BUCKLER · PLATE HELM 이 빠졌다
-    //     (items.json 에는 그대로 있다). HEAVY 는 여전히 닿는다:
-    //       천 7 + 단검 2 + 판금 몸통 +7 + KITE 8 = 24 → HEAVY
-    for (const char* id : { "greatsword", "kite", "plate_mail",
-                            "hunter_boots", "firefly_ring", "torch" })
-        if (m_items.count(id))
-            StoreInBag(id);
+    // ★★ 가방은 **빈 채로** 시작한다(8-h). 8-a 부터 8-g 까지 「무기를 얻는 길이
+    //   아직 없으므로」 여기에 물건을 채워 넣었는데, 이제 **상자**가 그 길이다 —
+    //   물건은 맵에 흩어져 있다(maps/*.json 의 chests).
+    //   ★ 채워 넣던 시절엔 FIREFLY(§1.1 「보스 전리품」)를 동굴에 들어가기도
+    //     전에 가지고 있었다. 찾는 것이 **없으면** 찾는 재미도 없다.
 
     Respawn(ctx);   // 몸을 처음 상태로 + 입은 방어구로 강인도를 맞춘다
 }

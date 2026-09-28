@@ -26,6 +26,7 @@
 #include "Gameplay/EnemyType.h"
 #include "Gameplay/MapData.h"
 
+#include <set>
 #include <memory>
 #include <vector>
 
@@ -132,6 +133,22 @@ private:
     //   SceneManager 가 전환을 미루는 것과 같은 이유다.
     bool        m_portalPending = false;
     std::string m_portalTo, m_portalEntry;
+
+    // ---- ★ 상자 (8-h) ----
+    //   **열린 상자**를 기억한다. 「맵 이름:id」 — 두 맵에 같은 id 가 있어도
+    //   안 섞인다.
+    //   ★★ 부활(Respawn)도 휴식(Rest)도 이것을 **안 건드린다.** 적은
+    //     되살아나지만 상자는 안 되살아나야 「적을 되살리는 대가로 쉰다」가
+    //     성립한다 — 쉴 때마다 상자가 차면 쉬는 것이 **보상**이 된다.
+    //   ※ 게임을 껐다 켜면 초기화된다. 저장 기능이 아직 없다.
+    std::set<std::string> m_openedChests;
+    std::string ChestKey(const MapInteract& chest) const;
+    bool        IsOpened(const MapInteract& chest) const;
+
+    // 상자 그림(닫힘 / 열림). ★ 아이콘 시트(icons.png)에 넣지 않았다 —
+    //   아이콘은 칸마다 **슬롯 테두리**가 있어서, 월드에 놓으면 상자가
+    //   액자에 든 것처럼 보인다.
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_chestSheet;
 
     // ---- ★ 세이브 포인트 ----
     //   부활은 **맵의 시작**이 아니라 **마지막으로 쉰 자리**다.
