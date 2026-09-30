@@ -200,8 +200,15 @@ void PlayScene::UpdateFocus()
     if (m_player->IsDead() || !m_player->Grounded())
         return;
 
-    // 몸통 상자로 본다 — 발끝 점으로 보면 뛰어넘을 때 그냥 지나친다.
-    const AABB body = m_playerParts->Box(Part_Torso);
+    // ★★ **몸 전체**(발끝 ~ 머리)로 본다. 「무엇 앞에 서 있는가」는 몸의 질문이다.
+    //   전에는 **몸통** 상자(발끝에서 18~37 위)였다 — 발끝 점으로 보면 뛰어넘을 때
+    //   지나친다는 이유였다. 포탈·화톳불은 키가 56 이라 몸통에 늘 닿아서 맞았는데,
+    //   8-h 의 상자는 **무릎 높이(16)** 라 몸통과 2픽셀 차이로 안 겹쳐
+    //   `E : OPEN` 이 영영 안 떴다.
+    //   ★ 「몸통에 닿는다」는 「그 앞에 서 있다」의 **대리값**이었고, 낮은 물건이
+    //     생기자 무너졌다. 상자 키를 늘리는 것(데이터)으로 고치면 다음에 낮은
+    //     물건을 놓을 때 또 터진다 — 질문을 고쳤다.
+    const AABB body = m_playerBody->Box();
 
     // ---- ★ 우선순위가 셋이다 ----
     //     ① 주울 수 있는 물건
@@ -541,8 +548,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     // ★ Body 를 **맨 앞에** 붙인다 = 「물리 먼저, 판단 나중」.
     //   컨트롤러가 Grounded() 를 읽을 때 이미 이번 틱의 결과가 들어 있다.
     //   반대로 붙이면 착지를 한 틱 늦게 알아채 그림이 한 틱 어긋난다.
-    m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
-                                   kBodyCrouchHeight, kBodyProneHeight);
+    m_playerBody = &m_playerObj.Add<BodyComponent>(m_level, kBodyHalfW, kBodyStandHeight,
+                                                   kBodyCrouchHeight, kBodyProneHeight);
     m_playerObj.Add<StaminaComponent>();
     m_playerObj.Add<PoiseComponent>(kClothPoise);   // 값은 방어구가 덮어쓴다
     m_playerParts = &m_playerObj.Add<PartsComponent>(kPlayerParts);

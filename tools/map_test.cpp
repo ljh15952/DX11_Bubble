@@ -104,6 +104,17 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
             if (ch[i]["id"].Str() == ch[j]["id"].Str()) unique = false;
     }
     Check(sits,   "상자가 지형 윗면에 놓였다 (허공에 뜨지 않았다)");
+
+    // ★★ 포탈도 **지형 위**에 놓여야 한다. 초점은 **몸 전체**(발끝~머리)로
+    //   판정하므로(8-h), 바닥에 닿은 상호작용 상자는 그 앞에 선 몸과 **반드시**
+    //   겹친다 — 거꾸로, 허공에 뜬 상자는 키에 따라 닿을 수도 안 닿을 수도 있다.
+    //   8-h 에서 무릎 높이 상자가 몸통 상자와 2픽셀 차이로 안 겹쳐 안 열렸다.
+    //   「바닥에 닿아 있다」 하나를 지키면 그 종류의 실수가 전부 막힌다.
+    const JsonValue& po = (*m)["portals"];
+    bool portalsSit = true;
+    for (size_t i = 0; i < po.Size(); ++i)
+        if (!SitsOnSolid(po[i]["box"], solids)) portalsSit = false;
+    Check(portalsSit, "포탈이 지형 윗면에 놓였다");
     Check(known,  "상자 안의 물건이 items.json 에 있다");
     Check(unique, "상자 id 가 맵 안에서 겹치지 않는다");
 }

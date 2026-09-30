@@ -34,6 +34,7 @@
 #include <wrl/client.h>
 #include "Core/Scene.h"
 
+class BodyComponent;
 class SpriteComponent;
 class StaminaComponent;
 class PlayerController;
@@ -279,6 +280,9 @@ private:
     //   ※ 적 쪽 포인터는 여기 없다 — Enemy 구조체가 들고 있다.
     PlayerController* m_player      = nullptr;
     PartsComponent*   m_playerParts = nullptr;
+
+    // 몸(지형 상자). ★ 「무엇 앞에 서 있는가」(UpdateFocus)가 이것을 본다.
+    BodyComponent*    m_playerBody  = nullptr;
 
     // 사망 화면을 띄웠는가. ★ Resume 이 부활 여부를 **이것으로** 정한다 —
     //   `IsDead()` 로 정하면 장비 화면이 닫힐 때도 부활한다(Resume 주석).
