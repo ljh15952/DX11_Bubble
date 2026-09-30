@@ -21,20 +21,28 @@ static void Check(bool ok, const char* what)
 //   아랫변 == 그 지형의 윗면 이고, 가운데 x 가 그 지형의 좌우 안에 있어야 한다.
 //   「바닥(groundY)보다 위」만 보면 **허공에 뜬 상자**를 못 잡는다 — 발판 위에
 //   놓으려다 좌표를 잘못 적으면 공중에 뜨는데, 그건 groundY 보다 위라 통과한다.
-static bool SitsOnSolid(const JsonValue& box, const JsonValue& solids)
+//   ★ 발판(platforms)도 **딛고 설 곳**이다 — 위에서는 받치니까. 2026-09-30 에
+//     발판이 고체에서 갈라져 나왔을 때, 이 검사가 고체만 보고 있어서 발판 위의
+//     상자·화톳불이 전부 「허공에 떴다」로 실패했다. 이름도 Solid → Terrain 으로.
+static bool SitsOn(const JsonValue& box, const JsonValue& rects)
 {
     if (box.Size() != 4) return false;
     const float cx     = (box[size_t(0)].Flt() + box[size_t(2)].Flt()) * 0.5f;
     const float bottom = box[size_t(3)].Flt();
 
-    for (size_t i = 0; i < solids.Size(); ++i)
+    for (size_t i = 0; i < rects.Size(); ++i)
     {
-        const JsonValue& s = solids[i];
+        const JsonValue& s = rects[i];
         const float l = s[size_t(0)].Flt(), top = s[size_t(1)].Flt(), r = s[size_t(2)].Flt();
         if (bottom == top && cx > l && cx < r)
             return true;
     }
     return false;
+}
+
+static bool SitsOnTerrain(const JsonValue& box, const JsonValue& map)
+{
+    return SitsOn(box, map["solids"]) || SitsOn(box, map["platforms"]);
 }
 
 static void One(const wchar_t* path, const char* name, size_t portals, size_t saves,
@@ -79,11 +87,31 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
     Check(placed, "세이브 포인트가 맵 안, 지면 위에 있다");
 
     // ★ 부활할 자리이므로 **실제로 딛고 설 곳**이어야 한다.
-    const JsonValue& solids = (*m)["solids"];
     bool savesSit = true;
     for (size_t i = 0; i < sv.Size(); ++i)
-        if (!SitsOnSolid(sv[i]["box"], solids)) savesSit = false;
+        if (!SitsOnTerrain(sv[i]["box"], *m)) savesSit = false;
     Check(savesSit, "세이브 포인트가 지형 윗면에 놓였다");
+
+    // ---- 발판 (2026-09-30) ----
+    //   ★ 발판이 고체와 **겹치면** 안 된다. 겹친 부분은 고체가 이기므로 아래에서
+    //     뛰어 올라가다 머리를 박는다 — 「발판인데 왜 막히지?」가 된다.
+    const JsonValue& plats  = (*m)["platforms"];
+    const JsonValue& solidz = (*m)["solids"];
+    bool clear = true;
+    for (size_t i = 0; i < plats.Size(); ++i)
+    {
+        const JsonValue& a = plats[i];
+        for (size_t j = 0; j < solidz.Size(); ++j)
+        {
+            const JsonValue& b = solidz[j];
+            const bool overlap =
+                a[size_t(0)].Flt() < b[size_t(2)].Flt() && a[size_t(2)].Flt() > b[size_t(0)].Flt() &&
+                a[size_t(1)].Flt() < b[size_t(3)].Flt() && a[size_t(3)].Flt() > b[size_t(1)].Flt();
+            if (overlap) clear = false;
+        }
+    }
+    Check(plats.Size() > 0, "발판이 있다");
+    Check(clear,            "발판이 고체와 겹치지 않는다");
 
     // ---- 상자 (8-h) ----
     const JsonValue& ch = (*m)["chests"];
@@ -92,7 +120,7 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
     bool sits = true, known = true, unique = true;
     for (size_t i = 0; i < ch.Size(); ++i)
     {
-        if (!SitsOnSolid(ch[i]["box"], solids)) sits = false;
+        if (!SitsOnTerrain(ch[i]["box"], *m)) sits = false;
 
         // ★★ **두 파일을 엇갈려 본다.** 맵의 상자가 items.json 에 없는 물건을
         //   가리키면, 열었는데 아무것도 안 나오거나 이름 없는 물건이 떨어진다.
@@ -113,7 +141,7 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
     const JsonValue& po = (*m)["portals"];
     bool portalsSit = true;
     for (size_t i = 0; i < po.Size(); ++i)
-        if (!SitsOnSolid(po[i]["box"], solids)) portalsSit = false;
+        if (!SitsOnTerrain(po[i]["box"], *m)) portalsSit = false;
     Check(portalsSit, "포탈이 지형 윗면에 놓였다");
     Check(known,  "상자 안의 물건이 items.json 에 있다");
     Check(unique, "상자 id 가 맵 안에서 겹치지 않는다");

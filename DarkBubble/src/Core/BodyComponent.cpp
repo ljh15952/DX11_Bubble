@@ -68,8 +68,10 @@ bool BodyComponent::CanStandUp() const
     const AABB standing{ tr.x - m_halfWidth, tr.y - m_standHeight,
                          tr.x + m_halfWidth, tr.y };
 
+    // ★ **고체만** 본다. 발판은 아래에서 통과하므로 머리 위에 있어도
+    //   일어서는 것을 막지 않는다 — 막으면 발판 밑에서 웅크린 채 갇힌다.
     bool blocked = false;
-    m_level.ForEachOverlapping(standing, [&blocked](const AABB&) { blocked = true; });
+    m_level.ForEachSolid(standing, [&blocked](const AABB&) { blocked = true; });
     return !blocked;
 }
 
@@ -96,8 +98,10 @@ void BodyComponent::MoveX(float dx)
     //   ★ 겹친 것들을 훑어 **가장 많이 밀어내는 값**을 고른다.
     //     겹칠 때마다 tr.x 를 고치면 두 번째부터는 이미 옮겨진 몸으로 판정하게 되어
     //     결과가 「어느 것을 먼저 봤는가」에 달라진다.
+    // ★ **고체만** 본다. 발판은 옆에서도 통과한다 — 공중에서 발판 옆면에
+    //   걸려 멈추면 「아래에서 뛰어 올라간다」가 모서리에서 막힌다.
     float corrected = tr.x;
-    m_level.ForEachOverlapping(Box(), [&](const AABB& s)
+    m_level.ForEachSolid(Box(), [&](const AABB& s)
     {
         if (dx > 0.0f)
         {
@@ -166,6 +170,11 @@ void BodyComponent::Tick(SceneContext&, bool)
         m_velocityY = kMaxFallSpeed;
 
     const float dy = m_velocityY;
+
+    // ★ 움직이기 **전**의 발끝. 발판이 받쳐 줄지는 이것이 정한다 — 윗면보다
+    //   위에 있다가 내려왔을 때만 받친다. 아래에서 뛰어오르는 중이면 발끝이
+    //   윗면보다 아래에 있으므로 그냥 지나간다.
+    const float prevFeet = tr.y;
     tr.y += dy;
 
     // ---- 세로 충돌 ----
@@ -178,9 +187,21 @@ void BodyComponent::Tick(SceneContext&, bool)
     {
         // 떨어지는 중 -> 뚫고 들어간 것들 중 **가장 높은 면**에 올려놓는다.
         float top = tr.y;
-        m_level.ForEachOverlapping(Box(), [&top](const AABB& s)
+        m_level.ForEachSolid(Box(), [&top](const AABB& s)
         {
             if (s.top < top) top = s.top;
+        });
+
+        // ★★ 발판은 **윗면을 위에서 아래로 지났을 때만** 받친다(한 방향 발판).
+        //   `prevFeet <= p.top` 하나가 규칙 전부다 — 아래에서 올라온 몸은
+        //   발끝이 윗면보다 아래라 안 걸리고, 위에 서 있는 몸은 매 틱
+        //   「윗면 == 발끝」이라 계속 걸린다.
+        //   ★ 한 틱에 9픽셀까지 떨어지는데 발판은 8픽셀 두께라 **뚫고 지나갈**
+        //     수 있다. 그래도 걸리는 이유: 겹침을 몸 전체(44)로 재기 때문에
+        //     발끝이 발판 아래로 빠져도 몸이 발판과 여전히 겹친다.
+        m_level.ForEachPlatform(Box(), [&top, prevFeet](const AABB& p)
+        {
+            if (prevFeet <= p.top && p.top < top) top = p.top;
         });
 
         if (top < tr.y)
@@ -195,8 +216,10 @@ void BodyComponent::Tick(SceneContext&, bool)
         // 올라가는 중 -> 천장에 머리를 박는다. **상승만 끊고** 떨어지게 둔다.
         const float head = Box().top;
 
+        // ★ **고체만** 본다 — 발판은 아래에서 통과한다. 이것이 요청의 절반이다:
+        //   발판 밑에서 뛰면 머리를 박지 않고 올라가서, 떨어질 때 위에 선다.
         float bottom = head;
-        m_level.ForEachOverlapping(Box(), [&bottom](const AABB& s)
+        m_level.ForEachSolid(Box(), [&bottom](const AABB& s)
         {
             if (s.bottom > bottom) bottom = s.bottom;
         });

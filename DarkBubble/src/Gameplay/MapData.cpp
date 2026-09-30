@@ -62,6 +62,13 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
     for (size_t i = 0; i < solids.Size(); ++i)
         m.solids.push_back(ReadBox(solids[i]));
 
+    // ★ 발판은 **따로** 적는다. 같은 배열에 두고 「얇으면 발판」으로 추리하면
+    //   얇은 천장(동굴 윗면)까지 발판이 되어 뛰어 올라가 버린다 — 모양이
+    //   비슷하다고 뜻이 같은 것은 아니다.
+    const JsonValue& platforms = (*root)["platforms"];
+    for (size_t i = 0; i < platforms.Size(); ++i)
+        m.platforms.push_back(ReadBox(platforms[i]));
+
     const JsonValue& enemies = (*root)["enemies"];
     for (size_t i = 0; i < enemies.Size(); ++i)
     {

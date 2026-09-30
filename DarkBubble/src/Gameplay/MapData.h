@@ -98,7 +98,8 @@ struct MapData
     //   「동굴에 들어가기 전에 무엇을 바꿀까」가 생긴다(§1.2 의 예 그대로).
     bool  dark        = false;
 
-    std::vector<AABB>          solids;    // 지형 (바닥·벽·발판)
+    std::vector<AABB>          solids;      // 고체 — 바닥 · 벽 · 천장
+    std::vector<AABB>          platforms;   // ★ 발판 — 위에서만 받친다(아래·옆은 통과)
     std::vector<MapEnemySpawn> enemies;
     std::vector<MapInteract>   interacts;   // 포탈 + 세이브 포인트
 

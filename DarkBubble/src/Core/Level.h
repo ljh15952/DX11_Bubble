@@ -32,8 +32,20 @@
 class Level
 {
 public:
-    void AddSolid(const AABB& box) { m_solids.push_back(box); }
-    void Clear()                   { m_solids.clear(); }
+    // ------------------------------------------------------------------------
+    //  ★★ 지형은 **두 종류**다 (2026-09-30)
+    //
+    //    고체(solid) : 벽 · 바닥 · 천장. 어느 방향으로도 막는다
+    //    발판(platform): **위에서 내려올 때만** 받친다. 아래·옆에서는 통과한다
+    //
+    //    6-d 에서는 발판도 고체였다(design.md §4.0.1). 그래서 두 가지가 터졌다:
+    //      · 발판 밑에서 물면 물기 상자(머리 높이)가 발판에 닿아 **튕겼다**(8-d)
+    //      · 발판 밑에서 뛰면 **머리를 박았다** — 아래에서 올라갈 수가 없었다
+    //    둘 다 「발판이 벽과 같은 것」이라서 생긴 일이다.
+    // ------------------------------------------------------------------------
+    void AddSolid(const AABB& box)    { m_solids.push_back(box); }
+    void AddPlatform(const AABB& box) { m_platforms.push_back(box); }
+    void Clear()                      { m_solids.clear(); m_platforms.clear(); }
 
     // ------------------------------------------------------------------------
     //  지면 — 부활·스폰이 놓이는 높이
@@ -49,20 +61,35 @@ public:
     float GroundY() const     { return m_groundY; }
 
     // ------------------------------------------------------------------------
-    //  ForEachOverlapping — 이 사각형과 겹치는 고체를 하나씩 넘겨준다
+    //  ForEachSolid / ForEachPlatform — 이 사각형과 겹치는 것을 하나씩 넘겨준다
     //
     //    ★ 벡터를 그대로 돌려주지 않는 이유가 여기 있다.
     //      `const std::vector<AABB>&` 를 돌려주면 부르는 쪽이 **벡터라는 사실**에
     //      의존하게 되고, 타일맵으로 바꾸는 순간 전부 다시 짜야 한다.
     //      「겹치는 것을 훑는다」는 타일맵에도 그대로 있는 개념이다.
+    //
+    //    ★★ 전에는 하나(`ForEachOverlapping`)였다. 발판이 갈라져 나오면서
+    //      **이름을 바꿨다** — 옛 이름을 두면 부르던 곳들이 조용히 「고체만」을
+    //      보게 되는데, 그중 **착지**는 발판도 봐야 한다. 이름을 바꾸자 다섯 곳이
+    //      전부 컴파일 에러가 되어 하나씩 **골라야** 했다(handoff §9.1).
     // ------------------------------------------------------------------------
     template <class Fn>
-    void ForEachOverlapping(const AABB& box, Fn&& fn) const
+    void ForEachSolid(const AABB& box, Fn&& fn) const
     {
         for (const AABB& s : m_solids)
         {
             if (Intersects(box, s))
                 fn(s);
+        }
+    }
+
+    template <class Fn>
+    void ForEachPlatform(const AABB& box, Fn&& fn) const
+    {
+        for (const AABB& p : m_platforms)
+        {
+            if (Intersects(box, p))
+                fn(p);
         }
     }
 
@@ -77,9 +104,11 @@ public:
 
     // 그리기용. ※ 타일맵이 되면 이건 사라지고 타일맵이 스스로 그린다 —
     //   그래서 판정에는 쓰지 않는다. 그리기만 한다.
-    const std::vector<AABB>& Solids() const { return m_solids; }
+    const std::vector<AABB>& Solids()    const { return m_solids; }
+    const std::vector<AABB>& Platforms() const { return m_platforms; }
 
 private:
     std::vector<AABB> m_solids;
+    std::vector<AABB> m_platforms;
     float             m_groundY = Config::kGroundY;
 };

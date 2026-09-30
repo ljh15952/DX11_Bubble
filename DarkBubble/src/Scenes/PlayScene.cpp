@@ -129,13 +129,15 @@ namespace
 //      갔다 — 이미 「사각형 목록」이었기 때문에 형태가 하나도 안 바뀌었다.
 //      6-d 에서 `Level` 의 **질의 모양만** 고정해 둔 것이 여기서 값을 한다.
 //
-//    ★★ 발판은 **통과할 수 없다**. 화면 좌우 끝도 지형이다 —
-//      벽으로 두면 걷기·구르기·넉백이 전부 같은 규칙으로 막힌다.
+//    ★★ 지형은 **고체와 발판** 둘이다(2026-09-30). 발판은 위에서만 받치고
+//      아래·옆은 통과한다 — 아래에서 뛰어 올라갈 수 있고, 공격도 안 튕긴다.
+//      (전에는 발판도 고체라 「통과할 수 없다」였다. design.md §4.0.1)
+//      화면 좌우 끝은 **고체**다 — 벽으로 두면 걷기·구르기·넉백이 전부 같은
+//      규칙으로 막힌다.
 //
-//    ★ 배치의 세 조건(design.md §4.0.3)은 그대로다. 파일로 나갔다고
-//      사라지는 규칙이 아니다:
-//        ① 세로 간격 56 < 점프 정점 66
-//        ② 세로 **틈**(간격-두께) 48 > 몸 높이 44   ← 놓치면 못 올라간다
+//    ★ 배치 조건(design.md §4.0.3):
+//        ① 세로 간격 56 < 점프 정점 66   ← 아래에서 뛰어 발끝이 윗면을 넘어야 선다
+//        ② (없어졌다 — 발판이 머리를 막지 않는다)
 //        ③ 가로 간격 32 < 공중 이동 거리
 // ============================================================================
 bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
@@ -162,6 +164,8 @@ bool PlayScene::LoadMap(SceneContext& ctx, const std::string& name,
     m_level.SetGroundY(m_map.groundY);
     for (const AABB& s : m_map.solids)
         m_level.AddSolid(s);
+    for (const AABB& p : m_map.platforms)
+        m_level.AddPlatform(p);
 
     BuildBackdrop();
     SpawnEnemies(ctx);
@@ -755,8 +759,12 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
 // ----------------------------------------------------------------------------
 bool PlayScene::HitsWall(const AABB& box, float feetY) const
 {
+    // ★★ **고체만** 벽이다. 발판은 공격을 안 튕긴다 — 발판 밑에서 물면 물기 상자
+    //   (머리 높이 48)가 발판에 닿아 튕겼는데, 그건 벽에 칼이 걸린 것이 아니라
+    //   **머리 위를 지나는 널빤지**에 닿았을 뿐이다. 발판을 고체로 두었을 때의
+    //   부작용이었다.
     bool hit = false;
-    m_level.ForEachOverlapping(box, [&](const AABB& s)
+    m_level.ForEachSolid(box, [&](const AABB& s)
     {
         if (s.top < feetY)
             hit = true;
@@ -1202,6 +1210,21 @@ void PlayScene::Render(Renderer& renderer)
         // 윗면에 밝은 선 한 줄. 「여기가 발이 닿는 높이」를 픽셀 하나로 말한다.
         renderer.DrawFilledRect({ s.left, s.top, s.right, s.top + 1.0f },
                                 DirectX::XMVectorSet(0.30f, 0.31f, 0.38f, 1.0f));
+    }
+
+    // ---- ★ 발판 — 고체와 **다른 색** ----
+    //   아래에서 뛰어 올라갈 수 있는 것과 없는 것이 **같아 보이면** 플레이어는
+    //   부딪혀 봐야 안다. 색이 종류를 말한다(포탈·화톳불과 같은 규칙).
+    //   나무 널빤지처럼 갈색으로, 윗면은 밝게 — 「밟는 면은 위뿐」이 보이게
+    //   **아랫면은 흐리게** 둔다.
+    for (const AABB& p : m_level.Platforms())
+    {
+        if (p.right <= m_viewX || p.left >= m_viewX + canvasW)  continue;
+        if (p.bottom <= m_viewY || p.top >= m_viewY + canvasH)  continue;
+
+        renderer.DrawFilledRect(p, DirectX::XMVectorSet(0.22f, 0.16f, 0.11f, 1.0f));
+        renderer.DrawFilledRect({ p.left, p.top, p.right, p.top + 2.0f },
+                                DirectX::XMVectorSet(0.52f, 0.40f, 0.27f, 1.0f));
     }
 
     // ---- ★ 상자 — **어둠 아래**에 그린다 ----
