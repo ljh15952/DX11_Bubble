@@ -9,6 +9,7 @@
 #include "Audio/Audio.h"
 #include "Gameplay/PartsComponent.h"
 #include "Gameplay/PoiseComponent.h"
+#include "Gameplay/SaveData.h"
 #include "Gameplay/StaminaComponent.h"
 #include "Graphics/Camera.h"
 #include "Graphics/Renderer.h"
@@ -495,37 +496,15 @@ void PlayerController::Start(SceneContext& ctx)
     m_unarmed           = DefaultUnarmed();
     ReloadItems();
 
-    // ★ 손 슬롯은 **빈 채로 시작한다.** 전에는 기본값이 「오른손에 단검」
-    //   이었는데, 슬롯이 이름 문자열이 되면서 그 기본값이 사라졌다 —
-    //   여기서 명시적으로 들려 주지 않으면 빈손으로 시작한다.
-    //   ★★ 기본값에 숨어 있던 것을 **보이는 한 줄로** 끌어낸 셈이다.
-    EquipWeapon(WeaponHand::Right, "dagger");
+    // ★★ 시작 장비(단검 · 천 한 벌 · 初心者 · 빈 가방)가 **여기서 사라졌다**(9).
+    //   SaveData::NewGame() — 「기본 저장」으로 갔다. 새 게임도 이어하기도
+    //   PlayScene::ApplySave → RestoreLoadout **한 길**을 지난다.
+    //   ★ 여기에 남겨 두면 새 게임만 다른 길로 시작한다. 두 길이면 언젠가
+    //     「새 게임에서는 되는데 이어하면 이상하다」가 생긴다 — 초기화와 부활을
+    //     같은 함수로 만든 것(PlayScene::Respawn)과 같은 이유다.
+    //   ※ 그래서 Start 가 끝난 직후의 손은 **비어 있다.** 곧 저장이 채운다.
 
-    // ★ 천 한 벌을 입고 시작한다. 옛 CLOTH(poise 10)가 네 조각으로 갈라진 것이라
-    //   합이 그대로 10 이다 — 8-f 전과 **같은 몸**으로 시작한다.
-    //   ★ 카탈로그에 **있는 것만** 입는다. 파일에서 빠졌는데 이름만 넣으면
-    //     「없는 물건」을 입게 된다.
-    for (const char* id : { "cloth_hood", "cloth_coat", "cloth_pants", "cloth_shoes" })
-    {
-        auto it = m_items.find(id);
-        if (it != m_items.end() && it->second.IsArmor())
-            m_armor[static_cast<int>(it->second.armorSlot)] = id;
-    }
-    // ※ 강인도 적용(ApplyArmor)은 맨 아래 Respawn 이 한다 — 여기서 또 부르면
-    //   같은 일을 두 곳에서 하게 된다.
-
-    // ★ 初心者の指輪 를 **끼고 시작한다**(§1.1 「입수: 최초」). 이게 있어서
-    //   적의 `!` 가 보인다 — 빼 보면 그제야 「예고가 지문이었다」가 드러난다.
-    if (m_items.count("novice_ring") && m_items.at("novice_ring").IsRing())
-        m_rings[0] = "novice_ring";
-
-    // ★★ 가방은 **빈 채로** 시작한다(8-h). 8-a 부터 8-g 까지 「무기를 얻는 길이
-    //   아직 없으므로」 여기에 물건을 채워 넣었는데, 이제 **상자**가 그 길이다 —
-    //   물건은 맵에 흩어져 있다(maps/*.json 의 chests).
-    //   ★ 채워 넣던 시절엔 FIREFLY(§1.1 「보스 전리품」)를 동굴에 들어가기도
-    //     전에 가지고 있었다. 찾는 것이 **없으면** 찾는 재미도 없다.
-
-    Respawn(ctx);   // 몸을 처음 상태로 + 입은 방어구로 강인도를 맞춘다
+    Respawn(ctx);   // 몸을 처음 상태로
 }
 
 
@@ -1263,6 +1242,122 @@ void PlayerController::Rest()
     m_flash       = 0;
     m_sparkTicks  = 0;
     m_invulnTicks = 0;
+}
+
+
+// ----------------------------------------------------------------------------
+//  ★ 저장 (9) — 몸에 지닌 것 ⇄ 저장 모양
+// ----------------------------------------------------------------------------
+void PlayerController::StoreLoadout(SaveData& out) const
+{
+    out.hands = { m_hand[HandSlot(WeaponHand::Right)], m_hand[HandSlot(WeaponHand::Left)] };
+    out.bag  .assign(m_bag.begin(),   m_bag.end());
+    out.armor.assign(m_armor.begin(), m_armor.end());
+    out.rings.assign(m_rings.begin(), m_rings.end());
+}
+
+
+void PlayerController::RestoreLoadout(const SaveData& in)
+{
+    for (std::string& h : m_hand)
+        h.clear();
+    m_bag  .fill({});
+    m_armor.fill({});
+    m_rings.fill({});
+
+    // 카탈로그에 있는 물건인가. ★ 없으면 버린다 — items.json 에서 이름이 바뀌었거나
+    //   지워졌다. 이름만 남은 물건을 들면 Weapon() 이 엉뚱한 것(첫 물건)을 돌려준다.
+    auto known = [this](const std::string& id) -> const ItemType*
+    {
+        if (id.empty())
+            return nullptr;
+
+        auto it = m_items.find(id);
+        if (it == m_items.end())
+        {
+            Log::Info("[save] 모르는 물건 '{}' — 버린다 (items.json 에 없다)", id);
+            return nullptr;
+        }
+        return &it->second;
+    };
+
+    // ★ 자리가 틀린 것은 **가방으로** 모아 뒀다가 마지막에 넣는다.
+    //   버리지 않는다 — 물건은 사라지지 않는다(ReleaseHand 주석).
+    std::vector<std::string> misplaced;
+
+    // ---- ① 손 — EquipWeapon 을 그대로 지난다 ----
+    //   ★ 손을 **가방보다 먼저** 한다. 가방이 비어 있을 때라야 EquipWeapon 이
+    //     밀어낸 것(파일이 틀렸을 때뿐이다)이 반드시 들어갈 자리가 있다.
+    for (WeaponHand h : { WeaponHand::Right, WeaponHand::Left })
+    {
+        const std::string& id = in.hands[HandSlot(h)];
+        const ItemType*    t  = known(id);
+        if (!t)
+            continue;
+
+        // ★★ 양손 무기는 두 칸에 **같은 이름**으로 적혀 있다. 오른손이 이미 두 칸을
+        //   채웠는데 왼손에서 또 들면, 오른손의 것이 가방으로 밀려나 **두 자루가 된다.**
+        if (m_hand[HandSlot(h)] == id)
+            continue;
+
+        if (t->IsWorn())
+        {
+            misplaced.push_back(id);   // 손의 갑옷 — EquipWeapon 은 조용히 거절한다
+            continue;
+        }
+        EquipWeapon(h, id);
+    }
+
+    // ---- ② 가방 — **칸 그대로** ----
+    for (size_t i = 0; i < in.bag.size(); ++i)
+    {
+        if (!known(in.bag[i]))
+            continue;
+
+        if (i < m_bag.size() && m_bag[i].empty())
+            m_bag[i] = in.bag[i];
+        else
+            misplaced.push_back(in.bag[i]);   // 칸이 줄었거나, ①에서 밀려난 것이 그 칸에 있다
+    }
+
+    // ---- ③ 방어구 — 자리는 **물건이 안다** ----
+    //   ★ 파일의 순서를 믿지 않는다. 투구가 발 칸에 적혀 있어도 머리에 쓴다.
+    for (const std::string& id : in.armor)
+    {
+        const ItemType* t = known(id);
+        if (!t)
+            continue;
+
+        std::string* slot = t->IsArmor() ? &m_armor[static_cast<int>(t->armorSlot)] : nullptr;
+        if (slot && slot->empty())
+            *slot = id;
+        else
+            misplaced.push_back(id);   // 방어구가 아니거나, 한 부위에 둘
+    }
+
+    // ---- ④ 지문 ----
+    for (size_t i = 0; i < in.rings.size(); ++i)
+    {
+        const ItemType* t = known(in.rings[i]);
+        if (!t)
+            continue;
+
+        if (t->IsRing() && i < m_rings.size() && m_rings[i].empty())
+            m_rings[i] = in.rings[i];
+        else
+            misplaced.push_back(in.rings[i]);
+    }
+
+    // ---- ⑤ 자리가 틀린 것 → 가방 ----
+    for (const std::string& id : misplaced)
+    {
+        if (StoreInBag(id))
+            Log::Info("[save] '{}' 의 자리가 틀렸다 — 가방에 넣었다", id);
+        else
+            Log::Info("[save] '{}' 의 자리가 틀렸고 가방도 찼다 — 버린다", id);
+    }
+
+    ApplyArmor();   // ★ 강인도의 출처는 입은 방어구다(입기 · 벗기 · 부활과 같은 줄)
 }
 
 

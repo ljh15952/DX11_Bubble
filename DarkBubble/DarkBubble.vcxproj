@@ -115,6 +115,7 @@
     <ClCompile Include="src\Gameplay\PartsComponent.cpp" />
     <ClCompile Include="src\Gameplay\PlayerController.cpp" />
     <ClCompile Include="src\Gameplay\PoiseComponent.cpp" />
+    <ClCompile Include="src\Gameplay\SaveData.cpp" />
     <ClCompile Include="src\Gameplay\StaminaComponent.cpp" />
     <ClCompile Include="src\Gameplay\WeaponPickup.cpp" />
     <ClCompile Include="src\Graphics\Animation.cpp" />
@@ -155,6 +156,7 @@
     <ClInclude Include="src\Gameplay\PartsComponent.h" />
     <ClInclude Include="src\Gameplay\PlayerController.h" />
     <ClInclude Include="src\Gameplay\PoiseComponent.h" />
+    <ClInclude Include="src\Gameplay\SaveData.h" />
     <ClInclude Include="src\Gameplay\StaminaComponent.h" />
     <ClInclude Include="src\Gameplay\WeaponPickup.h" />
     <ClInclude Include="src\Graphics\Animation.h" />

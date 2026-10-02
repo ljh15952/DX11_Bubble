@@ -25,9 +25,12 @@
 #include "Core/Level.h"
 #include "Gameplay/EnemyType.h"
 #include "Gameplay/MapData.h"
+#include "Gameplay/SaveData.h"
 
-#include <set>
 #include <memory>
+#include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <d3d11.h>
@@ -46,10 +49,18 @@ class EnemyBrain;
 class PlayScene final : public Scene
 {
 public:
+    // ★ **저장 하나**를 받아 시작한다(9). 새 게임이면 SaveData::NewGame(),
+    //   이어하기면 파일에서 읽은 것 — 이 Scene 은 둘을 **구분하지 않는다.**
+    explicit PlayScene(SaveData start) : m_start(std::move(start)) {}
+
     const char* Name() const override { return "Play"; }
 
     bool Enter(SceneContext& ctx) override;
     void Update(SceneContext& ctx, bool consumeEdgeInput) override;
+
+    // ★ 게임을 끌 때(Game::Shutdown 이 스택을 비우며 부른다). 1초 주기의
+    //   **마지막 틈**을 메운다 — 상자를 열자마자 창을 닫아도 남는다.
+    void Exit() override;
 
     // ★ 위에 있던 Scene 이 닫혔을 때. DeathScene 이 닫혔으면 여기서 부활한다.
     //   PauseScene 이 닫힌 경우와는 **상태로 구분된다**.
@@ -83,6 +94,7 @@ private:
     // ★ 초기화와 부활은 **같은 일**이다. 두 벌로 만들면 반드시 어긋난다 —
     //   나중에 필드를 하나 추가할 때 한쪽만 고치고, 「두 번째 판부터 뭔가
     //   이상하다」는 재현하기 어려운 버그가 된다. Enter 가 이것을 부른다.
+    //   ★ **이어하기**(9)도 이것이다 — 「마지막 화톳불에서 일어난다」.
     void Respawn(SceneContext& ctx);
 
     // ---- ① 조립 ----
@@ -141,7 +153,8 @@ private:
     //   ★★ 부활(Respawn)도 휴식(Rest)도 이것을 **안 건드린다.** 적은
     //     되살아나지만 상자는 안 되살아나야 「적을 되살리는 대가로 쉰다」가
     //     성립한다 — 쉴 때마다 상자가 차면 쉬는 것이 **보상**이 된다.
-    //   ※ 게임을 껐다 켜면 초기화된다. 저장 기능이 아직 없다.
+    //   ★ 저장된다(9) — 껐다 켜도 열린 채다. set 이라 **정렬되어** 나오므로
+    //     같은 상태면 같은 저장 글이 된다(Autosave 의 비교가 이것에 기댄다).
     std::set<std::string> m_openedChests;
     std::string ChestKey(const MapInteract& chest) const;
     bool        IsOpened(const MapInteract& chest) const;
@@ -151,17 +164,49 @@ private:
     //   액자에 든 것처럼 보인다.
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_chestSheet;
 
-    // ---- ★ 세이브 포인트 ----
+    // ---- ★ 세이브 포인트(화톳불) ----
     //   부활은 **맵의 시작**이 아니라 **마지막으로 쉰 자리**다.
     //   맵이 다를 수도 있으므로 맵 이름까지 같이 기억한다.
-    //   ★ 초기값을 **여기에 안 적는다.** 첫 맵 이름과 시작 좌표는 이미
-    //     Enter 와 field.json 에 있다 — 여기에 또 적으면 맵을 옮길 때
-    //     이 줄만 옛 값으로 남는다(늘 밟던 「같은 값이 두 곳에」다).
-    //   ★ **높이도 같이** 기억한다. 발판 위 화톳불에서 쉬고 죽었는데 아래
-    //     지면에서 일어나면, 쉰 자리로 돌아온 것이 아니다.
-    std::string m_saveMap;
-    float       m_saveX = 0.0f;
-    float       m_saveY = 0.0f;
+    //   ★ 초기값을 **여기에 안 적는다.** 첫 맵은 SaveData::NewGame() 에 있다 —
+    //     여기에 또 적으면 맵을 옮길 때 이 줄만 옛 값으로 남는다(「같은 값이 두 곳에」).
+    //
+    //   ★★ 9 에서 **좌표가 id 가 됐다**(m_saveX/Y → m_restPoint).
+    //     좌표는 저장 파일에 들어가는 순간 낡을 수 있다 — 맵을 고쳐 화톳불을
+    //     옮기면 옛 좌표(허공 · 벽 속)에서 일어난다. id 로 들고 있다가 **일어날
+    //     때마다 맵에서 찾는다**(RestSpot). 높이도 거기서 온다(상자의 아랫변).
+    //   ★ 이름도 바꿨다: `save` 가 이제 **저장 파일**을 뜻하므로 화톳불은 `rest`.
+    //     옛 이름을 지우자 부르던 곳이 전부 컴파일 에러가 되어 하나씩 고쳤다(§9.1).
+    std::string m_restMap;
+    std::string m_restPoint;   // 그 맵의 화톳불 id. 비었다 = 아직 안 쉬었다(맵의 start)
+
+    // 쉰 화톳불의 자리 (x, 발끝 y). 못 찾으면 지금 맵의 start.
+    std::pair<float, float> RestSpot() const;
+
+    // ========================================================================
+    //  ★★ 저장 (9) — design.md §3.6.2
+    //
+    //    불러오기 = **마지막 화톳불에서 일어나기**(Hollow Knight 의 벤치).
+    //    위치 · HP · 적은 안 적는다 — 부활이 이미 되돌린다.
+    // ========================================================================
+    // TitleScene 이 넘겨준 **시작 저장.** Enter 가 한 번 입힌다.
+    SaveData m_start;
+
+    void     ApplySave(SceneContext& ctx, const SaveData& s);   // 저장 → 세상 (Enter)
+    SaveData Snapshot() const;                                  // 세상 → 저장 (지금 이 순간)
+
+    // ★ 1초에 한 번 지금을 **글로** 만들어 보고, 지난번 쓴 글과 다를 때만 쓴다.
+    //   「상자를 열면 저장」「장비를 바꾸면 저장」처럼 부를 곳을 정하면 반드시
+    //   하나를 빠뜨린다(handoff §8). 비교하면 **무엇이** 바꿨는지 몰라도 된다 —
+    //   PlayerController::m_restingClipLast 의 「원인을 세는 대신 답을 비교한다」.
+    //   ★ 한 순간을 **통째로** 찍으므로 「상자는 열렸는데 물건은 없다」 같은
+    //     반쪽 상태가 생길 수 없다. 잃어도 1초 전으로 돌아갈 뿐이다.
+    void Autosave();
+    int  m_autosaveTicks = 0;
+
+    // 마지막으로 쓴(쓰려고 한) 글.
+    //   ★ **비어서 시작한다** → 첫 확인에서 반드시 쓴다. 안 그러면 NEW GAME 을 골라
+    //     아무것도 안 바꾸고 끈 경우 **옛 저장이 그대로** 남아 다음에 또 이어하게 된다.
+    std::string m_lastSaveText;
 
     // ---- ★ 시차(parallax) 배경 ----
     //   넓은 맵인데 배경이 단색이면 **카메라가 움직이는지 알 수 없다.**
@@ -222,7 +267,13 @@ private:
     };
     std::vector<Drop> m_drops;
 
+    // 지금 맵의 그 자리에 떨군다(소리 · 로그와 함께). 팔이 잘렸다 · 버렸다 · 상자.
     void DropItem(SceneContext& ctx, const std::string& weaponId, float x, float y);
+
+    // ★ 놓기만 한다(소리 · 로그 없음). **어느 맵인지**를 받는다 — 저장에서
+    //   되살릴 때(ApplySave)는 지금 맵이 아닌 곳의 물건도 놓아야 한다.
+    void PlaceDrop(SceneContext& ctx, const std::string& map,
+                   const std::string& itemId, float x, float y);
 
     // ========================================================================
     //  ★ 적은 여럿이다

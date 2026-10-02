@@ -58,6 +58,9 @@
     <ClCompile Include="src\Gameplay\PoiseComponent.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
+    <ClCompile Include="src\Gameplay\SaveData.cpp">
+      <Filter>Gameplay</Filter>
+    </ClCompile>
     <ClCompile Include="src\Gameplay\PlayerController.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
@@ -154,6 +157,9 @@
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\PoiseComponent.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\SaveData.h">
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\PlayerController.h">

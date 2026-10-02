@@ -5,10 +5,10 @@
 //    없으니 「돌려 보고 이상하면 안다」가 통하지 않는다. 그래서 검사를 남긴다.
 //
 //  돌리는 법 (PowerShell):
-//    $vc = "C:\Program Files\Microsoft Visual Studio8\Professional\VC\Auxiliary\Buildcvars64.bat"
+//    $vc = "C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Auxiliary\Build\vcvars64.bat"
 //    cmd /c "`"$vc`" >nul 2>&1 && set" | ForEach-Object {
 //      if ($_ -match '^([^=]+)=(.*)$') { Set-Item "env:$($matches[1])" $matches[2] -ErrorAction SilentlyContinue } }
-//    cd "D:\イジュンハ.DX\DX11_Bubble"
+//    cd "D:\イジュンハ\3.DX\DX11_Bubble"
 //    cl /nologo /std:c++20 /EHsc /W4 /utf-8 /I DarkBubble\src tools\json_test.cpp DarkBubble\src\Core\Json.cpp /Fe:json_test.exe
 //    .\json_test.exe
 //

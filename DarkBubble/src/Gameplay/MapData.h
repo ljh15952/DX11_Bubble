@@ -56,11 +56,14 @@ struct MapInteract
     std::string  entry;   // 포탈 : 그 맵의 어느 입구로
     std::string  name;    // 표시용
 
-    // ---- 상자 (8-h) ----
-    //   ★ `id` 는 **이 맵 안에서** 유일하면 된다. 「열렸는가」는 Scene 이
+    // ---- id — 상자 (8-h) · 화톳불 (9) ----
+    //   ★ **이 맵 안에서** 유일하면 된다. 「열렸는가」「어디서 쉬었는가」는
     //     「맵 이름 + id」로 기억한다 — 두 맵에 같은 id 가 있어도 안 섞인다.
+    //   ★★ 화톳불을 **좌표가 아니라 id 로** 기억하는 이유: 저장 파일에 좌표를
+    //     적어 두면 맵을 고칠 때 낡는다(포탈이 입구 **이름**을 가리키는 것과 같다).
+    //     `name` 을 열쇠로 쓰지 않는 이유: 화면용 글자라 고치면 열쇠도 바뀐다.
     std::string  id;
-    std::string  item;    // 안에 든 것 (items.json 의 키)
+    std::string  item;    // 상자 : 안에 든 것 (items.json 의 키)
 
     // ★ `? :` 가 아니라 switch 다. 종류가 둘일 때는 `? :` 로 충분했는데
     //   셋이 되는 순간 하나가 조용히 빠진다(handoff §9.1 의 자매 규칙).
@@ -101,7 +104,7 @@ struct MapData
     std::vector<AABB>          solids;      // 고체 — 바닥 · 벽 · 천장
     std::vector<AABB>          platforms;   // ★ 발판 — 위에서만 받친다(아래·옆은 통과)
     std::vector<MapEnemySpawn> enemies;
-    std::vector<MapInteract>   interacts;   // 포탈 + 세이브 포인트
+    std::vector<MapInteract>   interacts;   // 포탈 · 세이브 포인트 · 상자
 
     // 입구 이름 -> x. ★ 포탈이 **이 이름**을 가리킨다.
     //   "start" 는 특별하다 — 부활 지점이자 맵을 직접 열었을 때의 기본 입구다.

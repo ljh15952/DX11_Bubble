@@ -69,6 +69,19 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
     const JsonValue& sv = (*m)["savePoints"];
     Check(sv.Size() == saves, "세이브 포인트 수");
 
+    // ★ id (9). 저장 파일이 「어디서 쉬었는가」를 **id 로** 적는다 — 없으면 게임이
+    //   그 화톳불을 건너뛰고(MapIO), 겹치면 껐다 켤 때 **엉뚱한 쪽**에서 일어난다.
+    //   둘 다 게임을 껐다 켜 봐야만 보인다.
+    bool svIds = true, svUnique = true;
+    for (size_t i = 0; i < sv.Size(); ++i)
+    {
+        if (sv[i]["id"].Str().empty()) svIds = false;
+        for (size_t j = i + 1; j < sv.Size(); ++j)
+            if (sv[i]["id"].Str() == sv[j]["id"].Str()) svUnique = false;
+    }
+    Check(svIds,    "세이브 포인트에 id 가 있다");
+    Check(svUnique, "세이브 포인트 id 가 맵 안에서 겹치지 않는다");
+
     const float groundY = (*m)["world"]["groundY"].Flt(0.0f);
     const float worldW  = (*m)["world"]["w"]      .Flt(0.0f);
     bool placed = true;

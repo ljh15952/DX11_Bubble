@@ -123,6 +123,11 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
         m.interacts.push_back(std::move(it));
     }
 
+    // ---- 세이브 포인트(화톳불) ----
+    //   ★ id 가 **필수**다(9) — 상자와 같은 이유. id 가 없으면 저장 파일이
+    //     「여기서 쉬었다」를 적을 수가 없어서, 껐다 켜면 맵의 시작에서 일어난다.
+    //     그건 게임을 껐다 켜 봐야 드러난다 — 조용히 틀린 화톳불이 되느니
+    //     **안 보이는** 편이 맵을 만들 때 바로 보인다.
     const JsonValue& saves = (*root)["savePoints"];
     for (size_t i = 0; i < saves.Size(); ++i)
     {
@@ -130,7 +135,14 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
         MapInteract it;
         it.kind = InteractKind::SavePoint;
         it.box  = ReadBox(s["box"]);
+        it.id   = s["id"]  .Str();
         it.name = s["name"].Str("save");
+
+        if (it.id.empty())
+        {
+            Log::Info("[map] id 가 없는 화톳불 '{}' — 건너뛴다", it.name);
+            continue;
+        }
         m.interacts.push_back(std::move(it));
     }
 

@@ -89,6 +89,10 @@ namespace
     constexpr int   kShakeTicks    = 8;
     constexpr int   kFlashTicks    = 9;
 
+    // ★ 저장 확인 주기(9). 1초 — 끄기 직전의 1초는 Exit 가 메운다.
+    //   더 짧게 해도 얻는 것이 없다: 바뀐 것이 없으면 쓰지도 않는다.
+    constexpr int   kAutosaveTicks = 60;
+
     // ※ **적의** 부위·강인도·공격 숫자는 EnemyType 으로 옮겨 갔다(7-b).
     //   왜 그 값인지도 같이 갔다 — Gameplay/EnemyType.cpp 참조.
 
@@ -330,19 +334,17 @@ void PlayScene::Interact(SceneContext& ctx)
     case InteractKind::SavePoint:
         // ★ 소울류의 화톳불이다 — **회복하고, 적이 되살아나고, 여기서 부활한다.**
         //   셋이 한 묶음이라 「쉬어 갈까」가 판단이 된다. 회복만 되면 공짜다.
-        m_saveMap = m_mapName;
-        m_saveX   = (it.box.left + it.box.right) * 0.5f;
-
-        // ★★ 세로는 **상자의 아랫변**이다. 화톳불이 놓인 바닥이 곧 그 값이라
-        //   따로 적을 것이 없다 — 발판 위에 두면 상자도 같이 올라가 있다.
-        m_saveY   = it.box.bottom;
+        //   ★★ 좌표가 아니라 **id 로** 기억한다(9). 일어날 자리는 그때그때
+        //     맵에서 찾는다(RestSpot) — 저장 파일에 좌표가 들어가면 낡는다.
+        m_restMap   = m_mapName;
+        m_restPoint = it.id;
 
         m_player->Rest();
         SpawnEnemies(ctx);
 
         ctx.audio.Play("ui_confirm", 0.8f, 0.2f);
-        Log::Info("[play] 쉬었다 — 부활 지점 '{}' ({} {:.0f},{:.0f}) · 회복 · 적 부활",
-                  it.name, m_saveMap, m_saveX, m_saveY);
+        Log::Info("[play] 쉬었다 — 부활 지점 '{}' ({}:{}) · 회복 · 적 부활",
+                  it.name, m_restMap, m_restPoint);
         break;
 
     case InteractKind::Chest:
@@ -379,6 +381,37 @@ std::string PlayScene::ChestKey(const MapInteract& chest) const
 bool PlayScene::IsOpened(const MapInteract& chest) const
 {
     return m_openedChests.count(ChestKey(chest)) > 0;
+}
+
+
+// ----------------------------------------------------------------------------
+//  RestSpot — 쉰 화톳불의 자리 (= 일어날 자리)
+//
+//    ★ 좌표를 들고 있지 않고 **그때그때 맵에서 찾는다.** 저장 파일에는 id 만
+//      들어가므로, 맵을 고쳐 화톳불을 옮겨도 옮긴 자리에서 일어난다.
+// ----------------------------------------------------------------------------
+std::pair<float, float> PlayScene::RestSpot() const
+{
+    // ★ **지금 맵이 쉰 맵일 때만** 찾는다. 쉰 맵을 못 읽어 다른 맵에 남았다면,
+    //   같은 id 가 이 맵에도 있을 수 있다 — 엉뚱한 화톳불에서 일어나면 안 된다.
+    if (m_mapName == m_restMap && !m_restPoint.empty())
+    {
+        for (const MapInteract& it : m_map.interacts)
+        {
+            if (it.kind != InteractKind::SavePoint || it.id != m_restPoint)
+                continue;
+
+            // ★★ 세로는 **상자의 아랫변**이다. 화톳불이 놓인 바닥이 곧 그 값이라
+            //   따로 적을 것이 없다 — 발판 위에 두면 상자도 같이 올라가 있다.
+            return { (it.box.left + it.box.right) * 0.5f, it.box.bottom };
+        }
+        Log::Info("[save] 화톳불 '{}' 이 맵 '{}' 에 없다 — 맵의 start 에서 일어난다",
+                  m_restPoint, m_mapName);
+    }
+
+    // 아직 아무 데서도 안 쉬었다(새 게임) · 화톳불이 맵에서 사라졌다 → 이 맵의 시작.
+    //   입구는 언제나 지면 위에 있다.
+    return { m_map.EntryX("start"), m_map.groundY };
 }
 
 
@@ -585,14 +618,30 @@ bool PlayScene::Enter(SceneContext& ctx)
     //   그때 컨트롤러의 컴포넌트 참조가 이미 채워져 있어야 한다.
     m_playerObj.Start(ctx);
 
-    if (!LoadMap(ctx, "field", "start"))
-        return false;   // 첫 맵도 못 읽으면 진행할 수가 없다
+    // ★★ 저장을 입힌다(9) — **새 게임도 이어하기도 같은 길**이다. TitleScene 이
+    //   「기본 저장(NewGame)」과 「파일에서 읽은 저장」 중 하나를 넘겼을 뿐이다.
+    ApplySave(ctx, m_start);
 
-    // ★ 처음 부활 지점은 **방금 읽은 맵의 start** 다. 아직 화톳불을 만나기
-    //   전에 죽어도 갈 곳이 있어야 한다 — 값의 출처는 맵 파일 하나뿐이다.
-    m_saveMap = m_mapName;
-    m_saveX   = m_map.EntryX("start");
-    m_saveY   = m_map.groundY;   // 입구는 언제나 지면 위에 있다
+    // ---- 첫 맵 = 쉰 화톳불이 있는 맵 ----
+    //   ★ 못 읽으면(맵 파일 이름이 바뀌었다 등) 새 게임의 맵으로. 저장 파일
+    //     하나 때문에 시작조차 못 하면 안 된다.
+    if (!LoadMap(ctx, m_restMap, "start"))
+    {
+        const SaveData fresh = SaveData::NewGame();
+        Log::Info("[save] 쉰 맵 '{}' 을 못 읽었다 — '{}' 의 시작에서 일어난다",
+                  m_restMap, fresh.restMap);
+        m_restMap   = fresh.restMap;
+        m_restPoint = fresh.restPoint;
+
+        if (!LoadMap(ctx, m_restMap, "start"))
+            return false;   // 첫 맵도 못 읽으면 진행할 수가 없다
+    }
+
+    // ★★ 그리고 **쉰 자리에서 일어난다** — 죽었다 깨어나는 것과 같은 함수다.
+    //   이어하기 = 마지막 화톳불, 새 게임 = 맵의 start(아직 아무 데서도 안 쉬었다).
+    //   ※ 방금 세운 적을 한 번 더 세우는 셈이지만, 「처음」만을 위한 길을 따로
+    //     두는 것보다 싸다 — 그 길이 바로 「두 벌로 만들면 어긋난다」다.
+    Respawn(ctx);
 
     // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
 
@@ -601,11 +650,12 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] E = 상호작용 — 발밑에 있는 것이 무엇인지가 하는 일을 정한다");
     Log::Info("[play]        무기 = 줍기(주손)   포탈 = 이동   화톳불 = 쉬기");
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
-    Log::Info("[play] F1 = hitbox   F2 = swap armor   F3 = stats");
+    Log::Info("[play] F1 = hitbox   F3 = stats");
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
     Log::Info("[play] Tab = 장비 화면 (가방 6칸). ★ 게임은 **안 멈춘다** — 적이 온다");
     Log::Info("[play] 지문: NOVICE = 적의 ! 가 보인다  FIREFLY = 어둠 속(동굴)이 보인다  — 빼 보면 안다");
-    Log::Info("[play] 가방은 비어 있다 — 물건은 **상자**에 있다 (E : OPEN). 시작 옆 상자에 횃불");
+    Log::Info("[play] 물건은 **상자**에 있다 (E : OPEN). 시작 옆 상자에 횃불");
+    Log::Info("[play] 저장: 바뀐 것이 있으면 1초 안에 saves/save.json 에 — 껐다 켜면 **마지막 화톳불**에서 일어난다");
     Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
     Log::Info("[play] 방패: 그 손의 버튼을 **누르고 있으면** 막는다. 앉으면 띠가 내려간다");
     Log::Info("[play] ,  = freeze    . = step 1 tick    / = slow motion (1/8)");
@@ -621,10 +671,12 @@ void PlayScene::Respawn(SceneContext& ctx)
     //   동굴에서 죽었어도 들판에서 쉬었으면 들판에서 일어난다.
     //   ★ 맵 읽기가 실패해도 부활은 해야 한다 — 그래서 **반환값을 본다.**
     //     실패하면 지금 맵이 그대로 남으므로 여기서 적을 되살린다.
-    if (m_saveMap == m_mapName || !LoadMap(ctx, m_saveMap, "start"))
+    if (m_restMap == m_mapName || !LoadMap(ctx, m_restMap, "start"))
         SpawnEnemies(ctx);   // 같은 맵(또는 못 읽음) -> 적만 되살린다
 
-    m_player->SetHome(m_saveX, m_saveY);
+    // ★ 일어날 자리는 **맵에서 찾는다**(9) — 화톳불을 id 로 기억하므로.
+    const auto [homeX, homeY] = RestSpot();
+    m_player->SetHome(homeX, homeY);
 
     // ★ 무엇을 되돌릴지는 **각자가 안다.** Scene 은 「되돌려라」만 말한다.
     //   design.md §3.6.1 의 「되돌아간다 / 남는다」 표가 각 컴포넌트 안에 있다.
@@ -659,6 +711,99 @@ void PlayScene::Resume(SceneContext& ctx)
     Respawn(ctx);
     ctx.audio.Play("ui_confirm", 0.7f, -0.35f);
     Log::Info("[play] 부활 — 적도 되살아났다");
+}
+
+
+void PlayScene::Exit()
+{
+    Autosave();   // 1초가 안 돼 꺼져도 남는다. 바뀐 것이 없으면 아무것도 안 쓴다
+}
+
+
+// ============================================================================
+//  ★★ 저장 (9) — design.md §3.6.2
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+//  ApplySave — 저장 → 세상 (Enter 에서 한 번)
+// ----------------------------------------------------------------------------
+void PlayScene::ApplySave(SceneContext& ctx, const SaveData& s)
+{
+    // 몸에 지닌 것. ★ 무엇을 믿고 무엇을 버릴지는 **카탈로그를 가진 쪽**이 정한다.
+    m_player->RestoreLoadout(s);
+
+    m_restMap   = s.restMap;
+    m_restPoint = s.restPoint;
+
+    m_openedChests = { s.openedChests.begin(), s.openedChests.end() };
+
+    // 떨어진 물건 — 각자 **자기 맵**에. 지금 맵이 아닌 것은 그 맵에 들어갈 때까지
+    //   안 굴린다(Update 의 「이 맵의 것만」) — 들어가는 순간 그 지형에 떨어진다.
+    m_drops.clear();
+    for (const SavedDrop& d : s.drops)
+    {
+        // ★ 모르는 물건은 놓지 않는다 — 장비(RestoreLoadout)와 같은 태도다.
+        if (!m_player->Items().count(d.item))
+        {
+            Log::Info("[save] 모르는 물건 '{}' — 버린다 (items.json 에 없다)", d.item);
+            continue;
+        }
+        PlaceDrop(ctx, d.map, d.item, d.x, d.y);
+    }
+
+    Log::Info("[save] 입혔다 — 쉰 자리 {}:{}  열린 상자 {}  바닥의 물건 {}",
+              m_restMap, m_restPoint.empty() ? "start" : m_restPoint,
+              m_openedChests.size(), m_drops.size());
+}
+
+
+// ----------------------------------------------------------------------------
+//  Snapshot — 세상 → 저장 (지금 이 순간)
+// ----------------------------------------------------------------------------
+SaveData PlayScene::Snapshot() const
+{
+    SaveData s;
+    m_player->StoreLoadout(s);
+
+    s.restMap   = m_restMap;
+    s.restPoint = m_restPoint;
+    s.openedChests.assign(m_openedChests.begin(), m_openedChests.end());
+
+    for (const Drop& d : m_drops)
+        s.drops.push_back({ d.map, d.pickup->WeaponId(),
+                            d.obj->transform.x, d.obj->transform.y });
+
+    // ★★ 아직 안 가져간 떨굼 요청도 **떨어진 물건**이다. 손·가방에서는 이미
+    //   빠졌는데 땅에는 아직 없는 틈 — 팔이 잘린 그 틱(판정은 UpdateWeaponDrop
+    //   **뒤**에 온다), 장비 화면에서 버린 그 틱(InventoryScene 은 이 Scene **다음**에
+    //   돈다) — 에 찍히면 그 물건이 저장에서 **사라진다.** 다음 틱에 놓일 자리
+    //   (발밑)에 미리 적는다.
+    const Transform& tr = m_playerObj.transform;
+    for (const std::string& id : m_player->PendingDrops())
+        s.drops.push_back({ m_mapName, id, tr.x, tr.y });
+
+    return s;
+}
+
+
+// ----------------------------------------------------------------------------
+//  Autosave — 바뀌었으면 쓴다
+// ----------------------------------------------------------------------------
+void PlayScene::Autosave()
+{
+    std::string text = SaveIO::ToText(Snapshot());
+    if (text == m_lastSaveText)
+        return;   // 바뀐 것이 없다 — 걷기 · 싸우기 · 맞기는 저장을 안 바꾼다
+
+    // ★ 실패해도 이 글을 **「시도했다」로** 적어 둔다. 안 그러면 폴더가 잠겨 있을 때
+    //   1초마다 같은 오류가 로그를 덮는다. 상태가 또 바뀌면 그때 다시 쓴다.
+    m_lastSaveText = std::move(text);
+
+    std::string err;
+    if (SaveIO::Write(SaveIO::kPath, m_lastSaveText, &err))
+        Log::Info("[save] 저장했다 ({} 바이트)", m_lastSaveText.size());
+    else
+        Log::Info("[save] 저장 실패 ({}) — 다음에 바뀌면 다시 쓴다", err);
 }
 
 
@@ -920,6 +1065,14 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     if (consumeEdgeInput && ctx.input.InteractPressed())
         Interact(ctx);
 
+    // ---- ★ 저장 (9) — 1초에 한 번, 바뀌었을 때만 ----
+    //   상자 · 화톳불 · 줍기가 **이 위에서** 끝났다. 무엇이 바꿨는지는 묻지 않는다.
+    if (++m_autosaveTicks >= kAutosaveTicks)
+    {
+        m_autosaveTicks = 0;
+        Autosave();
+    }
+
     if (m_portalPending)
     {
         m_portalPending = false;
@@ -1123,21 +1276,23 @@ void PlayScene::UpdateWeaponDrop(SceneContext& ctx)
 
 
 // ----------------------------------------------------------------------------
-//  DropItem — 물건 하나를 월드에 놓는다
+//  PlaceDrop — 물건 하나를 월드에 놓는다 (소리 · 로그 없이)
 //
 //    ★ 적 스폰(SpawnEnemies)과 **같은 모양**이다: GameObject 를 만들고,
 //      필요한 능력을 붙이고, 조립할 때 포인터를 받아 둔다.
 //      「월드에 있는 것」이 한 종류이므로 만드는 법도 한 종류다.
+//    ★ 저장에서 되살릴 때(9)도 이것을 쓴다 — 떨굴 때와 **같은 물건**이 된다.
 // ----------------------------------------------------------------------------
-void PlayScene::DropItem(SceneContext& ctx, const std::string& weaponId, float x, float y)
+void PlayScene::PlaceDrop(SceneContext& ctx, const std::string& map,
+                          const std::string& itemId, float x, float y)
 {
     const ItemCatalog& types = m_player->Items();
-    auto it = types.find(weaponId);
+    auto it = types.find(itemId);
     const int icon = (it != types.end()) ? it->second.icon : 1;
 
     Drop d;
     d.obj = std::make_unique<GameObject>("drop");
-    d.map = m_mapName;
+    d.map = map;
 
     // ★ Body 를 **먼저** 붙인다 = 「물리 먼저, 판단 나중」. 플레이어와 같다.
     //   중력도 발판 착지도 여기 이미 있다 — 물건용 낙하 코드를 새로 쓰면
@@ -1148,13 +1303,20 @@ void PlayScene::DropItem(SceneContext& ctx, const std::string& weaponId, float x
     d.pickup->SetSheet(m_icons);   // 손 슬롯과 **같은 시트**를 쓴다
 
     d.obj->Start(ctx);
-    d.pickup->DropAt(x, y, weaponId, icon);
+    d.pickup->DropAt(x, y, itemId, icon);
+
+    m_drops.push_back(std::move(d));
+}
+
+
+// 지금 맵의 그 자리에 떨군다 — 팔이 잘렸다 · 버렸다 · 상자를 열었다.
+void PlayScene::DropItem(SceneContext& ctx, const std::string& weaponId, float x, float y)
+{
+    PlaceDrop(ctx, m_mapName, weaponId, x, y);
 
     ctx.audio.Play("ui_cancel", 0.7f, -0.5f, PanFromWorldX(x, ctx.camera.X()));
     Log::Info("[play] {} 가 땅에 떨어졌다 ({:.0f}, {:.0f})  바닥의 물건 {}개",
-              weaponId, x, y, m_drops.size() + 1);
-
-    m_drops.push_back(std::move(d));
+              weaponId, x, y, m_drops.size());
 }
 
 
