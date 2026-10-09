@@ -1,0 +1,15 @@
+﻿{
+  "_note": "대사표 (10-a). 맵의 NPC 가 \"dialogue\" 로 키를 가리킨다. ★ 글은 ASCII 만 — 글꼴이 ASCII 전용이다(한국어·일본어는 글리프 아틀라스가 온 뒤, 이 표를 언어별로 갈아 끼운다). 한 줄은 상자에 3줄(66글자 x 3)까지 들어간다 — tools/dialogue_test 가 본다. F6 으로 다시 읽는다.",
+  "dialogues": {
+    "pilgrim_hello": {
+      "speaker": "OLD PILGRIM",
+      "lines": [
+        "...A child? Out here, alone?",
+        "So the village burned after all. And you alone walked out of the fire.",
+        "Rest by the flame when you are hurt. The dead rise again when you rest... but so do you.",
+        "The cave to the east swallows every light. There is a torch in that old chest - take it.",
+        "Go on, then. I am only an old man resting his feet."
+      ]
+    }
+  }
+}

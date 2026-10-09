@@ -23,6 +23,7 @@
 
 #include "Core/GameObject.h"
 #include "Core/Level.h"
+#include "Gameplay/Dialogue.h"
 #include "Gameplay/EnemyType.h"
 #include "Gameplay/MapData.h"
 #include "Gameplay/SaveData.h"
@@ -158,6 +159,22 @@ private:
     std::set<std::string> m_openedChests;
     std::string ChestKey(const MapInteract& chest) const;
     bool        IsOpened(const MapInteract& chest) const;
+
+    // ---- ★ NPC · 대화 (10-a) ----
+    //   대사표는 **Scene 이 하나** 들고 있다(적 카탈로그와 같다). F6 으로 다시 읽는다.
+    //   ★ NPC 는 아직 GameObject 가 아니다 — 움직이지도 맞지도 않으므로 맵의
+    //     상호작용(MapInteract)에 그림 한 장이면 충분하다. 움직이거나 적이 될 수
+    //     있게 되면 그때 몸을 준다(「두 번째 사용자가 생겼을 때 올린다」).
+    DialogueCatalog m_dialogues;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_npcSheet;   // npc.png — 줄마다 한 사람
+    int  m_npcTicks = 0;   // NPC 의 숨쉬기(idle) 애니메이션 시계
+
+    // 대화 중인가. ★ 대화 상자가 떠 있는 동안 머리 위의 「E : TALK」를 감춘다 —
+    //   그때 E 는 「말 걸기」가 아니라 「다음」이다. 안내가 거짓말이 되면 안 된다.
+    //   대화가 닫히면 Resume 이 내린다(대화 중에는 다른 Scene 이 위에 못 올라온다).
+    bool m_talking = false;
+
+    void DrawNpcs(Renderer& renderer);
 
     // 상자 그림(닫힘 / 열림). ★ 아이콘 시트(icons.png)에 넣지 않았다 —
     //   아이콘은 칸마다 **슬롯 테두리**가 있어서, 월드에 놓으면 상자가

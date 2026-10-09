@@ -1,6 +1,7 @@
 ﻿#include "Scenes/PlayScene.h"
 
 #include "Scenes/DeathScene.h"
+#include "Scenes/DialogueScene.h"
 #include "Scenes/InventoryScene.h"
 #include "Scenes/PauseScene.h"
 
@@ -92,6 +93,16 @@ namespace
     // ★ 저장 확인 주기(9). 1초 — 끄기 직전의 1초는 Exit 가 메운다.
     //   더 짧게 해도 얻는 것이 없다: 바뀐 것이 없으면 쓰지도 않는다.
     constexpr int   kAutosaveTicks = 60;
+
+    // ---- NPC (10-a) ----
+    //   ★ 플레이어 idle 과 **같은 칸 · 같은 속도**다. npc.png 가 player.png 의
+    //     idle 행을 다시 칠한 것이라(tools/gen_npc.ps1) 숫자도 같아야 같이 숨쉰다.
+    constexpr int   kNpcFrames      = 4;
+    constexpr int   kNpcTicksPerFrame = 10;
+
+    // 이만큼 가까우면 플레이어 쪽을 돌아본다. 말을 걸 수 있는 거리보다 조금 넓게 —
+    //   다가가는 동안 이미 쳐다보고 있어야 「나를 알아챘다」로 읽힌다.
+    constexpr float kNpcLookRange   = 96.0f;
 
     // ※ **적의** 부위·강인도·공격 숫자는 EnemyType 으로 옮겨 갔다(7-b).
     //   왜 그 값인지도 같이 갔다 — Gameplay/EnemyType.cpp 참조.
@@ -368,6 +379,32 @@ void PlayScene::Interact(SceneContext& ctx)
         m_focus = {};
         break;
     }
+
+    case InteractKind::Npc:
+    {
+        // ★ 대사는 **ID 로** 찾는다. 없으면 「...」 한 줄 — 말없이 아무 일도 안
+        //   일어나면 「E 가 안 먹나?」가 된다. 왜 그런지는 로그가 말한다.
+        Dialogue d;
+        if (auto found = m_dialogues.find(it.dialogue); found != m_dialogues.end())
+        {
+            d = found->second;
+        }
+        else
+        {
+            Log::Info("[talk] 대사 '{}' 가 dialogue.json 에 없다 — 「...」로 대신한다", it.dialogue);
+            d.speaker = it.name;
+            d.lines   = { "..." };
+        }
+
+        // 말을 걸면 **그쪽을 본다.** 등을 진 채 이야기하면 대화로 안 읽힌다.
+        const float npcX = (it.box.left + it.box.right) * 0.5f;
+        m_playerObj.transform.facing = (npcX < m_playerObj.transform.x) ? -1 : 1;
+
+        m_talking = true;
+        ctx.audio.Play("ui_confirm", 0.5f);
+        ctx.scenes.Push(std::make_unique<DialogueScene>(*m_player, *m_playerParts, std::move(d)));
+        break;
+    }
     }
 }
 
@@ -524,6 +561,13 @@ void PlayScene::ReloadData(SceneContext& ctx)
     else
         Log::Info("[enemy] enemies.json 을 못 읽었다 ({}) — 이전 값 유지", err);
 
+    // ★ 대사도 같은 키로 다시 읽는다 — 글을 고치며 바로 말을 걸어 볼 수 있다.
+    //   대화 중에 읽어도 안전하다: 떠 있는 대화는 대사를 **복사해서** 들고 있다.
+    if (DialogueIO::LoadInto(L"assets/data/dialogue.json", m_dialogues, &err))
+        Log::Info("[talk] dialogue.json 적용 — 대사 {}개", m_dialogues.size());
+    else
+        Log::Info("[talk] dialogue.json 을 못 읽었다 ({}) — 이전 값 유지", err);
+
     SpawnEnemies(ctx);
     UpdateCamera(ctx);
 }
@@ -570,7 +614,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     m_lightMask  = ctx.assets.Texture(L"assets/textures/light_mask.png");
     m_icons      = ctx.assets.Texture(L"assets/textures/icons.png");
     m_chestSheet = ctx.assets.Texture(L"assets/textures/chest.png");
-    if (!m_lightMask || !m_icons || !m_chestSheet)
+    m_npcSheet   = ctx.assets.Texture(L"assets/textures/npc.png");
+    if (!m_lightMask || !m_icons || !m_chestSheet || !m_npcSheet)
         return false;
 
     // ★ 상속 계층을 짜지 않는다. 필요한 능력을 붙일 뿐이다.
@@ -648,7 +693,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
     Log::Info("[play] LMB = 왼손   RMB = 오른손   — 무기가 있으면 휘두르고 없으면 문다");
     Log::Info("[play] E = 상호작용 — 발밑에 있는 것이 무엇인지가 하는 일을 정한다");
-    Log::Info("[play]        무기 = 줍기(주손)   포탈 = 이동   화톳불 = 쉬기");
+    Log::Info("[play]        무기 = 줍기(주손)   포탈 = 이동   화톳불 = 쉬기   사람 = 말 걸기");
     Log::Info("[play] Ctrl = crouch (다리를 노린다)   Esc = pause");
     Log::Info("[play] F1 = hitbox   F3 = stats");
     Log::Info("[play] F4 = 다리 파괴/복구   F7 = 오른팔 파괴/복구(= 무기를 떨군다)");
@@ -693,6 +738,10 @@ void PlayScene::Respawn(SceneContext& ctx)
 
 void PlayScene::Resume(SceneContext& ctx)
 {
+    // ★ 대화가 닫혔으면 「E : TALK」를 다시 보인다. 대화 중에는 다른 Scene 이
+    //   위에 올라올 수 없으므로(입력이 대화에 간다), 위가 닫혔다 = 대화가 끝났다.
+    m_talking = false;
+
     // ★ 위에 있던 화면 중 **사망 화면이 닫혔을 때만** 부활한다.
     //   DeathScene 은 PlayScene 을 알 필요가 없고 둘 사이에 포인터가 없다.
     //
@@ -1036,6 +1085,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     m_playerObj.Tick(ctx, consumeEdgeInput);
     UpdateWeaponDrop(ctx);
+    ++m_npcTicks;
 
     // ★ 떨어진 무기도 **굴린다**(중력·발판 착지).
     //   ★★ 떨구기 **뒤**다. 그래야 이번 틱에 떨어진 것이 같은 틱부터 낙하한다.
@@ -1175,6 +1225,48 @@ void PlayScene::DrawDarkness(Renderer& renderer)
     if (mb < vb) renderer.DrawFilledRect({ vl, mb, vr, vb }, black);   // 아래
     if (ml > vl) renderer.DrawFilledRect({ vl, mt, ml, mb }, black);   // 왼쪽
     if (mr < vr) renderer.DrawFilledRect({ mr, mt, vr, mb }, black);   // 오른쪽
+}
+
+
+// ----------------------------------------------------------------------------
+//  DrawNpcs — 서 있는 사람들 (10-a)
+//
+//    ★ SpriteComponent 를 안 쓴다. NPC 는 아직 GameObject 가 아니라서
+//      (PlayScene.h 주석) 그리는 규칙을 여기서 그대로 따른다:
+//      원점 = 발밑 가운데 · 위치는 정수 · 시트는 오른쪽을 보고 있다.
+// ----------------------------------------------------------------------------
+void PlayScene::DrawNpcs(Renderer& renderer)
+{
+    if (!m_npcSheet)
+        return;
+
+    constexpr float kCell = static_cast<float>(kCellW);
+    const int frame = (m_npcTicks / kNpcTicksPerFrame) % kNpcFrames;
+    const float playerX = m_playerObj.transform.x;
+
+    for (const MapInteract& it : m_map.interacts)
+    {
+        if (it.kind != InteractKind::Npc)
+            continue;
+
+        const float x = std::round((it.box.left + it.box.right) * 0.5f);
+        const float y = std::round(it.box.bottom);
+
+        // ★ 가까이 오면 **돌아본다.** 멀면 원래 보던 쪽.
+        int facing = it.facing;
+        if (std::abs(playerX - x) < kNpcLookRange)
+            facing = (playerX < x) ? -1 : 1;
+
+        const RECT src{ frame * kCellW, it.row * kCellH,
+                        (frame + 1) * kCellW, (it.row + 1) * kCellH };
+
+        renderer.Sprites().Draw(
+            m_npcSheet.Get(), DirectX::XMFLOAT2(x, y), &src, DirectX::Colors::White,
+            0.0f, DirectX::XMFLOAT2(kCell * 0.5f, static_cast<float>(kCellH)),
+            DirectX::XMFLOAT2(1.0f, 1.0f),
+            (facing < 0) ? DirectX::SpriteEffects_FlipHorizontally
+                         : DirectX::SpriteEffects_None);
+    }
 }
 
 
@@ -1411,10 +1503,13 @@ void PlayScene::Render(Renderer& renderer)
             &src, DirectX::Colors::White);
     }
 
-    // 바닥의 물건 -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
+    // 바닥의 물건 -> NPC -> 적 -> 플레이어 순. 뒤에 그린 것이 위에 보인다.
+    //   ★ NPC 는 **어둠 아래**다 — 포탈 · 화톳불처럼 「여기가 무엇인지」를 알리는
+    //     표지가 아니라 **세상에 서 있는 사람**이다. 어두운 곳의 사람은 빛이 있어야 보인다.
     for (Drop& d : m_drops)
         if (d.map == m_mapName)
             d.obj->Render(renderer);
+    DrawNpcs(renderer);
     for (Enemy& e : m_enemies)
         e.obj->Render(renderer);
     m_playerObj.Render(renderer);
@@ -1429,8 +1524,8 @@ void PlayScene::Render(Renderer& renderer)
     //   포탈은 푸르게, 세이브 포인트는 따뜻하게 — **색이 종류를 말한다.**
     for (const MapInteract& it : m_map.interacts)
     {
-        if (it.kind == InteractKind::Chest)
-            continue;   // 상자는 위에서 어둠 **아래**에 그렸다
+        if (it.kind == InteractKind::Chest || it.kind == InteractKind::Npc)
+            continue;   // 상자 · NPC 는 위에서 어둠 **아래**에 그렸다(그림이 있다)
 
         const bool save = (it.kind == InteractKind::SavePoint);
         const DirectX::XMVECTOR fill = save
@@ -1446,7 +1541,7 @@ void PlayScene::Render(Renderer& renderer)
 
     // ★ 지금 누를 수 있는 것 위에만 안내를 띄운다. 항상 띄우면 아무도 안 읽는다 —
     //   「SPACE : PICK UP」과 같은 규칙이다.
-    if (m_focus.kind != FocusKind::None)
+    if (m_focus.kind != FocusKind::None && !m_talking)
     {
         renderer.DrawString(m_focus.prompt,
             std::round((m_focus.box.left + m_focus.box.right) * 0.5f - 32.0f),

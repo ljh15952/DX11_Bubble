@@ -108,6 +108,7 @@
     <ClCompile Include="src\Core\SceneManager.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Gameplay\AttackData.cpp" />
+    <ClCompile Include="src\Gameplay\Dialogue.cpp" />
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp" />
     <ClCompile Include="src\Gameplay\EnemyType.cpp" />
     <ClCompile Include="src\Gameplay\MapData.cpp" />
@@ -126,6 +127,7 @@
     <ClCompile Include="src\Graphics\SpriteComponent.cpp" />
     <ClCompile Include="src\Input\Input.cpp" />
     <ClCompile Include="src\Scenes\DeathScene.cpp" />
+    <ClCompile Include="src\Scenes\DialogueScene.cpp" />
     <ClCompile Include="src\Scenes\InventoryScene.cpp" />
     <ClCompile Include="src\Scenes\PauseScene.cpp" />
     <ClCompile Include="src\Scenes\PlayScene.cpp" />
@@ -149,6 +151,7 @@
     <ClInclude Include="src\Core\Transform.h" />
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Gameplay\AttackData.h" />
+    <ClInclude Include="src\Gameplay\Dialogue.h" />
     <ClInclude Include="src\Gameplay\EnemyBrain.h" />
     <ClInclude Include="src\Gameplay\EnemyType.h" />
     <ClInclude Include="src\Gameplay\MapData.h" />
@@ -167,6 +170,7 @@
     <ClInclude Include="src\Graphics\SpriteComponent.h" />
     <ClInclude Include="src\Input\Input.h" />
     <ClInclude Include="src\Scenes\DeathScene.h" />
+    <ClInclude Include="src\Scenes\DialogueScene.h" />
     <ClInclude Include="src\Scenes\InventoryScene.h" />
     <ClInclude Include="src\Scenes\PauseScene.h" />
     <ClInclude Include="src\Scenes\PlayScene.h" />

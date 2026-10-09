@@ -123,6 +123,34 @@ bool MapIO::Load(const wchar_t* path, MapData& out, std::string* error)
         m.interacts.push_back(std::move(it));
     }
 
+    // ---- NPC (10-a) ----
+    // ★ NPC 를 화톳불 **앞에** 읽는다. 목록 순서가 곧 초점의 우선순위다(UpdateFocus) —
+    //   둘 사이에 서면 먼저 읽힌 쪽이 잡힌다. 말 걸기는 Esc 로 닫으면 그만이지만
+    //   쉬기는 적을 되살린다 — **되돌릴 수 없는 쪽을 뒤로** 민다(줍기가 앞인 것과 같다).
+    //   ★ id 와 dialogue 가 **필수**다. dialogue 가 없으면 말을 걸어도 할 말이
+    //     없고, id 가 없으면 10-b 에서 「이 사람과 이야기했다」를 기억할 이름이
+    //     없다 — 상자 · 화톳불과 같은 태도로 **건너뛴다.**
+    const JsonValue& npcs = (*root)["npcs"];
+    for (size_t i = 0; i < npcs.Size(); ++i)
+    {
+        const JsonValue& n = npcs[i];
+        MapInteract it;
+        it.kind     = InteractKind::Npc;
+        it.box      = ReadBox(n["box"]);
+        it.id       = n["id"]      .Str();
+        it.dialogue = n["dialogue"].Str();
+        it.row      = n["row"]     .Int(0);
+        it.facing   = (n["facing"].Int(1) < 0) ? -1 : 1;
+        it.name     = it.id;
+
+        if (it.id.empty() || it.dialogue.empty())
+        {
+            Log::Info("[map] id 나 dialogue 가 없는 NPC 가 있다 — 건너뛴다");
+            continue;
+        }
+        m.interacts.push_back(std::move(it));
+    }
+
     // ---- 세이브 포인트(화톳불) ----
     //   ★ id 가 **필수**다(9) — 상자와 같은 이유. id 가 없으면 저장 파일이
     //     「여기서 쉬었다」를 적을 수가 없어서, 껐다 켜면 맵의 시작에서 일어난다.

@@ -45,6 +45,10 @@ enum class InteractKind
     // ★ 8-h. 7-d 에서 「나중에 상자·사람이 오면 **종류만** 늘어난다」고 적어 둔
     //   그대로다 — 찾는 코드도, 버튼도, 그리는 자리도 안 늘었다.
     Chest,       // 한 번 열면 끝. 안에 든 것이 발밑에 떨어진다
+
+    // ★ 10-a. 그 「사람」이 왔다. 역시 **종류 하나**다 — 찾기(UpdateFocus)도
+    //   버튼(E)도 그대로이고, Interact 의 switch 에 case 가 하나 붙는다.
+    Npc,         // 말을 건다. 무슨 말을 할지는 dialogue.json 이 안다
 };
 
 struct MapInteract
@@ -65,6 +69,13 @@ struct MapInteract
     std::string  id;
     std::string  item;    // 상자 : 안에 든 것 (items.json 의 키)
 
+    // ---- NPC (10-a) ----
+    //   ★ 대사를 **ID 로** 가리킨다. 글은 dialogue.json 한 곳에 있다 —
+    //     맵 파일에 대사를 적으면 번역할 때 맵을 전부 열어야 한다.
+    std::string  dialogue;     // dialogue.json 의 키
+    int          row    = 0;   // npc.png 의 몇 번째 줄(생김새). ★ 물건의 icon 처럼 그림 번호가 데이터다
+    int          facing = 1;   // 혼자 있을 때 바라보는 쪽(가까이 가면 돌아본다)
+
     // ★ `? :` 가 아니라 switch 다. 종류가 둘일 때는 `? :` 로 충분했는데
     //   셋이 되는 순간 하나가 조용히 빠진다(handoff §9.1 의 자매 규칙).
     const char* Prompt() const
@@ -74,6 +85,7 @@ struct MapInteract
         case InteractKind::Portal:    return "E : ENTER";
         case InteractKind::SavePoint: return "E : REST";
         case InteractKind::Chest:     return "E : OPEN";
+        case InteractKind::Npc:       return "E : TALK";
         }
         return "E";
     }
@@ -104,7 +116,7 @@ struct MapData
     std::vector<AABB>          solids;      // 고체 — 바닥 · 벽 · 천장
     std::vector<AABB>          platforms;   // ★ 발판 — 위에서만 받친다(아래·옆은 통과)
     std::vector<MapEnemySpawn> enemies;
-    std::vector<MapInteract>   interacts;   // 포탈 · 세이브 포인트 · 상자
+    std::vector<MapInteract>   interacts;   // 포탈 · 세이브 포인트 · 상자 · NPC
 
     // 입구 이름 -> x. ★ 포탈이 **이 이름**을 가리킨다.
     //   "start" 는 특별하다 — 부활 지점이자 맵을 직접 열었을 때의 기본 입구다.
