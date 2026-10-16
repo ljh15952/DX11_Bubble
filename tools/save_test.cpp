@@ -44,7 +44,7 @@ static bool Same(const SaveData& a, const SaveData& b)
 {
     return a.hands == b.hands && a.bag == b.bag && a.armor == b.armor && a.rings == b.rings
         && a.restMap == b.restMap && a.restPoint == b.restPoint
-        && a.openedChests == b.openedChests && SameDrops(a.drops, b.drops);
+        && a.flags == b.flags && SameDrops(a.drops, b.drops);
 }
 
 static std::string ReadAll(const std::wstring& path)
@@ -76,7 +76,7 @@ int main()
     Check(!fresh.rings.empty() && fresh.rings[0] == "novice_ring", "初心者の指輪 를 끼고 시작한다");
     Check(fresh.bag.empty(),                                    "가방은 빈 채로 (물건은 상자에)");
     Check(fresh.restPoint.empty(),                              "아직 아무 데서도 안 쉬었다 → 맵의 start");
-    Check(fresh.openedChests.empty() && fresh.drops.empty(),    "열린 상자도 바닥의 물건도 없다");
+    Check(fresh.flags.empty() && fresh.drops.empty(),           "플래그(열린 상자 · 만난 사람)도 바닥의 물건도 없다");
 
     // ★★ 두 파일에 걸친 약속. 기본 저장이 items.json 에 없는 물건을 적고 있으면
     //   새 게임이 **맨몸으로** 시작한다(RestoreLoadout 이 버린다) — 저장 코드만 봐도,
@@ -133,7 +133,7 @@ int main()
     full.rings = { "", "firefly_ring" };                               // 왼쪽 칸만 비었다
     full.restMap   = "cave";
     full.restPoint = "deep";
-    full.openedChests = { "cave:firefly", "field:torch" };
+    full.flags = { "chest:cave:firefly", "chest:field:torch", "met:pilgrim" };   // 정렬된 모양(set 에서 나온다)
     full.drops = {
         { "cave",  "buckler",  470.5f, 640.0f },
         { "field", "dagger",  1234.0f, 456.0f },
@@ -173,12 +173,24 @@ int main()
     // ========================================================================
     std::printf("-- 거절 --\n");
     SaveData keep = full;
-    Check(!SaveIO::FromText(R"({ "version": 2 })", keep, &err), "모르는 판(2)은 거절한다");
+    Check(!SaveIO::FromText(R"({ "version": 3 })", keep, &err), "모르는 판(3)은 거절한다");
     std::printf("      (%s)\n", err.c_str());
     Check(!SaveIO::FromText(R"({ "bag": [] })", keep, &err),   "판이 없으면 거절한다");
     Check(!SaveIO::FromText("[1, 2, 3]", keep, &err),          "객체가 아니면 거절한다");
     Check(!SaveIO::FromText(text.substr(0, text.size() / 2), keep, &err), "반쯤 잘린 글은 거절한다");
     Check(Same(keep, full), "거절하면 out 을 안 건드린다");
+
+    // ★★ 판 1(9) 저장은 **옮겨서** 읽는다 — 열린 상자 → chest 플래그 (10-b).
+    //   판을 올릴 때마다 옛 저장을 버리면 판 번호를 적어 둔 뜻이 없다.
+    SaveData old;
+    Check(SaveIO::FromText(R"({ "version": 1, "rest": { "map": "cave", "point": "deep" },
+                                "openedChests": ["field:torch", "cave:firefly", "nocolon"] })", old, &err)
+          && old.flags == std::vector<std::string>{ "chest:field:torch", "chest:cave:firefly" }
+          && old.restMap == "cave" && old.restPoint == "deep",
+          "★ 판 1 의 열린 상자가 chest 플래그로 옮겨진다 (모양이 틀린 것은 버린다)");
+    Check(SaveIO::ToText(old).find(R"("version": 2)") != std::string::npos
+          && SaveIO::ToText(old).find("openedChests") == std::string::npos,
+          "옮긴 것을 다시 쓰면 판 2 다 (옛 칸은 안 남는다)");
 
     // ★★ 없는 칸은 「없다」 — 시작 장비가 끼어들지 않는다(저장은 기록이다)
     SaveData bare;

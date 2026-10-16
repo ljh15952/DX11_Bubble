@@ -234,15 +234,13 @@
   ],
   "npcs": [
     {
-      "id": "pilgrim",
+      "npc": "pilgrim",
       "box": [
         32,
         632.0,
         80,
         680.0
       ],
-      "dialogue": "pilgrim_hello",
-      "row": 0,
       "facing": 1
     }
   ]

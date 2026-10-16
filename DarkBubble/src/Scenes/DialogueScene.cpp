@@ -89,6 +89,10 @@ void DialogueScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         m_runner.Press();
         if (m_runner.Finished())
         {
+            // ★ **여기서만** 「끝까지 들었다」. Esc · 맞음은 위에서 이미 빠져나갔다.
+            if (m_onComplete)
+                m_onComplete();
+
             ctx.audio.Play("ui_cancel", 0.4f);
             Close(ctx);
             return;

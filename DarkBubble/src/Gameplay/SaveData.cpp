@@ -1,6 +1,7 @@
 ﻿#include "Gameplay/SaveData.h"
 
 #include "Core/Json.h"
+#include "Gameplay/Flags.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -75,9 +76,10 @@ namespace
     bool ReadSave(const JsonValue& root, SaveData& out, std::string* error)
     {
         // ★ 판부터 본다. 객체가 아니면 version 이 Null 이라 0 이 되어 여기서 걸린다.
+        //   판 1 은 **옮겨서** 읽는다(아래 「세상의 기억」).
         const int version = root["version"].Int(0);
-        if (version != SaveIO::kVersion)
-            return Fail(error, std::format("모르는 판 {} (이 게임은 {})", version, SaveIO::kVersion));
+        if (version != 1 && version != SaveIO::kVersion)
+            return Fail(error, std::format("모르는 판 {} (이 게임은 1~{})", version, SaveIO::kVersion));
 
         // ★★ **빈 저장에서** 출발한다 — NewGame 이 아니다(FromText 주석).
         SaveData s;
@@ -94,12 +96,30 @@ namespace
         s.restMap   = rest["map"]  .Str();
         s.restPoint = rest["point"].Str();
 
-        const JsonValue& chests = root["openedChests"];
-        for (size_t i = 0; i < chests.Size(); ++i)
+        // ---- 세상의 기억 ----
+        if (version == 1)
         {
-            std::string key = chests[i].Str();
-            if (!key.empty())
-                s.openedChests.push_back(std::move(key));
+            // ★ 판 1(9)에는 열린 상자만 있었다 — 「맵:id」 → `chest:맵:id`.
+            //   이렇게 옮기므로 9 에서 쌓은 이어하기가 안 깨진다.
+            const JsonValue& chests = root["openedChests"];
+            for (size_t i = 0; i < chests.Size(); ++i)
+            {
+                const std::string key = chests[i].Str();
+                const size_t colon = key.find(':');
+                if (colon == std::string::npos || colon == 0 || colon + 1 >= key.size())
+                    continue;   // 맵도 id 도 아닌 것 — 옮길 수 없다
+                s.flags.push_back(ChestFlag(key.substr(0, colon), key.substr(colon + 1)));
+            }
+        }
+        else
+        {
+            const JsonValue& flags = root["flags"];
+            for (size_t i = 0; i < flags.Size(); ++i)
+            {
+                std::string f = flags[i].Str();
+                if (!f.empty())
+                    s.flags.push_back(std::move(f));
+            }
         }
 
         const JsonValue& drops = root["drops"];
@@ -176,7 +196,7 @@ std::string SaveIO::ToText(const SaveData& s)
     t += Key("rest") + "{ " + Quote("map")   + ": " + Quote(s.restMap)   + ", "
                             + Quote("point") + ": " + Quote(s.restPoint) + " },\n";
 
-    t += Key("openedChests") + List(s.openedChests) + ",\n";
+    t += Key("flags") + List(s.flags) + ",\n";
 
     t += Key("drops") + "[";
     for (size_t i = 0; i < s.drops.size(); ++i)

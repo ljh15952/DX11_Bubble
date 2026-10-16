@@ -362,7 +362,7 @@ void PlayScene::Interact(SceneContext& ctx)
     {
         // ★ 한 번 열면 끝(8-h ①). 기억부터 한다 — 아래에서 무엇이 실패해도
         //   같은 상자를 두 번 열어 물건을 두 개 얻는 일은 없어야 한다.
-        m_openedChests.insert(ChestKey(it));
+        SetFlag(ChestFlag(m_mapName, it.id));
 
         // ★★ 내용물은 **발밑에 떨어진다**(②). 가방으로 바로 넣지 않는다 —
         //   8-b 의 「떨어진 물건」을 그대로 쓰니 **가방이 차 있어도 새로
@@ -373,7 +373,7 @@ void PlayScene::Interact(SceneContext& ctx)
         DropItem(ctx, it.item, x, it.box.top);
 
         ctx.audio.Play("ui_confirm", 0.9f, -0.2f);
-        Log::Info("[play] 상자를 열었다 — {} ({})", it.item, ChestKey(it));
+        Log::Info("[play] 상자를 열었다 — {}", it.item);
 
         // 방금 가리키던 것이 사라졌다(열린 상자는 초점이 안 잡힌다).
         m_focus = {};
@@ -382,16 +382,31 @@ void PlayScene::Interact(SceneContext& ctx)
 
     case InteractKind::Npc:
     {
-        // ★ 대사는 **ID 로** 찾는다. 없으면 「...」 한 줄 — 말없이 아무 일도 안
-        //   일어나면 「E 가 안 먹나?」가 된다. 왜 그런지는 로그가 말한다.
-        Dialogue d;
-        if (auto found = m_dialogues.find(it.dialogue); found != m_dialogues.end())
-        {
-            d = found->second;
-        }
+        // ★★ 무슨 말을 할지는 **npcs.json 이 정한다**(10-b) — 위에서부터 보고
+        //   조건이 맞는 첫 대화. 조건은 세상의 기억(m_flags)을 본다.
+        //   ★ 어디서 막히든 「...」 한 줄은 나온다. 말없이 아무 일도 안 일어나면
+        //     「E 가 안 먹나?」가 된다 — 왜 막혔는지는 로그가 말한다.
+        Dialogue                 d;
+        std::vector<std::string> sets;
+
+        const auto        npc  = m_npcTypes.find(it.id);
+        const TalkOption* talk = (npc != m_npcTypes.end()) ? PickTalk(npc->second, m_flags) : nullptr;
+
+        if (npc == m_npcTypes.end())
+            Log::Info("[talk] NPC '{}' 가 npcs.json 에 없다", it.id);
+        else if (!talk)
+            Log::Info("[talk] '{}' 의 대화 중 조건이 맞는 것이 없다 — 맨 아래에 조건 없는 대화를 둘 것", it.id);
+        else if (auto found = m_dialogues.find(talk->say); found == m_dialogues.end())
+            Log::Info("[talk] 대사 '{}' 가 dialogue.json 에 없다", talk->say);
         else
         {
-            Log::Info("[talk] 대사 '{}' 가 dialogue.json 에 없다 — 「...」로 대신한다", it.dialogue);
+            d    = found->second;
+            sets = talk->sets;
+            Log::Info("[talk] {} -> {}", it.id, talk->say);
+        }
+
+        if (d.lines.empty())
+        {
             d.speaker = it.name;
             d.lines   = { "..." };
         }
@@ -402,22 +417,32 @@ void PlayScene::Interact(SceneContext& ctx)
 
         m_talking = true;
         ctx.audio.Play("ui_confirm", 0.5f);
-        ctx.scenes.Push(std::make_unique<DialogueScene>(*m_player, *m_playerParts, std::move(d)));
+
+        // ★ 플래그는 **끝까지 들었을 때** 세운다. 대화 Scene 은 플래그를 모르고
+        //   「들었다」만 알린다. 이 Scene 이 대화보다 오래 사니 this 를 잡아도 된다.
+        auto onComplete = [this, sets]()
+        {
+            for (const std::string& f : sets)
+                SetFlag(f);
+        };
+        ctx.scenes.Push(std::make_unique<DialogueScene>(*m_player, *m_playerParts,
+                                                        std::move(d), std::move(onComplete)));
         break;
     }
     }
 }
 
 
-std::string PlayScene::ChestKey(const MapInteract& chest) const
+void PlayScene::SetFlag(const std::string& flag)
 {
-    return m_mapName + ":" + chest.id;
+    if (m_flags.insert(flag).second)
+        Log::Info("[flag] + {}", flag);
 }
 
 
 bool PlayScene::IsOpened(const MapInteract& chest) const
 {
-    return m_openedChests.count(ChestKey(chest)) > 0;
+    return m_flags.count(ChestFlag(m_mapName, chest.id)) > 0;
 }
 
 
@@ -567,6 +592,12 @@ void PlayScene::ReloadData(SceneContext& ctx)
         Log::Info("[talk] dialogue.json 적용 — 대사 {}개", m_dialogues.size());
     else
         Log::Info("[talk] dialogue.json 을 못 읽었다 ({}) — 이전 값 유지", err);
+
+    // ★ 조건도 같은 키로 — 대사와 조건을 고치며 바로 말을 걸어 볼 수 있다.
+    if (NpcIO::LoadInto(L"assets/data/npcs.json", m_npcTypes, &err))
+        Log::Info("[talk] npcs.json 적용 — NPC {}명", m_npcTypes.size());
+    else
+        Log::Info("[talk] npcs.json 을 못 읽었다 ({}) — 이전 값 유지", err);
 
     SpawnEnemies(ctx);
     UpdateCamera(ctx);
@@ -784,7 +815,7 @@ void PlayScene::ApplySave(SceneContext& ctx, const SaveData& s)
     m_restMap   = s.restMap;
     m_restPoint = s.restPoint;
 
-    m_openedChests = { s.openedChests.begin(), s.openedChests.end() };
+    m_flags = { s.flags.begin(), s.flags.end() };
 
     // 떨어진 물건 — 각자 **자기 맵**에. 지금 맵이 아닌 것은 그 맵에 들어갈 때까지
     //   안 굴린다(Update 의 「이 맵의 것만」) — 들어가는 순간 그 지형에 떨어진다.
@@ -800,9 +831,9 @@ void PlayScene::ApplySave(SceneContext& ctx, const SaveData& s)
         PlaceDrop(ctx, d.map, d.item, d.x, d.y);
     }
 
-    Log::Info("[save] 입혔다 — 쉰 자리 {}:{}  열린 상자 {}  바닥의 물건 {}",
+    Log::Info("[save] 입혔다 — 쉰 자리 {}:{}  플래그 {}  바닥의 물건 {}",
               m_restMap, m_restPoint.empty() ? "start" : m_restPoint,
-              m_openedChests.size(), m_drops.size());
+              m_flags.size(), m_drops.size());
 }
 
 
@@ -816,7 +847,7 @@ SaveData PlayScene::Snapshot() const
 
     s.restMap   = m_restMap;
     s.restPoint = m_restPoint;
-    s.openedChests.assign(m_openedChests.begin(), m_openedChests.end());
+    s.flags.assign(m_flags.begin(), m_flags.end());
 
     for (const Drop& d : m_drops)
         s.drops.push_back({ d.map, d.pickup->WeaponId(),
@@ -1257,8 +1288,12 @@ void PlayScene::DrawNpcs(Renderer& renderer)
         if (std::abs(playerX - x) < kNpcLookRange)
             facing = (playerX < x) ? -1 : 1;
 
-        const RECT src{ frame * kCellW, it.row * kCellH,
-                        (frame + 1) * kCellW, (it.row + 1) * kCellH };
+        // 생김새(줄)는 **사람의 성질**이라 npcs.json 에 있다. 모르는 사람이면 0번 줄.
+        const auto npc = m_npcTypes.find(it.id);
+        const int  row = (npc != m_npcTypes.end()) ? npc->second.row : 0;
+
+        const RECT src{ frame * kCellW, row * kCellH,
+                        (frame + 1) * kCellW, (row + 1) * kCellH };
 
         renderer.Sprites().Draw(
             m_npcSheet.Get(), DirectX::XMFLOAT2(x, y), &src, DirectX::Colors::White,

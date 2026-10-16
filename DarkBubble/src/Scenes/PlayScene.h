@@ -26,6 +26,7 @@
 #include "Gameplay/Dialogue.h"
 #include "Gameplay/EnemyType.h"
 #include "Gameplay/MapData.h"
+#include "Gameplay/Npc.h"
 #include "Gameplay/SaveData.h"
 
 #include <memory>
@@ -148,17 +149,21 @@ private:
     bool        m_portalPending = false;
     std::string m_portalTo, m_portalEntry;
 
-    // ---- ★ 상자 (8-h) ----
-    //   **열린 상자**를 기억한다. 「맵 이름:id」 — 두 맵에 같은 id 가 있어도
-    //   안 섞인다.
+    // ---- ★★ 세상의 기억 — 플래그 (10-b, Gameplay/Flags.h) ----
+    //   「종류:이름」 하나가 사실 하나. 열린 상자(`chest:field:torch`)도,
+    //   끝까지 들은 대화(`met:pilgrim`)도 **여기 한 곳**이다.
+    //   ★ 8-h 의 `m_openedChests` 가 이것이 됐다 — 생김새가 이미 같았고, 둘로
+    //     두면 NPC 의 조건이 두 곳을 물어야 한다. 이름을 바꿔 옛 사용처를 드러냈다.
     //   ★★ 부활(Respawn)도 휴식(Rest)도 이것을 **안 건드린다.** 적은
     //     되살아나지만 상자는 안 되살아나야 「적을 되살리는 대가로 쉰다」가
     //     성립한다 — 쉴 때마다 상자가 차면 쉬는 것이 **보상**이 된다.
-    //   ★ 저장된다(9) — 껐다 켜도 열린 채다. set 이라 **정렬되어** 나오므로
-    //     같은 상태면 같은 저장 글이 된다(Autosave 의 비교가 이것에 기댄다).
-    std::set<std::string> m_openedChests;
-    std::string ChestKey(const MapInteract& chest) const;
-    bool        IsOpened(const MapInteract& chest) const;
+    //   ★ 저장된다(9) — set 이라 정렬되어 나와 같은 기억이면 같은 저장 글이 된다.
+    FlagSet m_flags;
+
+    // 세운다. 새로 세웠을 때만 로그를 남긴다 — 「무엇이 기억됐는가」가 보여야
+    //   조건 있는 대화를 맞춰 볼 수 있다.
+    void SetFlag(const std::string& flag);
+    bool IsOpened(const MapInteract& chest) const;
 
     // ---- ★ NPC · 대화 (10-a) ----
     //   대사표는 **Scene 이 하나** 들고 있다(적 카탈로그와 같다). F6 으로 다시 읽는다.
@@ -166,6 +171,9 @@ private:
     //     상호작용(MapInteract)에 그림 한 장이면 충분하다. 움직이거나 적이 될 수
     //     있게 되면 그때 몸을 준다(「두 번째 사용자가 생겼을 때 올린다」).
     DialogueCatalog m_dialogues;
+
+    // ★ NPC 카탈로그(10-b) — **언제 무슨 말을** 하는가 · 생김새. 맵은 이름만 든다.
+    NpcCatalog      m_npcTypes;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_npcSheet;   // npc.png — 줄마다 한 사람
     int  m_npcTicks = 0;   // NPC 의 숨쉬기(idle) 애니메이션 시계
 

@@ -46,6 +46,9 @@
     <ClCompile Include="src\Gameplay\EnemyBrain.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
+    <ClCompile Include="src\Gameplay\Npc.cpp">
+      <Filter>Gameplay</Filter>
+    </ClCompile>
     <ClCompile Include="src\Gameplay\Dialogue.cpp">
       <Filter>Gameplay</Filter>
     </ClCompile>
@@ -148,6 +151,12 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\AttackData.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\Flags.h">
+      <Filter>Gameplay</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Gameplay\Npc.h">
       <Filter>Gameplay</Filter>
     </ClInclude>
     <ClInclude Include="src\Gameplay\Dialogue.h">

@@ -60,7 +60,7 @@ struct MapInteract
     std::string  entry;   // 포탈 : 그 맵의 어느 입구로
     std::string  name;    // 표시용
 
-    // ---- id — 상자 (8-h) · 화톳불 (9) ----
+    // ---- id — 상자 (8-h) · 화톳불 (9) · NPC (10-b: npcs.json 의 키) ----
     //   ★ **이 맵 안에서** 유일하면 된다. 「열렸는가」「어디서 쉬었는가」는
     //     「맵 이름 + id」로 기억한다 — 두 맵에 같은 id 가 있어도 안 섞인다.
     //   ★★ 화톳불을 **좌표가 아니라 id 로** 기억하는 이유: 저장 파일에 좌표를
@@ -69,11 +69,12 @@ struct MapInteract
     std::string  id;
     std::string  item;    // 상자 : 안에 든 것 (items.json 의 키)
 
-    // ---- NPC (10-a) ----
-    //   ★ 대사를 **ID 로** 가리킨다. 글은 dialogue.json 한 곳에 있다 —
-    //     맵 파일에 대사를 적으면 번역할 때 맵을 전부 열어야 한다.
-    std::string  dialogue;     // dialogue.json 의 키
-    int          row    = 0;   // npc.png 의 몇 번째 줄(생김새). ★ 물건의 icon 처럼 그림 번호가 데이터다
+    // ---- NPC (10-a · 10-b) ----
+    //   ★ 맵은 **누가 어디에**만 적는다. NPC 는 `id`(= npcs.json 의 키)로 가리키고,
+    //     무슨 말을 할지 · 어떻게 생겼는지는 npcs.json 이 안다(10-b).
+    //   ※ 10-a 에는 여기에 `dialogue` · `row` 가 있었다. 대화가 여럿이 되자 맵에
+    //     적기에는 **이야기**가 됐다 — 칸을 지워서 옛 사용처가 전부 컴파일 에러가
+    //     되게 했다(handoff §9.1).
     int          facing = 1;   // 혼자 있을 때 바라보는 쪽(가까이 가면 돌아본다)
 
     // ★ `? :` 가 아니라 switch 다. 종류가 둘일 때는 `? :` 로 충분했는데

@@ -46,7 +46,7 @@ static bool SitsOnTerrain(const JsonValue& box, const JsonValue& map)
 }
 
 static void One(const wchar_t* path, const char* name, size_t portals, size_t saves,
-                size_t chests, size_t npcs, const JsonValue& items, const JsonValue& talks)
+                size_t chests, size_t npcs, const JsonValue& items, const JsonValue& people)
 {
     std::string err;
     auto m = Json::ParseFile(path, &err);
@@ -159,24 +159,25 @@ static void One(const wchar_t* path, const char* name, size_t portals, size_t sa
     Check(known,  "상자 안의 물건이 items.json 에 있다");
     Check(unique, "상자 id 가 맵 안에서 겹치지 않는다");
 
-    // ---- NPC (10-a) ----
-    //   ★★ 대사도 **두 파일에 걸친 약속**이다. 맵의 NPC 가 dialogue.json 에 없는
-    //     대사를 가리키면 말을 걸어도 「...」만 나온다 — 상자의 물건과 같은 모양.
+    // ---- NPC (10-a · 10-b) ----
+    //   ★★ 맵은 「누가 어디에」만 — **누구인지가 npcs.json 에 있어야** 한다.
+    //     없으면 말을 걸어도 「...」만 나온다(상자의 물건과 같은 모양의 약속).
+    //     무슨 말을 하는지(대사가 dialogue.json 에 있는가)는 npc_test 가 본다.
     const JsonValue& np = (*m)["npcs"];
     Check(np.Size() == npcs, "NPC 수");
 
-    bool npcSit = true, npcTalk = true, npcIds = true;
+    bool npcSit = true, npcKnown = true, npcIds = true;
     for (size_t i = 0; i < np.Size(); ++i)
     {
-        if (!SitsOnTerrain(np[i]["box"], *m))       npcSit  = false;   // 발이 땅에 — 그림이 상자 아랫변에 선다
-        if (talks[np[i]["dialogue"].Str()].IsNull()) npcTalk = false;
-        if (np[i]["id"].Str().empty())               npcIds  = false;
+        if (!SitsOnTerrain(np[i]["box"], *m))    npcSit   = false;   // 발이 땅에 — 그림이 상자 아랫변에 선다
+        if (people[np[i]["npc"].Str()].IsNull()) npcKnown = false;
+        if (np[i]["npc"].Str().empty())          npcIds   = false;
         for (size_t j = i + 1; j < np.Size(); ++j)
-            if (np[i]["id"].Str() == np[j]["id"].Str()) npcIds = false;
+            if (np[i]["npc"].Str() == np[j]["npc"].Str()) npcIds = false;
     }
-    Check(npcSit,  "NPC 가 지형 윗면에 서 있다");
-    Check(npcTalk, "NPC 의 대사가 dialogue.json 에 있다");
-    Check(npcIds,  "NPC id 가 있고 맵 안에서 겹치지 않는다");
+    Check(npcSit,   "NPC 가 지형 윗면에 서 있다");
+    Check(npcKnown, "NPC 가 npcs.json 에 있다 (누구인지 안다)");
+    Check(npcIds,   "NPC 이름이 있고 맵 안에서 겹치지 않는다");
 }
 
 int main()
@@ -187,14 +188,14 @@ int main()
     if (!items) return 1;
     const JsonValue& catalog = (*items)["items"];
 
-    std::string terr;
-    auto talk = Json::ParseFile(L"assets/data/dialogue.json", &terr);
-    Check(talk.has_value(), "dialogue.json 을 읽었다 (NPC 의 대사를 맞춰 보려고)");
-    if (!talk) return 1;
-    const JsonValue& talks = (*talk)["dialogues"];
+    std::string nerr;
+    auto npcFile = Json::ParseFile(L"assets/data/npcs.json", &nerr);
+    Check(npcFile.has_value(), "npcs.json 을 읽었다 (맵의 NPC 가 누구인지 맞춰 보려고)");
+    if (!npcFile) return 1;
+    const JsonValue& people = (*npcFile)["npcs"];
 
-    One(L"assets/data/maps/field.json", "field", 1, 2, 7, 1, catalog, talks);
-    One(L"assets/data/maps/cave.json",  "cave",  1, 1, 3, 0, catalog, talks);
+    One(L"assets/data/maps/field.json", "field", 1, 2, 7, 1, catalog, people);
+    One(L"assets/data/maps/cave.json",  "cave",  1, 1, 3, 0, catalog, people);
 
     // 서로를 가리키는지 — 이름이 안 맞으면 못 돌아온다
     std::string e;

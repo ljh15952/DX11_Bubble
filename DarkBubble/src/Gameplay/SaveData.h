@@ -6,7 +6,7 @@
 //    Hollow Knight 의 벤치와 같다. 껐다 켜면 **마지막으로 쉰 자리**에서 시작한다.
 //    그래서 여기 들어가는 것은 「죽어도 남는 것」뿐이다(design.md §3.6.1 의 「남는다」).
 //
-//      저장한다        : 손 · 가방 · 방어구 · 지문 · 쉰 화톳불 · 열린 상자 · 떨어진 물건
+//      저장한다        : 손 · 가방 · 방어구 · 지문 · 쉰 화톳불 · 플래그(열린 상자 · 만난 사람) · 떨어진 물건
 //      저장하지 않는다 : 위치 · HP · 부위 · 적 → **이미 있는 부활 코드가** 되돌린다
 //
 //    ★ 오른쪽 칸을 안 적으므로 이 파일은 적도 몸 상태도 모른다.
@@ -59,7 +59,9 @@ struct SaveData
     std::string restPoint;   // 그 맵의 화톳불 id. 비었다 = 아직 아무 데서도 안 쉬었다(맵의 start)
 
     // ---- 세상 ----
-    std::vector<std::string> openedChests;   // 「맵:id」 (PlayScene::ChestKey 와 같은 모양)
+    // ★ 세상의 기억(Flags.h). 10-b 에서 「열린 상자」가 여기로 합쳐졌다 —
+    //   상자도 `chest:맵:id` 플래그다. 이름을 바꿔 옛 사용처를 드러냈다(§9.1).
+    std::vector<std::string> flags;
     std::vector<SavedDrop>   drops;
 
     // 새 게임. ★ 시작 장비가 **여기 하나**에만 있다.
@@ -71,7 +73,11 @@ namespace SaveIO
 {
     // 판(version). ★ 형식이 바뀌면 올린다 — 모르는 판을 아는 척 읽으면
     //   칸이 엇갈린 채로 들어온다.
-    inline constexpr int kVersion = 1;
+    //     1 (9)    : openedChests = 「맵:id」 목록
+    //     2 (10-b) : flags = 세상의 기억. 열린 상자는 `chest:맵:id`
+    //   ★ **판 1 도 읽는다**(옮긴다). 판을 올릴 때마다 옛 저장을 버리면, 판 번호를
+    //     적어 둔 뜻이 없다 — 그건 「모르는 판이면 깨졌다」로 충분했다.
+    inline constexpr int kVersion = 2;
 
     // ★ `assets/` 옆이다(작업 디렉터리 = 리포지토리 루트). git 에서는 뺀다(.gitignore).
     inline constexpr const wchar_t* kPath = L"saves/save.json";

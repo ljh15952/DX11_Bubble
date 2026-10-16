@@ -22,6 +22,8 @@
 #include "Core/Scene.h"
 #include "Gameplay/Dialogue.h"
 
+#include <functional>
+
 class PlayerController;
 class PartsComponent;
 
@@ -31,8 +33,15 @@ public:
     // ★ 플레이어는 **보기만** 한다(const). 대화는 몸을 바꾸지 않는다 —
     //   「맞았는가 · 죽었는가」를 묻는 데만 쓴다.
     //   수명은 InventoryScene 과 같은 이유로 안전하다(PlayScene 위에 쌓인다).
-    DialogueScene(const PlayerController& player, const PartsComponent& parts, Dialogue dialogue)
-        : m_player(player), m_parts(parts), m_runner(std::move(dialogue)) {}
+    //
+    //   ★ onComplete = **끝까지 들었을 때** 한 번 불린다(10-b). Esc 로 닫거나 맞아서
+    //     끊기면 안 불린다 — 그러면 NPC 는 다음에 **같은 말을 다시** 한다.
+    //   ★★ 이 Scene 은 플래그를 **모른다.** 「끝까지 들었다」만 알리고, 무엇을
+    //     기억할지는 부른 쪽(PlayScene)이 정한다 — 사망 화면이 부활을 모르는 것과 같다.
+    DialogueScene(const PlayerController& player, const PartsComponent& parts, Dialogue dialogue,
+                  std::function<void()> onComplete = {})
+        : m_player(player), m_parts(parts), m_runner(std::move(dialogue))
+        , m_onComplete(std::move(onComplete)) {}
 
     const char* Name() const override { return "Dialogue"; }
 
@@ -56,6 +65,7 @@ private:
     const PlayerController& m_player;
     const PartsComponent&   m_parts;
     DialogueRunner          m_runner;
+    std::function<void()>   m_onComplete;
 
     int  m_hpAtStart = 0;
     int  m_blinkTick = 0;
