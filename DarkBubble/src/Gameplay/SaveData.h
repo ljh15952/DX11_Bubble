@@ -6,7 +6,8 @@
 //    Hollow Knight 의 벤치와 같다. 껐다 켜면 **마지막으로 쉰 자리**에서 시작한다.
 //    그래서 여기 들어가는 것은 「죽어도 남는 것」뿐이다(design.md §3.6.1 의 「남는다」).
 //
-//      저장한다        : 손 · 가방 · 방어구 · 지문 · 쉰 화톳불 · 플래그(열린 상자 · 만난 사람) · 떨어진 물건
+//      저장한다        : 손 · 가방 · 방어구 · 지문 · 동전 · 쉰 화톳불 · 플래그(열린 상자 · 만난 사람)
+//                        · 떨어진 물건 · 죽은 자리에 떨군 동전
 //      저장하지 않는다 : 위치 · HP · 부위 · 적 → **이미 있는 부활 코드가** 되돌린다
 //
 //    ★ 오른쪽 칸을 안 적으므로 이 파일은 적도 몸 상태도 모른다.
@@ -25,6 +26,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -40,6 +42,15 @@ struct SavedDrop
     float       y = 0.0f;
 };
 
+// 죽은 자리에 떨군 동전 (10-c-1) — 다크소울의 혈흔.
+struct CoinStain
+{
+    std::string map;
+    float       x     = 0.0f;
+    float       y     = 0.0f;   // 발끝
+    int         coins = 0;
+};
+
 struct SaveData
 {
     // ---- 몸에 지닌 것 ----
@@ -51,6 +62,9 @@ struct SaveData
     std::vector<std::string>   bag;     // ★ **칸 그대로.** 고정 칸이라 위치도 정보다
     std::vector<std::string>   armor;   // 자리는 물건이 안다(armorSlot). 순서는 보기용
     std::vector<std::string>   rings;
+
+    // ★ 가진 동전(10-c-1). **몸에 지닌 것**이라 손 · 가방과 같은 무리다.
+    int coins = 0;
 
     // ---- 쉰 자리 ----
     //   ★★ 좌표가 아니라 **id** 다. 맵을 고치면 적어 둔 좌표가 낡아 허공이나
@@ -64,6 +78,10 @@ struct SaveData
     std::vector<std::string> flags;
     std::vector<SavedDrop>   drops;
 
+    // ★★ 죽은 자리에 떨군 동전(10-c-1). **하나뿐이다** — 되찾기 전에 또 죽으면
+    //   옛것은 사라지고 새것이 생긴다. 없으면 비어 있다(optional).
+    std::optional<CoinStain> stain;
+
     // 새 게임. ★ 시작 장비가 **여기 하나**에만 있다.
     static SaveData NewGame();
 };
@@ -75,9 +93,10 @@ namespace SaveIO
     //   칸이 엇갈린 채로 들어온다.
     //     1 (9)    : openedChests = 「맵:id」 목록
     //     2 (10-b) : flags = 세상의 기억. 열린 상자는 `chest:맵:id`
+    //     3 (10-c-1): coins · stain(죽은 자리에 떨군 동전). 판 1 · 2 에는 없다 → 0 · 없음
     //   ★ **판 1 도 읽는다**(옮긴다). 판을 올릴 때마다 옛 저장을 버리면, 판 번호를
     //     적어 둔 뜻이 없다 — 그건 「모르는 판이면 깨졌다」로 충분했다.
-    inline constexpr int kVersion = 2;
+    inline constexpr int kVersion = 3;
 
     // ★ `assets/` 옆이다(작업 디렉터리 = 리포지토리 루트). git 에서는 뺀다(.gitignore).
     inline constexpr const wchar_t* kPath = L"saves/save.json";

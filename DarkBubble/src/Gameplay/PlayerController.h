@@ -15,6 +15,7 @@
 
 #include <array>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Core/AABB.h"
@@ -293,6 +294,18 @@ public:
     //     찍히면, 그 물건이 저장에서 사라진다.
     const std::vector<std::string>& PendingDrops() const { return m_dropRequests; }
 
+    // ---- ★ 동전 (10-c-1) ----
+    //   **몸에 지닌 것**이라 여기 있다(가방과 같다). 얻는 곳(적 격파 · 되찾기)과
+    //   잃는 곳(죽음)은 Scene 이 정한다 — 컨트롤러는 세상을 모른다.
+    int  Coins() const { return m_coins; }
+    void AddCoins(int n)
+    {
+        m_coins += n;
+        if (m_coins < 0) m_coins = 0;   // ★ 빚은 없다
+    }
+    // 전부 내놓는다(죽을 때). 내놓은 수를 돌려준다.
+    int  TakeAllCoins() { return std::exchange(m_coins, 0); }
+
     // ========================================================================
     //  ★★ 방어구 네 부위 (8-f, design.md §3.10.4)
     // ========================================================================
@@ -548,6 +561,10 @@ private:
     // 가방. 빈 문자열 = 빈 칸. ★ 손 슬롯과 **같은 표현**이다 —
     //   「이름 하나가 곧 물건」이 손·가방·땅에서 똑같다.
     std::array<std::string, kBagSize> m_bag;
+
+    // ★ 가진 동전(10-c-1). 손 · 가방과 같은 「몸에 지닌 것」이라 저장(Store/RestoreLoadout)에
+    //   같이 실린다. 부활이 **안 건드린다** — 죽을 때 Scene 이 먼저 가져가 떨군다.
+    int m_coins = 0;
 
     // Start 에서 캐시한다. 널이 될 수 없다(Require).
     BodyComponent*    m_body    = nullptr;

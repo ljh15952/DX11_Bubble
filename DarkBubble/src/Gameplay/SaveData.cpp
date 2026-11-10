@@ -78,7 +78,7 @@ namespace
         // ★ 판부터 본다. 객체가 아니면 version 이 Null 이라 0 이 되어 여기서 걸린다.
         //   판 1 은 **옮겨서** 읽는다(아래 「세상의 기억」).
         const int version = root["version"].Int(0);
-        if (version != 1 && version != SaveIO::kVersion)
+        if (version < 1 || version > SaveIO::kVersion)
             return Fail(error, std::format("모르는 판 {} (이 게임은 1~{})", version, SaveIO::kVersion));
 
         // ★★ **빈 저장에서** 출발한다 — NewGame 이 아니다(FromText 주석).
@@ -91,6 +91,10 @@ namespace
         s.bag   = ReadNames(root["bag"]);
         s.armor = ReadNames(root["armor"]);
         s.rings = ReadNames(root["rings"]);
+
+        // ★ 판 1 · 2 에는 없다 → 0. 음수는 없다 — 파일을 믿지 않는다.
+        const int coins = root["coins"].Int(0);
+        s.coins = (coins > 0) ? coins : 0;
 
         const JsonValue& rest = root["rest"];
         s.restMap   = rest["map"]  .Str();
@@ -137,6 +141,18 @@ namespace
                 continue;
             s.drops.push_back(std::move(sd));
         }
+
+        // ---- 죽은 자리에 떨군 동전 (판 3) ----
+        //   ★ 맵이 없거나 0개면 「없다」 — `"stain": null` 도 여기로 온다(Null 은 무엇을
+        //     물어도 기본값이다).
+        const JsonValue& st = root["stain"];
+        CoinStain stain;
+        stain.map   = st["map"]  .Str();
+        stain.x     = st["x"]    .Flt();
+        stain.y     = st["y"]    .Flt();
+        stain.coins = st["coins"].Int(0);
+        if (!stain.map.empty() && stain.coins > 0)
+            s.stain = std::move(stain);
 
         out = std::move(s);
         return true;
@@ -192,11 +208,22 @@ std::string SaveIO::ToText(const SaveData& s)
     t += Key("bag")   + List(s.bag)   + ",\n";
     t += Key("armor") + List(s.armor) + ",\n";
     t += Key("rings") + List(s.rings) + ",\n";
+    t += Key("coins") + std::to_string(s.coins) + ",\n";
 
     t += Key("rest") + "{ " + Quote("map")   + ": " + Quote(s.restMap)   + ", "
                             + Quote("point") + ": " + Quote(s.restPoint) + " },\n";
 
     t += Key("flags") + List(s.flags) + ",\n";
+
+    // ★ 없으면 `null` 이라고 **적는다.** 칸을 빼면 파일만 보고는 「없다」인지
+    //   「이 판에는 그 칸이 없다」인지 모른다.
+    if (s.stain)
+        t += Key("stain") + "{ " + Quote("map") + ": " + Quote(s.stain->map)
+           + std::format(", {}: {:.1f}, {}: {:.1f}, {}: {} }},\n",
+                         Quote("x"), s.stain->x, Quote("y"), s.stain->y,
+                         Quote("coins"), s.stain->coins);
+    else
+        t += Key("stain") + "null,\n";
 
     t += Key("drops") + "[";
     for (size_t i = 0; i < s.drops.size(); ++i)

@@ -1254,6 +1254,7 @@ void PlayerController::StoreLoadout(SaveData& out) const
     out.bag  .assign(m_bag.begin(),   m_bag.end());
     out.armor.assign(m_armor.begin(), m_armor.end());
     out.rings.assign(m_rings.begin(), m_rings.end());
+    out.coins = m_coins;
 }
 
 
@@ -1264,6 +1265,7 @@ void PlayerController::RestoreLoadout(const SaveData& in)
     m_bag  .fill({});
     m_armor.fill({});
     m_rings.fill({});
+    m_coins = (in.coins > 0) ? in.coins : 0;   // ★ 음수 동전은 없다 — 파일을 믿지 않는다
 
     // 카탈로그에 있는 물건인가. ★ 없으면 버린다 — items.json 에서 이름이 바뀌었거나
     //   지워졌다. 이름만 남은 물건을 들면 Weapon() 이 엉뚱한 것(첫 물건)을 돌려준다.

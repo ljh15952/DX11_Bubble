@@ -104,6 +104,11 @@ namespace
     //   다가가는 동안 이미 쳐다보고 있어야 「나를 알아챘다」로 읽힌다.
     constexpr float kNpcLookRange   = 96.0f;
 
+    // ---- 동전 (10-c-1) ----
+    constexpr int   kCoinPopupTicks = 90;     // 「+10」 이 떠 있는 시간 (1.5초)
+    constexpr float kStainHalfW     = 16.0f;  // 되찾을 수 있는 자리 — 떨어진 물건의 줍는 범위와 같다
+    constexpr float kStainH         = 20.0f;
+
     // ※ **적의** 부위·강인도·공격 숫자는 EnemyType 으로 옮겨 갔다(7-b).
     //   왜 그 값인지도 같이 갔다 — Gameplay/EnemyType.cpp 참조.
 
@@ -229,6 +234,17 @@ void PlayScene::UpdateFocus()
     //     물건을 놓을 때 또 터진다 — 질문을 고쳤다.
     const AABB body = m_playerBody->Box();
 
+    // ---- ⓪ 죽은 자리의 동전 (10-c-1) — **무엇보다 먼저** ----
+    //   되찾는 것은 되돌릴 일이 없고, 그 자리까지 목숨을 걸고 온 것이다.
+    //   다른 것(물건 · 화톳불)에 가려 「E : RECOVER」가 안 뜨면 또 죽는다.
+    if (m_stain && m_stain->map == m_mapName && Intersects(body, StainArea()))
+    {
+        m_focus.kind   = FocusKind::Stain;
+        m_focus.box    = StainArea();
+        m_focus.prompt = "E : RECOVER";
+        return;
+    }
+
     // ---- ★ 우선순위가 셋이다 ----
     //     ① 주울 수 있는 물건
     //     ② 맵의 것 (포탈 · 화톳불)
@@ -302,6 +318,17 @@ void PlayScene::UpdateFocus()
 // ----------------------------------------------------------------------------
 void PlayScene::Interact(SceneContext& ctx)
 {
+    // ---- 죽은 자리의 동전을 되찾는다 (10-c-1) ----
+    if (m_focus.kind == FocusKind::Stain && m_stain)
+    {
+        Log::Info("[coin] 되찾았다 — {}개", m_stain->coins);
+        m_player->AddCoins(m_stain->coins);
+        m_stain.reset();
+        m_focus = {};
+        ctx.audio.Play("ui_confirm", 0.9f, 0.4f);
+        return;
+    }
+
     // ---- 무기를 줍는다 ----
     if (m_focus.kind == FocusKind::Weapon)
     {
@@ -646,7 +673,8 @@ bool PlayScene::Enter(SceneContext& ctx)
     m_icons      = ctx.assets.Texture(L"assets/textures/icons.png");
     m_chestSheet = ctx.assets.Texture(L"assets/textures/chest.png");
     m_npcSheet   = ctx.assets.Texture(L"assets/textures/npc.png");
-    if (!m_lightMask || !m_icons || !m_chestSheet || !m_npcSheet)
+    m_coinSheet  = ctx.assets.Texture(L"assets/textures/coin.png");
+    if (!m_lightMask || !m_icons || !m_chestSheet || !m_npcSheet || !m_coinSheet)
         return false;
 
     // ★ 상속 계층을 짜지 않는다. 필요한 능력을 붙일 뿐이다.
@@ -719,6 +747,9 @@ bool PlayScene::Enter(SceneContext& ctx)
     //     두는 것보다 싸다 — 그 길이 바로 「두 벌로 만들면 어긋난다」다.
     Respawn(ctx);
 
+    // ★ 불러온 동전은 「방금 바뀐 것」이 아니다 — 안 맞춰 두면 시작하자마자 「+120」이 뜬다.
+    m_coinsShown = m_player->Coins();
+
     // Start 는 **전부 붙은 뒤**에 부른다 — 컴포넌트들이 서로를 찾는 시점이다.
 
     Log::Info("[play] Arrows/WASD/Stick = move   Space = JUMP   Shift = roll");
@@ -731,6 +762,7 @@ bool PlayScene::Enter(SceneContext& ctx)
     Log::Info("[play] Tab = 장비 화면 (가방 6칸). ★ 게임은 **안 멈춘다** — 적이 온다");
     Log::Info("[play] 지문: NOVICE = 적의 ! 가 보인다  FIREFLY = 어둠 속(동굴)이 보인다  — 빼 보면 안다");
     Log::Info("[play] 물건은 **상자**에 있다 (E : OPEN). 시작 옆 상자에 횃불");
+    Log::Info("[play] 동전: 적을 쓰러뜨리면 들어온다(오른쪽 아래). 죽으면 그 자리에 떨군다 — 가서 E : RECOVER. 그 전에 또 죽으면 사라진다");
     Log::Info("[play] 저장: 바뀐 것이 있으면 1초 안에 saves/save.json 에 — 껐다 켜면 **마지막 화톳불**에서 일어난다");
     Log::Info("[play]      대검은 **양손**이라 두 칸을 차지한다 (좌/우클릭이 같은 것)");
     Log::Info("[play] 방패: 그 손의 버튼을 **누르고 있으면** 막는다. 앉으면 띠가 내려간다");
@@ -816,6 +848,7 @@ void PlayScene::ApplySave(SceneContext& ctx, const SaveData& s)
     m_restPoint = s.restPoint;
 
     m_flags = { s.flags.begin(), s.flags.end() };
+    m_stain = s.stain;
 
     // 떨어진 물건 — 각자 **자기 맵**에. 지금 맵이 아닌 것은 그 맵에 들어갈 때까지
     //   안 굴린다(Update 의 「이 맵의 것만」) — 들어가는 순간 그 지형에 떨어진다.
@@ -848,6 +881,7 @@ SaveData PlayScene::Snapshot() const
     s.restMap   = m_restMap;
     s.restPoint = m_restPoint;
     s.flags.assign(m_flags.begin(), m_flags.end());
+    s.stain = m_stain;
 
     for (const Drop& d : m_drops)
         s.drops.push_back({ d.map, d.pickup->WeaponId(),
@@ -967,6 +1001,14 @@ void PlayScene::TryPlayerHit(SceneContext& ctx)
     {
         target->brain->Kill(ctx);
         Log::Info("[play] ★★ 적 격파 ({} 파괴)", target->parts->Name(part));
+
+        // ★ 동전(10-c-1) — **바로** 들어온다. 떨어진 동전을 줍게 하면 싸움이 끊긴다.
+        //   양은 적 종류가 안다(enemies.json 의 coins).
+        if (auto t = m_enemyTypes.find(target->type); t != m_enemyTypes.end() && t->second.coins > 0)
+        {
+            m_player->AddCoins(t->second.coins);
+            Log::Info("[coin] +{}  (가진 동전 {})", t->second.coins, m_player->Coins());
+        }
     }
 }
 
@@ -1116,7 +1158,7 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
 
     m_playerObj.Tick(ctx, consumeEdgeInput);
     UpdateWeaponDrop(ctx);
-    ++m_npcTicks;
+    ++m_animTicks;
 
     // ★ 떨어진 무기도 **굴린다**(중력·발판 착지).
     //   ★★ 떨구기 **뒤**다. 그래야 이번 틱에 떨어진 것이 같은 틱부터 낙하한다.
@@ -1167,6 +1209,9 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
     //     층이 뒤엉킨다. 컨트롤러는 「띄울 때가 됐다」까지만 말한다.
     if (m_player->ConsumeDeathScreenRequest())
     {
+        // ★ 사망 화면을 띄우는 **이 순간**에 떨군다 — 쓰러지는 몸이 땅에 닿은 뒤라
+        //   동전이 공중에 뜨지 않는다(죽는 순간에 떨구면 넉백 중일 수 있다).
+        DropCoinsOnDeath();
         m_deathScreenShown = true;   // ★ Resume 이 이것을 본다
         ctx.scenes.Push(std::make_unique<DeathScene>());
     }
@@ -1195,6 +1240,10 @@ void PlayScene::Update(SceneContext& ctx, bool consumeEdgeInput)
         ctx.audio.Play("ui_cancel");
         ctx.scenes.Push(std::make_unique<PauseScene>());
     }
+
+    // ★ 틱의 **맨 끝**에서 비교한다 — 이번 틱에 바뀐 것(격파 · 되찾기 · 죽음)이 다 끝났다.
+    //   죽은 틱에 「-120」이 뜨고, 사망 화면 동안은 틱이 안 돌아 그대로 떠 있다.
+    UpdateCoinPopup();
 }
 
 
@@ -1272,7 +1321,7 @@ void PlayScene::DrawNpcs(Renderer& renderer)
         return;
 
     constexpr float kCell = static_cast<float>(kCellW);
-    const int frame = (m_npcTicks / kNpcTicksPerFrame) % kNpcFrames;
+    const int frame = (m_animTicks / kNpcTicksPerFrame) % kNpcFrames;
     const float playerX = m_playerObj.transform.x;
 
     for (const MapInteract& it : m_map.interacts)
@@ -1301,6 +1350,113 @@ void PlayScene::DrawNpcs(Renderer& renderer)
             DirectX::XMFLOAT2(1.0f, 1.0f),
             (facing < 0) ? DirectX::SpriteEffects_FlipHorizontally
                          : DirectX::SpriteEffects_None);
+    }
+}
+
+
+// ============================================================================
+//  ★★ 동전 (10-c-1)
+// ============================================================================
+AABB PlayScene::StainArea() const
+{
+    return { m_stain->x - kStainHalfW, m_stain->y - kStainH,
+             m_stain->x + kStainHalfW, m_stain->y };
+}
+
+
+void PlayScene::DropCoinsOnDeath()
+{
+    // ★★ 되찾지 못한 옛 동전은 **사라진다** — 두 번째 죽음의 값이다.
+    //   동전이 0개여도 옛것은 사라진다. 「되찾으러 가다 죽었다」가 이미 일어났으니까.
+    if (m_stain)
+        Log::Info("[coin] 되찾지 못한 동전 {}개가 사라졌다 ({})", m_stain->coins, m_stain->map);
+    m_stain.reset();
+
+    const int coins = m_player->TakeAllCoins();
+    if (coins <= 0)
+        return;
+
+    const Transform& tr = m_playerObj.transform;
+    m_stain = CoinStain{ m_mapName, tr.x, tr.y, coins };
+    Log::Info("[coin] 죽은 자리에 동전 {}개를 떨궜다 ({} {:.0f},{:.0f}) — 되찾기 전에 또 죽으면 사라진다",
+              coins, m_mapName, tr.x, tr.y);
+}
+
+
+void PlayScene::UpdateCoinPopup()
+{
+    const int coins = m_player->Coins();
+    if (coins == m_coinsShown)
+    {
+        if (m_coinPopupTicks > 0)
+            --m_coinPopupTicks;
+        return;
+    }
+
+    const int delta = coins - m_coinsShown;
+    m_coinsShown = coins;
+
+    // ★ 떠 있는 동안 **같은 쪽으로** 또 바뀌면 더한다 — 둘을 연달아 잡으면 「+20」.
+    //   반대쪽이면 새로 띄운다(「+10」 다음 「-120」을 더해 「-110」으로 보이면 거짓말이다).
+    const bool sameWay = (m_coinPopupTicks > 0) && ((delta > 0) == (m_coinPopup > 0));
+    m_coinPopup      = sameWay ? m_coinPopup + delta : delta;
+    m_coinPopupTicks = kCoinPopupTicks;
+}
+
+
+void PlayScene::DrawStain(Renderer& renderer)
+{
+    if (!m_stain || m_stain->map != m_mapName || !m_coinSheet)
+        return;
+
+    const float x = std::round(m_stain->x);
+    const float y = std::round(m_stain->y);
+
+    // ★ 빛기둥 — 숨쉬듯 밝아졌다 흐려진다. 멀리서도 「저기다」가 보여야 한다.
+    const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(m_animTicks) * 0.08f);
+    renderer.DrawFilledRect({ x - 3.0f, y - 30.0f, x + 3.0f, y - 2.0f },
+                            DirectX::XMVectorSet(1.0f, 0.82f, 0.35f, 0.10f + 0.12f * pulse));
+    renderer.DrawFilledRect({ x - 1.0f, y - 38.0f, x + 1.0f, y - 2.0f },
+                            DirectX::XMVectorSet(1.0f, 0.90f, 0.55f, 0.18f + 0.20f * pulse));
+
+    // 동전 더미(1번 칸). ★ 맨 아랫줄이 발끝에 닿는다(gen_coin.ps1).
+    const RECT src{ 16, 0, 32, 16 };
+    renderer.Sprites().Draw(m_coinSheet.Get(), DirectX::XMFLOAT2(x - 8.0f, y - 16.0f),
+                            &src, DirectX::Colors::White);
+}
+
+
+void PlayScene::DrawCoins(Renderer& renderer)
+{
+    // ★ 오른쪽 아래 — 왼쪽 아래는 몸 · 스태미나 · 손 슬롯이 이미 차지했다.
+    //   높이는 스태미나 글자(「STAM」)와 같은 줄이다.
+    const float right = static_cast<float>(Config::kCanvasWidth) - 12.0f;
+    const float y     = static_cast<float>(Config::kCanvasHeight) - 26.0f;
+
+    const std::string n = std::to_string(m_player->Coins());
+    const float       w = renderer.MeasureString(n);
+    renderer.DrawString(n, right - w, y, DirectX::Colors::Gainsboro, 1);
+
+    if (m_coinSheet)
+    {
+        const RECT src{ 0, 0, 16, 16 };   // 0번 칸 = 동전 하나
+        renderer.Sprites().Draw(m_coinSheet.Get(), DirectX::XMFLOAT2(right - w - 18.0f, y - 2.0f),
+                                &src, DirectX::Colors::White);
+    }
+
+    // ---- 바뀐 만큼 — 잠깐 떠올랐다가 흐려진다 ----
+    //   ★ 숫자만 바뀌면 싸우는 중에는 눈치채지 못한다. 「얼마나」가 따로 보여야 한다.
+    if (m_coinPopupTicks > 0 && m_coinPopup != 0)
+    {
+        const float t     = static_cast<float>(m_coinPopupTicks) / static_cast<float>(kCoinPopupTicks);
+        const float rise  = std::round((1.0f - t) * 6.0f);
+        const float alpha = std::min(1.0f, t * 3.0f);   // 마지막 1/3 동안 흐려진다
+
+        const std::string d = (m_coinPopup > 0 ? "+" : "") + std::to_string(m_coinPopup);
+        const DirectX::XMVECTOR c = (m_coinPopup > 0)
+            ? DirectX::XMVectorSet(1.0f, 0.84f, 0.0f, alpha)     // 얻었다 = 금
+            : DirectX::XMVectorSet(0.86f, 0.08f, 0.24f, alpha);  // 잃었다 = 붉음
+        renderer.DrawString(d, right - renderer.MeasureString(d), y - 16.0f - rise, c, 1);
     }
 }
 
@@ -1554,6 +1710,9 @@ void PlayScene::Render(Renderer& renderer)
     //   「보여야 하는 것」과 「가려야 하는 것」이 층으로 갈린다.
     DrawDarkness(renderer);
 
+    // ★ 떨군 동전은 어둠 **위**다 — 동굴에서 죽어도 빛기둥이 보여야 되찾으러 간다.
+    DrawStain(renderer);
+
     // ★ 상호작용할 것은 **항상 보인다.** 안 보이면 「여기가 무엇인지」를
     //   알 수가 없다 — 나중에 문·화톳불 그림이 오면 이 자리를 대신한다.
     //   포탈은 푸르게, 세이브 포인트는 따뜻하게 — **색이 종류를 말한다.**
@@ -1608,6 +1767,7 @@ void PlayScene::RenderUI(Renderer& renderer)
     // 각 컴포넌트가 자기 표시를 그린다. Scene 은 순서만 정한다.
     m_playerObj.RenderUI(renderer);
     DrawHandSlots(renderer);
+    DrawCoins(renderer);
     // ★ 상태 줄은 **가장 가까운 적** 하나만 그린다.
     //   전부 그리면 화면이 덮이고, 안 그리면 확인할 수가 없다.
     //   ※ 부위 HP 목록도 그 안에서 같이 그려진다.

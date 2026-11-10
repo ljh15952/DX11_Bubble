@@ -24,6 +24,7 @@ int main()
     const JsonValue& g = (*root)["enemies"]["grunt"];
     Check(!g.IsNull(),                                   "grunt 항목이 있다");
     Check(g["poise"].Int(-1) == 15,                      "poise == 15");
+    Check(g["coins"].Int(-1) == 10,                      "coins == 10 (쓰러뜨리면 주는 동전, 10-c-1)");
     Check(g["parts"]["maxHp"]["torso"].Int(-1) == 100,   "3단 중첩: torso == 100");
     Check(g["parts"]["maxHp"]["lArm"].Int(-1) == 0,      "lArm == 0 (팔이 없다)");
     Check(g["parts"]["proneWhenLegsBroken"].Bool(false), "proneWhenLegsBroken == true");

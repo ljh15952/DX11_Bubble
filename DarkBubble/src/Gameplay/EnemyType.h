@@ -31,6 +31,11 @@ struct EnemyType
     PartsProfile parts{};
     int          poise = 15;
 
+    // ---- 보상 (10-c-1) ----
+    //   쓰러뜨리면 **바로** 들어오는 동전. 쉬면 적이 되살아나니 다시 벌 수 있다 —
+    //   그 대신 죽으면 가진 동전을 떨군다(PlayScene::DropCoinsOnDeath).
+    int          coins = 10;
+
     // ---- 공격 ----
     //   ★ 플레이어와 **같은 스키마**다(AttackData). 6-g 에서 정한 그대로,
     //     items.json 과 enemies.json 이 같은 모양의 블록을 쓴다.

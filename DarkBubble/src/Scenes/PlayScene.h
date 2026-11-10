@@ -30,6 +30,7 @@
 #include "Gameplay/SaveData.h"
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -128,7 +129,7 @@ private:
     //     줍는다. 그래서 초점은 `MapInteract*` 가 아니라 **「상자 + 글자 +
     //     종류」**다 — 그려 주는 쪽은 그것이 문인지 무기인지 알 필요가 없다.
     struct Drop;   // 아래에 있다. 여기서는 가리키기만 한다
-    enum class FocusKind { None, Weapon, Map };
+    enum class FocusKind { None, Weapon, Map, Stain };   // Stain = 죽은 자리의 동전(10-c-1)
 
     struct Focus
     {
@@ -165,6 +166,28 @@ private:
     void SetFlag(const std::string& flag);
     bool IsOpened(const MapInteract& chest) const;
 
+    // ---- ★★ 동전 (10-c-1, design.md §3.6.3) ----
+    //   얻기: 적을 쓰러뜨리면 **바로** 들어온다(enemies.json 의 coins).
+    //   잃기: 죽으면 가진 것을 **그 자리에 떨군다**(다크소울의 혈흔). 가서 E 로 되찾는다.
+    //         되찾기 전에 또 죽으면 옛것은 **사라진다** — 하나뿐이다(optional).
+    //   ★ 쉬면 적이 되살아나니 다시 벌 수 있다 — 그래서 죽음에 값을 붙였다.
+    //     이 장치가 없으면 동전을 아무리 들고 다녀도 위험이 없다.
+    std::optional<CoinStain> m_stain;
+    AABB StainArea() const;                 // 되찾을 수 있는 자리 (m_stain 이 있을 때만)
+    void DropCoinsOnDeath();
+    void DrawStain(Renderer& renderer);     // ★ 어둠 **위** — 동굴에서 죽어도 빛이 보여야 되찾으러 간다
+    void DrawCoins(Renderer& renderer);     // HUD 오른쪽 아래
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_coinSheet;   // coin.png — 0 하나 · 1 더미
+
+    // ★ 바뀐 만큼 잠깐 띄운다(「+10」 / 「-120」). **무엇이** 바꿨는지 안 묻고 지난
+    //   틱의 수와 비교한다 — 적 · 되찾기 · 죽음 · 나중의 상인 어디서 바뀌어도
+    //   이 한 곳이 잡는다(Autosave 가 글을 비교하는 것과 같은 발상).
+    void UpdateCoinPopup();
+    int  m_coinsShown     = 0;
+    int  m_coinPopup      = 0;
+    int  m_coinPopupTicks = 0;
+
     // ---- ★ NPC · 대화 (10-a) ----
     //   대사표는 **Scene 이 하나** 들고 있다(적 카탈로그와 같다). F6 으로 다시 읽는다.
     //   ★ NPC 는 아직 GameObject 가 아니다 — 움직이지도 맞지도 않으므로 맵의
@@ -175,7 +198,7 @@ private:
     // ★ NPC 카탈로그(10-b) — **언제 무슨 말을** 하는가 · 생김새. 맵은 이름만 든다.
     NpcCatalog      m_npcTypes;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_npcSheet;   // npc.png — 줄마다 한 사람
-    int  m_npcTicks = 0;   // NPC 의 숨쉬기(idle) 애니메이션 시계
+    int  m_animTicks = 0;  // 장식 시계 — NPC 의 숨쉬기 · 떨군 동전의 빛. 게임 상태가 아니다
 
     // 대화 중인가. ★ 대화 상자가 떠 있는 동안 머리 위의 「E : TALK」를 감춘다 —
     //   그때 E 는 「말 걸기」가 아니라 「다음」이다. 안내가 거짓말이 되면 안 된다.

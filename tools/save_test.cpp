@@ -40,11 +40,19 @@ static bool SameDrops(const std::vector<SavedDrop>& a, const std::vector<SavedDr
     return true;
 }
 
+static bool SameStain(const std::optional<CoinStain>& a, const std::optional<CoinStain>& b)
+{
+    if (a.has_value() != b.has_value()) return false;
+    if (!a) return true;
+    return a->map == b->map && a->x == b->x && a->y == b->y && a->coins == b->coins;
+}
+
 static bool Same(const SaveData& a, const SaveData& b)
 {
     return a.hands == b.hands && a.bag == b.bag && a.armor == b.armor && a.rings == b.rings
         && a.restMap == b.restMap && a.restPoint == b.restPoint
-        && a.flags == b.flags && SameDrops(a.drops, b.drops);
+        && a.flags == b.flags && SameDrops(a.drops, b.drops)
+        && a.coins == b.coins && SameStain(a.stain, b.stain);
 }
 
 static std::string ReadAll(const std::wstring& path)
@@ -77,6 +85,7 @@ int main()
     Check(fresh.bag.empty(),                                    "가방은 빈 채로 (물건은 상자에)");
     Check(fresh.restPoint.empty(),                              "아직 아무 데서도 안 쉬었다 → 맵의 start");
     Check(fresh.flags.empty() && fresh.drops.empty(),           "플래그(열린 상자 · 만난 사람)도 바닥의 물건도 없다");
+    Check(fresh.coins == 0 && !fresh.stain,                     "동전 0 · 떨군 동전 없음");
 
     // ★★ 두 파일에 걸친 약속. 기본 저장이 items.json 에 없는 물건을 적고 있으면
     //   새 게임이 **맨몸으로** 시작한다(RestoreLoadout 이 버린다) — 저장 코드만 봐도,
@@ -138,6 +147,8 @@ int main()
         { "cave",  "buckler",  470.5f, 640.0f },
         { "field", "dagger",  1234.0f, 456.0f },
     };
+    full.coins = 120;
+    full.stain = CoinStain{ "cave", 470.5f, 600.0f, 75 };   // 죽은 자리에 떨군 동전(10-c-1)
 
     const std::string text = SaveIO::ToText(full);
     std::printf("%s", text.c_str());   // 보기용 — 파일이 이렇게 생겼다
@@ -173,7 +184,7 @@ int main()
     // ========================================================================
     std::printf("-- 거절 --\n");
     SaveData keep = full;
-    Check(!SaveIO::FromText(R"({ "version": 3 })", keep, &err), "모르는 판(3)은 거절한다");
+    Check(!SaveIO::FromText(R"({ "version": 4 })", keep, &err), "모르는 판(4)은 거절한다");
     std::printf("      (%s)\n", err.c_str());
     Check(!SaveIO::FromText(R"({ "bag": [] })", keep, &err),   "판이 없으면 거절한다");
     Check(!SaveIO::FromText("[1, 2, 3]", keep, &err),          "객체가 아니면 거절한다");
@@ -188,9 +199,25 @@ int main()
           && old.flags == std::vector<std::string>{ "chest:field:torch", "chest:cave:firefly" }
           && old.restMap == "cave" && old.restPoint == "deep",
           "★ 판 1 의 열린 상자가 chest 플래그로 옮겨진다 (모양이 틀린 것은 버린다)");
-    Check(SaveIO::ToText(old).find(R"("version": 2)") != std::string::npos
+    Check(SaveIO::ToText(old).find(R"("version": 3)") != std::string::npos
           && SaveIO::ToText(old).find("openedChests") == std::string::npos,
-          "옮긴 것을 다시 쓰면 판 2 다 (옛 칸은 안 남는다)");
+          "옮긴 것을 다시 쓰면 지금 판(3)이다 (옛 칸은 안 남는다)");
+
+    // ★ 판 2(10-b) — 동전 칸이 없다 → 0 · 떨군 동전 없음. 플래그는 그대로
+    SaveData v2;
+    Check(SaveIO::FromText(R"({ "version": 2, "flags": ["met:pilgrim"] })", v2, &err)
+          && v2.coins == 0 && !v2.stain && v2.flags == std::vector<std::string>{ "met:pilgrim" },
+          "★ 판 2 저장도 읽는다 (동전 0, 떨군 동전 없음)");
+
+    // 떨군 동전이 「없다」로 읽히는 모양들
+    SaveData noStain;
+    Check(SaveIO::FromText(R"({ "version": 3, "stain": null })", noStain, &err) && !noStain.stain,
+          "stain: null → 없다");
+    Check(SaveIO::FromText(R"({ "version": 3, "stain": { "map": "field", "x": 1, "y": 2, "coins": 0 } })",
+                           noStain, &err) && !noStain.stain,
+          "0개짜리 떨군 동전 → 없다");
+    Check(SaveIO::FromText(R"({ "version": 3, "coins": -50 })", noStain, &err) && noStain.coins == 0,
+          "음수 동전 → 0 (파일을 믿지 않는다)");
 
     // ★★ 없는 칸은 「없다」 — 시작 장비가 끼어들지 않는다(저장은 기록이다)
     SaveData bare;

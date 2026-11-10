@@ -13,6 +13,7 @@
         "proneWhenLegsBroken": true
       },
       "poise": 15,
+      "coins": 10,
       "attackCooldown": 40,
       "swing": {
         "startup": 24,

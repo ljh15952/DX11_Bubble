@@ -297,6 +297,13 @@ void InventoryScene::RenderUI(Renderer& renderer)
     renderer.DrawString("RINGS", ringX, top - 14.0f, DirectX::Colors::SlateGray, 1);
     renderer.DrawString(std::format("BAG {}", kBag), bagX, top - 14.0f, DirectX::Colors::SlateGray, 1);
 
+    // ★ 가진 동전(10-c-1) — 무엇을 버릴까 · 무엇을 가져갈까를 고르는 화면에서 같이 보인다.
+    {
+        const std::string coins = std::format("COIN {}", m_player.Coins());
+        renderer.DrawString(coins, left + totalW - renderer.MeasureString(coins), top - 14.0f,
+                            DirectX::Colors::Gold, 1);
+    }
+
     // ---- 칸 ----
     for (int i = 0; i < SlotCount(); ++i)
     {

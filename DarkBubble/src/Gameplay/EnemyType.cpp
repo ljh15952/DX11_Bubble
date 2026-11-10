@@ -112,6 +112,7 @@ namespace
     {
         ReadParts(v["parts"], t.parts);
         t.poise = v["poise"].Int(t.poise);
+        t.coins = v["coins"].Int(t.coins);
 
         ReadAttack(v["swing"], t.swing);
         ReadAttack(v["bite"],  t.bite);
